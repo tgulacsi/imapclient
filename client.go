@@ -20,8 +20,8 @@ package imapclient
 
 import (
 	"crypto/tls"
-	"strconv"
 	"io"
+	"strconv"
 	"strings"
 	"time"
 
@@ -64,7 +64,7 @@ func NewClient(host string, port int, username, password string) Client {
 	return &client{host: host, port: port, username: username, password: password}
 }
 
-func (c client) WriteTo(w io.Writer, msgID uint32) (int64,error) {
+func (c client) WriteTo(w io.Writer, msgID uint32) (int64, error) {
 	var length int64
 	set := &imap.SeqSet{}
 	set.AddNum(msgID)

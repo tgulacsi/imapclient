@@ -30,7 +30,16 @@ import (
 	"gopkg.in/inconshreveable/log15.v2"
 )
 
-var Log = log15.New("lib", "imapclient")
+var (
+	// Log uses DiscardHandler (produces no output) by default.
+	Log = log15.New("lib", "imapclient")
+
+	// Timeout is the client timeout - 30 seconds by default.
+	Timeout = 30 * time.Second
+
+	// TLSConfig is the client's config for DialTLS.
+	TLSConfig = tls.Config{InsecureSkipVerify: true}
+)
 
 func init() {
 	Log.SetHandler(log15.DiscardHandler())
@@ -42,13 +51,11 @@ type Client interface {
 	Connect() error
 	Close(commit bool) error
 	ListNew(mbox, pattern string) ([]uint32, error)
-	WriteTo(w io.Writer, msgID uint32) (int64, error)
+	ReadTo(w io.Writer, msgID uint32) (int64, error)
 	Mark(msgID uint32, seen bool) error
 	Delete(msgID uint32) error
 	Move(msgID uint32, mbox string) error
 }
-
-var TLSConfig = tls.Config{InsecureSkipVerify: true}
 
 type client struct {
 	host, username, password string
@@ -57,6 +64,7 @@ type client struct {
 	c                        *imap.Client
 }
 
+// NewClient returns a new (not connected) Client.
 func NewClient(host string, port int, username, password string) Client {
 	if port == 0 {
 		port = 143
@@ -64,24 +72,42 @@ func NewClient(host string, port int, username, password string) Client {
 	return &client{host: host, port: port, username: username, password: password}
 }
 
-func (c client) WriteTo(w io.Writer, msgID uint32) (int64, error) {
+func (c client) String() string {
+	return c.username + "@" + c.host + ":" + strconv.Itoa(c.port)
+}
+
+func (c client) ReadTo(w io.Writer, msgID uint32) (int64, error) {
 	var length int64
 	set := &imap.SeqSet{}
 	set.AddNum(msgID)
-	cmd, err := imap.Wait(c.c.UIDFetch(set, "BODY.PEEK[]"))
+	cmd, err := c.c.UIDFetch(set, "BODY.PEEK[]")
 	if err != nil {
 		return length, err
 	}
-	if _, err = cmd.Result(imap.OK); err != nil {
-		return length, err
-	}
-	for _, resp := range cmd.Data {
-		//Log.Debug("resp", "resp", resp, "messageinfo", resp.MessageInfo(), "attrs", resp.MessageInfo().Attrs)
-		n, err := w.Write(imap.AsBytes(resp.MessageInfo().Attrs["BODY[]"]))
-		if err != nil {
+
+	for cmd.InProgress() {
+		// wait for server response
+		if err = c.c.Recv(Timeout); err != nil {
+			if err == io.EOF {
+				break
+			}
 			return length, err
 		}
-		length += int64(n)
+		// Process data.
+		for _, resp := range cmd.Data {
+			//Log.Debug("resp", "resp", resp, "messageinfo", resp.MessageInfo(), "attrs", resp.MessageInfo().Attrs)
+			n, err := w.Write(imap.AsBytes(resp.MessageInfo().Attrs["BODY[]"]))
+			if err != nil {
+				return length, err
+			}
+			length += int64(n)
+		}
+		cmd.Data = nil
+	}
+
+	// Check command completion status.
+	if _, err = cmd.Result(imap.OK); err != nil {
+		return length, err
 	}
 	return length, nil
 }
@@ -141,7 +167,7 @@ func (c *client) Close(expunge bool) error {
 		return nil
 	}
 	c.c.Close(expunge)
-	_, err := imap.Wait(c.c.Logout(30 * time.Second))
+	_, err := imap.Wait(c.c.Logout(Timeout))
 	c.c = nil
 	return err
 }

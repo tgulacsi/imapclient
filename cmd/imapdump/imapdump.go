@@ -25,6 +25,7 @@ import (
 	"gopkg.in/inconshreveable/log15.v2"
 )
 
+// Log is the logger.
 var Log = log15.New()
 
 func main() {

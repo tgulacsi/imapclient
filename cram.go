@@ -28,6 +28,7 @@ type cramAuth struct {
 	username, password string
 }
 
+// CramAuth returns an imap.SASL usable for CRAM-MD5 authentication.
 func CramAuth(username, password string) imap.SASL {
 	return cramAuth{username: username, password: password}
 }

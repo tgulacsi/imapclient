@@ -53,7 +53,7 @@ func main() {
 	var body bytes.Buffer
 	for _, uid := range uids {
 		body.Reset()
-		n, err := c.WriteTo(&body, uid)
+		n, err := c.ReadTo(&body, uid)
 		if err != nil {
 			Log.Error("Read", "uid", uid, "error", err)
 			continue

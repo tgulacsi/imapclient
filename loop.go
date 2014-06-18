@@ -17,9 +17,12 @@ limitations under the License.
 package imapclient
 
 import (
-	"bytes"
-	"net/mail"
+	"crypto/sha1"
+	"io"
+	"strconv"
 	"time"
+
+	"github.com/tgulacsi/go/temp"
 )
 
 var (
@@ -35,6 +38,8 @@ var (
 //
 // If deliver did not returned error, the message is marked as Seen, and if outbox
 // is not empty, then moved to outbox.
+//
+// deliver is called with the message, where X-UID and X-SHA1 are set.
 func DeliveryLoop(c Client, inbox, pattern string, deliver DeliverFunc, outbox string) {
 	if inbox == "" {
 		inbox = "INBOX"
@@ -55,7 +60,7 @@ func DeliveryLoop(c Client, inbox, pattern string, deliver DeliverFunc, outbox s
 }
 
 // DeliverFunc is the type for message delivery.
-type DeliverFunc func(*mail.Message) error
+type DeliverFunc func(io.ReadSeeker, uint32, []byte) error
 
 func one(c Client, inbox, pattern string, deliver DeliverFunc, outbox string) (int, error) {
 	if err := c.Connect(); err != nil {
@@ -71,21 +76,16 @@ func one(c Client, inbox, pattern string, deliver DeliverFunc, outbox string) (i
 	}
 
 	var n int
-	var body bytes.Buffer
+	hsh := sha1.New()
 	for _, uid := range uids {
-		body.Reset()
-		if _, err = c.WriteTo(&body, uid); err != nil {
+		hsh.Reset()
+		body := temp.NewMemorySlurper(strconv.FormatUint(uint64(uid), 10))
+		if _, err = c.ReadTo(io.MultiWriter(body, hsh), uid); err != nil {
 			Log.Error("Read", "uid", uid, "error", err)
 			continue
 		}
 
-		msg, err := mail.ReadMessage(&body)
-		if err != nil {
-			Log.Error("ReadMessage", "error", err)
-			continue
-		}
-
-		if err = deliver(msg); err != nil {
+		if err = deliver(body, uid, hsh.Sum(nil)); err != nil {
 			Log.Error("deliver", "uid", uid, "error", err)
 			continue
 		}

@@ -74,7 +74,7 @@ func one(c Client, inbox, pattern string, deliver DeliverFunc, outbox string) (i
 	var body bytes.Buffer
 	for _, uid := range uids {
 		body.Reset()
-		if _, err = c.WriteTo(&body, uid); err != nil {
+		if _, err = c.ReadTo(&body, uid); err != nil {
 			Log.Error("Read", "uid", uid, "error", err)
 			continue
 		}

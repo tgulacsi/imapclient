@@ -17,10 +17,12 @@ limitations under the License.
 package imapclient
 
 import (
-	"bytes"
 	"crypto/sha1"
 	"io"
+	"strconv"
 	"time"
+
+	"github.com/tgulacsi/go/temp"
 )
 
 var (
@@ -36,6 +38,8 @@ var (
 //
 // If deliver did not returned error, the message is marked as Seen, and if outbox
 // is not empty, then moved to outbox.
+//
+// deliver is called with the message, where X-UID and X-SHA1 are set.
 func DeliveryLoop(c Client, inbox, pattern string, deliver DeliverFunc, outbox string, closeCh <-chan struct{}) {
 	if inbox == "" {
 		inbox = "INBOX"
@@ -82,17 +86,16 @@ func one(c Client, inbox, pattern string, deliver DeliverFunc, outbox string) (i
 	}
 
 	var n int
-	var body bytes.Buffer
 	hsh := sha1.New()
 	for _, uid := range uids {
-		body.Reset()
 		hsh.Reset()
-		if _, err = c.ReadTo(io.MultiWriter(&body, hsh), uid); err != nil {
+		body := temp.NewMemorySlurper(strconv.FormatUint(uint64(uid), 10))
+		if _, err = c.ReadTo(io.MultiWriter(body, hsh), uid); err != nil {
 			Log.Error("Read", "uid", uid, "error", err)
 			continue
 		}
 
-		if err = deliver(bytes.NewReader(body.Bytes()), uid, hsh.Sum(nil)); err != nil {
+		if err = deliver(body, uid, hsh.Sum(nil)); err != nil {
 			Log.Error("deliver", "uid", uid, "error", err)
 			continue
 		}

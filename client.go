@@ -55,6 +55,7 @@ type Client interface {
 	Mark(msgID uint32, seen bool) error
 	Delete(msgID uint32) error
 	Move(msgID uint32, mbox string) error
+	SetLogMask(mask imap.LogMask) imap.LogMask
 }
 
 type client struct {
@@ -74,6 +75,10 @@ func NewClient(host string, port int, username, password string) Client {
 
 func (c client) String() string {
 	return c.username + "@" + c.host + ":" + strconv.Itoa(c.port)
+}
+
+func (c client) SetLogMask(mask imap.LogMask) imap.LogMask {
+	return c.c.SetLogMask(imap.LogAll)
 }
 
 func (c client) ReadTo(w io.Writer, msgID uint32) (int64, error) {
@@ -204,7 +209,6 @@ func (c *client) Connect() error {
 		return err
 	}
 	c.c.SetLogger(loghlp.AsStdLog(Log, log15.LvlDebug))
-	c.c.SetLogMask(imap.LogAll)
 	// Print server greeting (first response in the unilateral server data queue)
 	Log.Debug("Server says", "hello", c.c.Data[0].Info)
 	c.c.Data = nil

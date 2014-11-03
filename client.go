@@ -58,29 +58,57 @@ type Client interface {
 	SetLogMask(mask imap.LogMask) imap.LogMask
 }
 
+const (
+	noTLS    = -1
+	maybeTLS = 0
+	forceTLS = 1
+)
+
 type client struct {
 	host, username, password string
-	port                     int
+	port, tls                int
 	noUTF8                   bool
 	c                        *imap.Client
 }
 
-// NewClient returns a new (not connected) Client.
+// NewClient returns a new (not connected) Client, using TLS iff port == 143.
 func NewClient(host string, port int, username, password string) Client {
 	if port == 0 {
 		port = 143
 	}
-	return &client{host: host, port: port, username: username, password: password}
+	if port == 143 {
+		return NewClientNoTLS(host, port, username, password)
+	}
+	return NewClientTLS(host, port, username, password)
 }
 
+// NewClientTLS returns a new (not connected) Client, using TLS.
+func NewClientTLS(host string, port int, username, password string) Client {
+	if port == 0 {
+		port = 143
+	}
+	return &client{host: host, port: port, username: username, password: password, tls: forceTLS}
+}
+
+// NewClientNoTLS returns a new (not connected) Client, without TLS.
+func NewClientNoTLS(host string, port int, username, password string) Client {
+	if port == 0 {
+		port = 143
+	}
+	return &client{host: host, port: port, username: username, password: password, tls: noTLS}
+}
+
+// String returns the connection parameters.
 func (c client) String() string {
 	return c.username + "@" + c.host + ":" + strconv.Itoa(c.port)
 }
 
+// SetLogMask allows setting the underlying imap.LogMask.
 func (c client) SetLogMask(mask imap.LogMask) imap.LogMask {
 	return c.c.SetLogMask(imap.LogAll)
 }
 
+// ReadTo reads the message identified by the given msgID, into the io.Writer.
 func (c client) ReadTo(w io.Writer, msgID uint32) (int64, error) {
 	var length int64
 	set := &imap.SeqSet{}
@@ -117,6 +145,7 @@ func (c client) ReadTo(w io.Writer, msgID uint32) (int64, error) {
 	return length, nil
 }
 
+// Move the msgID to the given mbox.
 func (c client) Move(msgID uint32, mbox string) error {
 	set := &imap.SeqSet{}
 	set.AddNum(msgID)
@@ -128,6 +157,7 @@ func (c client) Move(msgID uint32, mbox string) error {
 	return err
 }
 
+// ListNew lists the new (UNSEEN) messages from the given mbox, matching the pattern.
 func (c *client) ListNew(mbox, pattern string) ([]uint32, error) {
 	_, err := imap.Wait(c.c.Select(mbox, false))
 	if err != nil {
@@ -197,10 +227,11 @@ func (c *client) Delete(msgID uint32) error {
 	return err
 }
 
+// Connect to the server.
 func (c *client) Connect() error {
 	addr := c.host + ":" + strconv.Itoa(c.port)
 	var err error
-	if c.port == 143 {
+	if c.tls == noTLS || c.tls == maybeTLS && c.port == 143 {
 		c.c, err = imap.Dial(addr)
 	} else {
 		c.c, err = imap.DialTLS(addr, &TLSConfig)

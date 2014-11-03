@@ -40,12 +40,20 @@ var (
 // is not empty, then moved to outbox.
 //
 // deliver is called with the message, where X-UID and X-SHA1 are set.
-func DeliveryLoop(c Client, inbox, pattern string, deliver DeliverFunc, outbox string) {
+func DeliveryLoop(c Client, inbox, pattern string, deliver DeliverFunc, outbox string, closeCh <-chan struct{}) {
 	if inbox == "" {
 		inbox = "INBOX"
 	}
 	for {
 		n, err := one(c, inbox, pattern, deliver, outbox)
+		select {
+		case _, ok := <-closeCh:
+			if !ok { //channel is closed
+				return
+			}
+		default:
+		}
+
 		if err != nil {
 			time.Sleep(LongSleep)
 			continue
@@ -60,7 +68,9 @@ func DeliveryLoop(c Client, inbox, pattern string, deliver DeliverFunc, outbox s
 }
 
 // DeliverFunc is the type for message delivery.
-type DeliverFunc func(io.ReadSeeker, uint32, []byte) error
+//
+// r is the message data, uid is the IMAP server sent message UID, sha1 is the message's sha1 hash.
+type DeliverFunc func(r io.ReadSeeker, uid uint32, sha1 []byte) error
 
 func one(c Client, inbox, pattern string, deliver DeliverFunc, outbox string) (int, error) {
 	if err := c.Connect(); err != nil {

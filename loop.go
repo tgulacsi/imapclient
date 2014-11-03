@@ -18,7 +18,8 @@ package imapclient
 
 import (
 	"bytes"
-	"net/mail"
+	"crypto/sha1"
+	"io"
 	"time"
 )
 
@@ -35,12 +36,20 @@ var (
 //
 // If deliver did not returned error, the message is marked as Seen, and if outbox
 // is not empty, then moved to outbox.
-func DeliveryLoop(c Client, inbox, pattern string, deliver DeliverFunc, outbox string) {
+func DeliveryLoop(c Client, inbox, pattern string, deliver DeliverFunc, outbox string, closeCh <-chan struct{}) {
 	if inbox == "" {
 		inbox = "INBOX"
 	}
 	for {
 		n, err := one(c, inbox, pattern, deliver, outbox)
+		select {
+		case _, ok := <-closeCh:
+			if !ok { //channel is closed
+				return
+			}
+		default:
+		}
+
 		if err != nil {
 			time.Sleep(LongSleep)
 			continue
@@ -55,7 +64,9 @@ func DeliveryLoop(c Client, inbox, pattern string, deliver DeliverFunc, outbox s
 }
 
 // DeliverFunc is the type for message delivery.
-type DeliverFunc func(*mail.Message) error
+//
+// r is the message data, uid is the IMAP server sent message UID, sha1 is the message's sha1 hash.
+type DeliverFunc func(r io.ReadSeeker, uid uint32, sha1 []byte) error
 
 func one(c Client, inbox, pattern string, deliver DeliverFunc, outbox string) (int, error) {
 	if err := c.Connect(); err != nil {
@@ -72,20 +83,16 @@ func one(c Client, inbox, pattern string, deliver DeliverFunc, outbox string) (i
 
 	var n int
 	var body bytes.Buffer
+	hsh := sha1.New()
 	for _, uid := range uids {
 		body.Reset()
-		if _, err = c.ReadTo(&body, uid); err != nil {
+		hsh.Reset()
+		if _, err = c.ReadTo(io.MultiWriter(&body, hsh), uid); err != nil {
 			Log.Error("Read", "uid", uid, "error", err)
 			continue
 		}
 
-		msg, err := mail.ReadMessage(&body)
-		if err != nil {
-			Log.Error("ReadMessage", "error", err)
-			continue
-		}
-
-		if err = deliver(msg); err != nil {
+		if err = deliver(bytes.NewReader(body.Bytes()), uid, hsh.Sum(nil)); err != nil {
 			Log.Error("deliver", "uid", uid, "error", err)
 			continue
 		}

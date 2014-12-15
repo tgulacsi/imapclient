@@ -72,6 +72,15 @@ func DeliveryLoop(c Client, inbox, pattern string, deliver DeliverFunc, outbox s
 	}
 }
 
+// DeliverOne does one round of message reading and delivery. Does not loop.
+// Returns the number of messages delivered.
+func DeliverOne(c Client, inbox, pattern string, deliver DeliverFunc, outbox string) (int, error) {
+	if inbox == "" {
+		inbox = "INBOX"
+	}
+	return one(c, inbox, pattern, deliver, outbox)
+}
+
 // DeliverFunc is the type for message delivery.
 //
 // r is the message data, uid is the IMAP server sent message UID, sha1 is the message's sha1 hash.

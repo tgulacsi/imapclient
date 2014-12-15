@@ -46,6 +46,11 @@ func DeliveryLoop(c Client, inbox, pattern string, deliver DeliverFunc, outbox s
 	}
 	for {
 		n, err := one(c, inbox, pattern, deliver, outbox)
+		if err != nil {
+			Log.Error("DeliveryLoop one round", "n", n, "error", err)
+		} else {
+			Log.Info("DeliveryLoop one round", "n", n)
+		}
 		select {
 		case _, ok := <-closeCh:
 			if !ok { //channel is closed
@@ -95,7 +100,9 @@ func one(c Client, inbox, pattern string, deliver DeliverFunc, outbox string) (i
 			continue
 		}
 
-		if err = deliver(body, uid, hsh.Sum(nil)); err != nil {
+		err = deliver(body, uid, hsh.Sum(nil))
+		body.Close()
+		if err != nil {
 			Log.Error("deliver", "uid", uid, "error", err)
 			continue
 		}

@@ -159,6 +159,7 @@ func (c client) Move(msgID uint32, mbox string) error {
 
 // ListNew lists the new (UNSEEN) messages from the given mbox, matching the pattern.
 func (c *client) ListNew(mbox, pattern string) ([]uint32, error) {
+	Log.Debug("ListNew", "mbox", mbox, "pattern", pattern)
 	_, err := imap.Wait(c.c.Select(mbox, false))
 	if err != nil {
 		return nil, err
@@ -166,22 +167,27 @@ func (c *client) ListNew(mbox, pattern string) ([]uint32, error) {
 	var fields = make([]imap.Field, 1, 3)
 	fields[0] = imap.Field("UNSEEN")
 	if pattern != "" {
-		fields = append(append(fields, imap.Field("SUBJECT")), c.c.Quote(pattern))
+		fields = append(fields, imap.Field("SUBJECT"), c.c.Quote(pattern))
 	}
+	ok := false
 	var cmd *imap.Command
 	if !c.noUTF8 {
-		cmd, err = imap.Wait(c.c.UIDSearch(fields...))
-		if err != nil && strings.Index(err.Error(), "BADCHARSET") >= 0 {
-			c.noUTF8 = true
-		} else {
-			return nil, err
+		if cmd, err = imap.Wait(c.c.UIDSearch(fields...)); err != nil {
+			Log.Debug("UIDSearch", "fields", fields, "error", err)
+			if strings.Index(err.Error(), "BADCHARSET") >= 0 {
+				c.noUTF8 = true
+			} else {
+				return nil, err
+			}
 		}
+		ok = true
 	}
-	if c.noUTF8 {
-		if len(fields) == 3 {
-			fields[2] = c.c.Quote(imap.UTF7Encode(pattern))
+	if !ok && c.noUTF8 {
+		if pattern != "" {
+			fields[len(fields)-1] = c.c.Quote(imap.UTF7Encode(pattern))
 		}
 		cmd, err = imap.Wait(c.c.Send("UID SEARCH", fields))
+		Log.Debug("UID SEARCH", "fields", fields, "error", err)
 		if err != nil {
 			return nil, err
 		}
@@ -189,6 +195,7 @@ func (c *client) ListNew(mbox, pattern string) ([]uint32, error) {
 	if _, err = cmd.Result(imap.OK); err != nil {
 		return nil, err
 	}
+	Log.Debug("ListNew", "data", cmd.Data)
 	var uids []uint32
 	for _, resp := range cmd.Data {
 		uids = append(uids, resp.SearchResults()...)
@@ -253,10 +260,17 @@ func (c *client) Connect() error {
 	// Authenticate
 	if c.c.State() == imap.Login {
 		if _, err = c.c.Login(c.username, c.password); err != nil {
+			Log.Error("Login", "username", c.username, "capabilities", c.c.Caps, "error", err)
 			if _, err = c.c.Auth(CramAuth(c.username, c.password)); err != nil {
+				Log.Error("Authenticate", "username", c.username, "capabilities", c.c.Caps, "error", err)
 				return err
 			}
 		}
 	}
+
+	if _, err := c.c.CompressDeflate(2); err != nil {
+		Log.Info("CompressDeflate", "error", err)
+	}
+
 	return nil
 }

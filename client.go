@@ -179,8 +179,9 @@ func (c *client) ListNew(mbox, pattern string) ([]uint32, error) {
 			} else {
 				return nil, err
 			}
+		} else {
+			ok = true
 		}
-		ok = true
 	}
 	if !ok && c.noUTF8 {
 		if pattern != "" {

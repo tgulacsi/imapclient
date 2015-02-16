@@ -34,6 +34,7 @@ func main() {
 	flagPassword := flag.String("p", "", "password")
 	flagHost := flag.String("H", "localhost", "host")
 	flagPort := flag.Int("P", 143, "port")
+	flagAll := flag.Bool("all", false, "dump all, not just UNSEEN")
 	flag.Parse()
 
 	c := imapclient.NewClient(*flagHost, *flagPort, *flagUsername, *flagPassword)
@@ -43,7 +44,7 @@ func main() {
 	}
 	defer c.Close(false)
 
-	uids, err := c.ListNew("INBOX", "")
+	uids, err := c.List("INBOX", "", *flagAll)
 	if err != nil {
 		Log.Error("LIST", "error", err)
 		os.Exit(2)

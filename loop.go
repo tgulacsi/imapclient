@@ -40,12 +40,12 @@ var (
 // is not empty, then moved to outbox.
 //
 // deliver is called with the message, where X-UID and X-SHA1 are set.
-func DeliveryLoop(c Client, inbox, pattern string, deliver DeliverFunc, outbox string, closeCh <-chan struct{}) {
+func DeliveryLoop(c Client, inbox, pattern string, deliver DeliverFunc, outbox, errbox string, closeCh <-chan struct{}) {
 	if inbox == "" {
 		inbox = "INBOX"
 	}
 	for {
-		n, err := one(c, inbox, pattern, deliver, outbox)
+		n, err := one(c, inbox, pattern, deliver, outbox, errbox)
 		if err != nil {
 			Log.Error("DeliveryLoop one round", "n", n, "error", err)
 		} else {
@@ -74,11 +74,11 @@ func DeliveryLoop(c Client, inbox, pattern string, deliver DeliverFunc, outbox s
 
 // DeliverOne does one round of message reading and delivery. Does not loop.
 // Returns the number of messages delivered.
-func DeliverOne(c Client, inbox, pattern string, deliver DeliverFunc, outbox string) (int, error) {
+func DeliverOne(c Client, inbox, pattern string, deliver DeliverFunc, outbox, errbox string) (int, error) {
 	if inbox == "" {
 		inbox = "INBOX"
 	}
-	return one(c, inbox, pattern, deliver, outbox)
+	return one(c, inbox, pattern, deliver, outbox, errbox)
 }
 
 // DeliverFunc is the type for message delivery.
@@ -86,14 +86,14 @@ func DeliverOne(c Client, inbox, pattern string, deliver DeliverFunc, outbox str
 // r is the message data, uid is the IMAP server sent message UID, sha1 is the message's sha1 hash.
 type DeliverFunc func(r io.ReadSeeker, uid uint32, sha1 []byte) error
 
-func one(c Client, inbox, pattern string, deliver DeliverFunc, outbox string) (int, error) {
+func one(c Client, inbox, pattern string, deliver DeliverFunc, outbox, errbox string) (int, error) {
 	if err := c.Connect(); err != nil {
 		Log.Error("Connecting", "server", c, "error", err)
 		return 0, err
 	}
 	defer c.Close(true)
 
-	uids, err := c.ListNew(inbox, pattern)
+	uids, err := c.List(inbox, pattern, outbox != "" && errbox != "")
 	if err != nil {
 		Log.Error("List", "server", c, "inbox", inbox, "error", err)
 		return 0, err
@@ -113,13 +113,17 @@ func one(c Client, inbox, pattern string, deliver DeliverFunc, outbox string) (i
 		body.Close()
 		if err != nil {
 			Log.Error("deliver", "uid", uid, "error", err)
+			if errbox != "" {
+				if err = c.Move(uid, errbox); err != nil {
+					Log.Error("move", "uid", uid, "errbox", errbox, "error", err)
+				}
+			}
 			continue
 		}
 		n++
 
 		if err = c.Mark(uid, true); err != nil {
 			Log.Error("mark seen", "uid", uid, "error", err)
-			continue
 		}
 
 		if outbox != "" {

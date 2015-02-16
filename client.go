@@ -50,7 +50,7 @@ func init() {
 type Client interface {
 	Connect() error
 	Close(commit bool) error
-	ListNew(mbox, pattern string) ([]uint32, error)
+	List(mbox, pattern string, all bool) ([]uint32, error)
 	ReadTo(w io.Writer, msgID uint32) (int64, error)
 	Mark(msgID uint32, seen bool) error
 	Delete(msgID uint32) error
@@ -157,15 +157,18 @@ func (c client) Move(msgID uint32, mbox string) error {
 	return err
 }
 
-// ListNew lists the new (UNSEEN) messages from the given mbox, matching the pattern.
-func (c *client) ListNew(mbox, pattern string) ([]uint32, error) {
-	Log.Debug("ListNew", "mbox", mbox, "pattern", pattern)
+// List the messages from the given mbox, matching the pattern.
+// Lists only new (UNSEEN) messages iff all is false.
+func (c *client) List(mbox, pattern string, all bool) ([]uint32, error) {
+	Log.Debug("List", "mbox", mbox, "pattern", pattern)
 	_, err := imap.Wait(c.c.Select(mbox, false))
 	if err != nil {
 		return nil, err
 	}
-	var fields = make([]imap.Field, 1, 3)
-	fields[0] = imap.Field("UNSEEN")
+	var fields = make([]imap.Field, 0, 3)
+	if !all {
+		fields = append(fields, imap.Field("UNSEEN"))
+	}
 	if pattern != "" {
 		fields = append(fields, imap.Field("SUBJECT"), c.c.Quote(pattern))
 	}
@@ -196,7 +199,7 @@ func (c *client) ListNew(mbox, pattern string) ([]uint32, error) {
 	if _, err = cmd.Result(imap.OK); err != nil {
 		return nil, err
 	}
-	Log.Debug("ListNew", "data", cmd.Data)
+	Log.Debug("List", "data", cmd.Data)
 	var uids []uint32
 	for _, resp := range cmd.Data {
 		uids = append(uids, resp.SearchResults()...)

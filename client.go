@@ -69,6 +69,7 @@ type client struct {
 	port, tls                int
 	noUTF8                   bool
 	c                        *imap.Client
+	created                  []string
 }
 
 // NewClient returns a new (not connected) Client, using TLS iff port == 143.
@@ -146,7 +147,22 @@ func (c client) ReadTo(w io.Writer, msgID uint32) (int64, error) {
 }
 
 // Move the msgID to the given mbox.
-func (c client) Move(msgID uint32, mbox string) error {
+func (c *client) Move(msgID uint32, mbox string) error {
+	created := false
+	for _, k := range c.created {
+		if mbox == k {
+			created = true
+			break
+		}
+	}
+	if !created {
+		Log.Info("Create", "mbox", mbox)
+		c.created = append(c.created, mbox)
+		if _, err := imap.Wait(c.c.Create(mbox)); err != nil {
+			Log.Error("Create", "mbox", mbox, "error", err)
+		}
+	}
+
 	set := &imap.SeqSet{}
 	set.AddNum(msgID)
 	_, err := imap.Wait(c.c.UIDCopy(set, mbox))
@@ -165,8 +181,10 @@ func (c *client) List(mbox, pattern string, all bool) ([]uint32, error) {
 	if err != nil {
 		return nil, err
 	}
-	var fields = make([]imap.Field, 0, 3)
-	if !all {
+	var fields = make([]imap.Field, 0, 4)
+	if all {
+		fields = append(fields, imap.Field("NOT"), imap.Field("DELETED"))
+	} else {
 		fields = append(fields, imap.Field("UNSEEN"))
 	}
 	if pattern != "" {

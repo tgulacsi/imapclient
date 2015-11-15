@@ -39,7 +39,7 @@ var (
 // If deliver did not returned error, the message is marked as Seen, and if outbox
 // is not empty, then moved to outbox.
 //
-// deliver is called with the message, where X-UID and X-SHA1 are set.
+// deliver is called with the message, UID and sha1.
 func DeliveryLoop(c Client, inbox, pattern string, deliver DeliverFunc, outbox, errbox string, closeCh <-chan struct{}) {
 	if inbox == "" {
 		inbox = "INBOX"

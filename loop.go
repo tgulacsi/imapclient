@@ -23,6 +23,8 @@ import (
 	"time"
 
 	"github.com/tgulacsi/go/temp"
+
+	"gopkg.in/errgo.v1"
 )
 
 var (
@@ -89,33 +91,35 @@ type DeliverFunc func(r io.ReadSeeker, uid uint32, sha1 []byte) error
 func one(c Client, inbox, pattern string, deliver DeliverFunc, outbox, errbox string) (int, error) {
 	if err := c.Connect(); err != nil {
 		Log.Error("Connecting", "server", c, "error", err)
-		return 0, err
+		return 0, errgo.Notef(err, "connect to %v", c)
 	}
 	defer c.Close(true)
 
 	uids, err := c.List(inbox, pattern, outbox != "" && errbox != "")
 	if err != nil {
 		Log.Error("List", "server", c, "inbox", inbox, "error", err)
-		return 0, err
+		return 0, errgo.Notef(err, "list %v/%v", c, inbox)
 	}
 
 	var n int
 	hsh := sha1.New()
 	for _, uid := range uids {
+		Log := Log.New("uid", uid)
 		hsh.Reset()
 		body := temp.NewMemorySlurper(strconv.FormatUint(uint64(uid), 10))
 		if _, err = c.ReadTo(io.MultiWriter(body, hsh), uid); err != nil {
-			Log.Error("Read", "uid", uid, "error", err)
+			body.Close()
+			Log.Error("Read", "error", err)
 			continue
 		}
 
 		err = deliver(body, uid, hsh.Sum(nil))
 		body.Close()
 		if err != nil {
-			Log.Error("deliver", "uid", uid, "error", err)
+			Log.Error("deliver", "error", err)
 			if errbox != "" {
 				if err = c.Move(uid, errbox); err != nil {
-					Log.Error("move", "uid", uid, "errbox", errbox, "error", err)
+					Log.Error("move", "errbox", errbox, "error", err)
 				}
 			}
 			continue
@@ -123,12 +127,12 @@ func one(c Client, inbox, pattern string, deliver DeliverFunc, outbox, errbox st
 		n++
 
 		if err = c.Mark(uid, true); err != nil {
-			Log.Error("mark seen", "uid", uid, "error", err)
+			Log.Error("mark seen", "error", err)
 		}
 
 		if outbox != "" {
 			if err = c.Move(uid, outbox); err != nil {
-				Log.Error("move", "uid", uid, "outbox", outbox, "error", err)
+				Log.Error("move", "outbox", outbox, "error", err)
 				continue
 			}
 		}

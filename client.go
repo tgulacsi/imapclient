@@ -70,6 +70,7 @@ type client struct {
 	noUTF8                   bool
 	c                        *imap.Client
 	created                  []string
+	logMask                  imap.LogMask
 }
 
 // NewClient returns a new (not connected) Client, using TLS iff port == 143.
@@ -106,7 +107,11 @@ func (c client) String() string {
 
 // SetLogMask allows setting the underlying imap.LogMask.
 func (c client) SetLogMask(mask imap.LogMask) imap.LogMask {
-	return c.c.SetLogMask(imap.LogAll)
+	c.logMask = mask
+	if c.c != nil {
+		return c.c.SetLogMask(imap.LogAll)
+	}
+	return mask
 }
 
 // ReadTo reads the message identified by the given msgID, into the io.Writer.
@@ -159,7 +164,7 @@ func (c *client) Move(msgID uint32, mbox string) error {
 		Log.Info("Create", "mbox", mbox)
 		c.created = append(c.created, mbox)
 		if _, err := imap.Wait(c.c.Create(mbox)); err != nil {
-			Log.Error("Create", "mbox", mbox, "error", err)
+			Log.Warn("Create", "mbox", mbox, "error", err)
 		}
 	}
 
@@ -260,15 +265,26 @@ func (c *client) Delete(msgID uint32) error {
 func (c *client) Connect() error {
 	addr := c.host + ":" + strconv.Itoa(c.port)
 	var err error
-	if c.tls == noTLS || c.tls == maybeTLS && c.port == 143 {
+	noTLS := c.tls == noTLS || c.tls == maybeTLS && c.port == 143
+	if noTLS {
 		c.c, err = imap.Dial(addr)
 	} else {
 		c.c, err = imap.DialTLS(addr, &TLSConfig)
+		if err != nil {
+			if strings.Contains(err.Error(), "oversized") {
+				Log.Warn("Retry without TLS")
+				c.c, err = imap.Dial(addr)
+			}
+		}
 	}
 	if err != nil {
+		Log.Error("Connect", "addr", addr, "error", err)
 		return err
 	}
 	c.c.SetLogger(loghlp.AsStdLog(Log, log15.LvlDebug))
+	if c.logMask != 0 {
+		c.c.SetLogMask(c.logMask)
+	}
 	// Print server greeting (first response in the unilateral server data queue)
 	Log.Debug("Server says", "hello", c.c.Data[0].Info)
 	c.c.Data = nil
@@ -276,22 +292,37 @@ func (c *client) Connect() error {
 	Log.Debug("server", "capabilities", c.c.Caps)
 	// Enable encryption, if supported by the server
 	if c.c.Caps["STARTTLS"] {
-		c.c.StartTLS(nil)
+		Log.Info("Starting TLS")
+		c.c.StartTLS(&TLSConfig)
 	}
 
 	// Authenticate
 	if c.c.State() == imap.Login {
+		sLog := Log.New("username", c.username)
+		sLog.Info("Login")
 		if _, err = c.c.Login(c.username, c.password); err != nil {
-			Log.Error("Login", "username", c.username, "capabilities", c.c.Caps, "error", err)
+			sLog.Error("Login", "capabilities", c.c.Caps, "error", err)
+			sLog.Info("CramAuth")
 			if _, err = c.c.Auth(CramAuth(c.username, c.password)); err != nil {
-				Log.Error("Authenticate", "username", c.username, "capabilities", c.c.Caps, "error", err)
-				return err
+				sLog.Error("Authenticate", "error", err)
+				username, identity := c.username, ""
+				if i := strings.IndexByte(username, '\\'); i >= 0 {
+					identity, username = strings.TrimPrefix(username[i+1:], "\\"), username[:i]
+				}
+				pLog := Log.New("username", username, "identity", identity)
+				pLog.Info("PlainAuth")
+				if _, err = c.c.Auth(imap.PlainAuth(username, c.password, identity)); err != nil {
+					pLog.Error("PlainAuth", "error", err)
+					return err
+				}
 			}
 		}
 	}
 
-	if _, err := c.c.CompressDeflate(2); err != nil {
-		Log.Info("CompressDeflate", "error", err)
+	if c.c.Caps["COMPRESS=DEFLATE"] {
+		if _, err := c.c.CompressDeflate(2); err != nil {
+			Log.Info("CompressDeflate", "error", err)
+		}
 	}
 
 	return nil

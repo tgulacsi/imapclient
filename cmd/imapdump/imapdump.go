@@ -29,7 +29,9 @@ import (
 var Log = log15.New()
 
 func main() {
-	imapclient.Log.SetHandler(log15.StderrHandler)
+	hndl := log15.StderrHandler
+	Log.SetHandler(hndl)
+	imapclient.Log.SetHandler(hndl)
 	flagUsername := flag.String("u", "", "username")
 	flagPassword := flag.String("p", "", "password")
 	flagHost := flag.String("H", "localhost", "host")

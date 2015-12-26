@@ -22,6 +22,9 @@ import (
 	"strconv"
 	"time"
 
+	"golang.org/x/net/context"
+
+	"github.com/rs/xlog"
 	"github.com/tgulacsi/go/temp"
 
 	"gopkg.in/errgo.v1"
@@ -104,10 +107,11 @@ func one(c Client, inbox, pattern string, deliver DeliverFunc, outbox, errbox st
 	var n int
 	hsh := sha1.New()
 	for _, uid := range uids {
-		Log := Log.New("uid", uid)
+		Log.SetField("uid", uid)
+		ctx := xlog.NewContext(context.Background(), Log)
 		hsh.Reset()
 		body := temp.NewMemorySlurper(strconv.FormatUint(uint64(uid), 10))
-		if _, err = c.ReadTo(io.MultiWriter(body, hsh), uid); err != nil {
+		if _, err = c.ReadToC(ctx, io.MultiWriter(body, hsh), uid); err != nil {
 			body.Close()
 			Log.Error("Read", "error", err)
 			continue

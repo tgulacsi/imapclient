@@ -21,18 +21,20 @@ package imapclient
 import (
 	"crypto/tls"
 	"io"
+	"log"
 	"strconv"
 	"strings"
 	"time"
 
+	"golang.org/x/net/context"
+
 	"github.com/mxk/go-imap/imap"
-	"github.com/tgulacsi/go/loghlp"
-	"gopkg.in/inconshreveable/log15.v2"
+	"github.com/rs/xlog"
 )
 
 var (
 	// Log uses DiscardHandler (produces no output) by default.
-	Log = log15.New("lib", "imapclient")
+	Log = xlog.Logger(xlog.NopLogger)
 
 	// Timeout is the client timeout - 30 seconds by default.
 	Timeout = 30 * time.Second
@@ -41,17 +43,16 @@ var (
 	TLSConfig = tls.Config{InsecureSkipVerify: true}
 )
 
-func init() {
-	Log.SetHandler(log15.DiscardHandler())
-}
-
 // Client interface declares the needed methods for listing messages,
 // deleting and moving them around.
 type Client interface {
 	Connect() error
+	ConnectC(context.Context) error
 	Close(commit bool) error
 	List(mbox, pattern string, all bool) ([]uint32, error)
+	ListC(ctx context.Context, mbox, pattern string, all bool) ([]uint32, error)
 	ReadTo(w io.Writer, msgID uint32) (int64, error)
+	ReadToC(ctx context.Context, w io.Writer, msgID uint32) (int64, error)
 	Mark(msgID uint32, seen bool) error
 	Delete(msgID uint32) error
 	Move(msgID uint32, mbox string) error
@@ -105,8 +106,15 @@ func (c client) String() string {
 	return c.username + "@" + c.host + ":" + strconv.Itoa(c.port)
 }
 
-// SetLogMask allows setting the underlying imap.LogMask.
-func (c client) SetLogMask(mask imap.LogMask) imap.LogMask {
+// SetLogMaskC allows setting the underlying imap.LogMask,
+// and also sets the standard logger's destination to the ctx's logger.
+func (c client) SetLogMaskC(ctx context.Context, mask imap.LogMask) imap.LogMask {
+	// Remove timestamp and other decorations of the std logger
+	log.SetFlags(0)
+
+	// Plug a xlog instance to Go's std logger
+	log.SetOutput(xlog.FromContext(ctx))
+
 	c.logMask = mask
 	if c.c != nil {
 		return c.c.SetLogMask(imap.LogAll)
@@ -114,8 +122,14 @@ func (c client) SetLogMask(mask imap.LogMask) imap.LogMask {
 	return mask
 }
 
-// ReadTo reads the message identified by the given msgID, into the io.Writer.
-func (c client) ReadTo(w io.Writer, msgID uint32) (int64, error) {
+// SetLogMask allows setting the underlying imap.LogMask.
+func (c client) SetLogMask(mask imap.LogMask) imap.LogMask {
+	return c.SetLogMaskC(context.Background(), mask)
+}
+
+// ReadToC reads the message identified by the given msgID, into the io.Writer,
+// within the given context (deadline).
+func (c client) ReadToC(ctx context.Context, w io.Writer, msgID uint32) (int64, error) {
 	var length int64
 	set := &imap.SeqSet{}
 	set.AddNum(msgID)
@@ -123,10 +137,18 @@ func (c client) ReadTo(w io.Writer, msgID uint32) (int64, error) {
 	if err != nil {
 		return length, err
 	}
+	deadline, deadlineOk := ctx.Deadline()
 
 	for cmd.InProgress() {
+		d := Timeout
+		if deadlineOk {
+			now := time.Now()
+			if deadline.Before(now.Add(d)) {
+				d = deadline.Sub(now)
+			}
+		}
 		// wait for server response
-		if err = c.c.Recv(Timeout); err != nil {
+		if err = c.c.Recv(d); err != nil {
 			if err == io.EOF {
 				break
 			}
@@ -151,8 +173,18 @@ func (c client) ReadTo(w io.Writer, msgID uint32) (int64, error) {
 	return length, nil
 }
 
+// ReadTo reads the message identified by the given msgID, into the io.Writer.
+func (c client) ReadTo(w io.Writer, msgID uint32) (int64, error) {
+	return c.ReadToC(context.Background(), w, msgID)
+}
+
 // Move the msgID to the given mbox.
 func (c *client) Move(msgID uint32, mbox string) error {
+	return c.MoveC(context.Background(), msgID, mbox)
+}
+
+// MoveC moves the msgid to the given mbox, within deadline.
+func (c *client) MoveC(ctx context.Context, msgID uint32, mbox string) error {
 	created := false
 	for _, k := range c.created {
 		if mbox == k {
@@ -163,26 +195,39 @@ func (c *client) Move(msgID uint32, mbox string) error {
 	if !created {
 		Log.Info("Create", "mbox", mbox)
 		c.created = append(c.created, mbox)
-		if _, err := imap.Wait(c.c.Create(mbox)); err != nil {
+		cmd, err := c.c.Create(mbox)
+		if err == nil {
+			cmd, err = c.WaitC(ctx, cmd)
+		}
+		if err != nil {
 			Log.Warn("Create", "mbox", mbox, "error", err)
 		}
 	}
 
 	set := &imap.SeqSet{}
 	set.AddNum(msgID)
-	_, err := imap.Wait(c.c.UIDCopy(set, mbox))
+	cmd, err := c.c.UIDCopy(set, mbox)
+	if err == nil {
+		cmd, err = c.WaitC(ctx, cmd)
+	}
 	if err != nil {
 		return err
 	}
-	_, err = imap.Wait(c.c.UIDStore(set, "+FLAGS", imap.Field(`\Deleted`)))
+	cmd, err = c.c.UIDStore(set, "+FLAGS", imap.Field(`\Deleted`))
+	_, err = c.WaitC(ctx, cmd)
 	return err
 }
 
-// List the messages from the given mbox, matching the pattern.
-// Lists only new (UNSEEN) messages iff all is false.
-func (c *client) List(mbox, pattern string, all bool) ([]uint32, error) {
+// ListC the messages from the given mbox, matching the pattern.
+// Lists only new (UNSEEN) messages iff all is false,
+// withing the given context (deadline).
+func (c *client) ListC(ctx context.Context, mbox, pattern string, all bool) ([]uint32, error) {
+	Log := xlog.FromContext(ctx)
 	Log.Debug("List", "mbox", mbox, "pattern", pattern)
-	_, err := imap.Wait(c.c.Select(mbox, false))
+	cmd, err := c.c.Select(mbox, false)
+	if err == nil {
+		cmd, err = c.WaitC(ctx, cmd)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -196,9 +241,11 @@ func (c *client) List(mbox, pattern string, all bool) ([]uint32, error) {
 		fields = append(fields, imap.Field("SUBJECT"), c.c.Quote(pattern))
 	}
 	ok := false
-	var cmd *imap.Command
 	if !c.noUTF8 {
-		if cmd, err = imap.Wait(c.c.UIDSearch(fields...)); err != nil {
+		if cmd, err = c.c.UIDSearch(fields...); err == nil {
+			cmd, err = c.WaitC(ctx, cmd)
+		}
+		if err != nil {
 			Log.Debug("UIDSearch", "fields", fields, "error", err)
 			if strings.Index(err.Error(), "BADCHARSET") >= 0 {
 				c.noUTF8 = true
@@ -213,7 +260,9 @@ func (c *client) List(mbox, pattern string, all bool) ([]uint32, error) {
 		if pattern != "" {
 			fields[len(fields)-1] = c.c.Quote(imap.UTF7Encode(pattern))
 		}
-		cmd, err = imap.Wait(c.c.Send("UID SEARCH", fields))
+		if cmd, err = c.c.Send("UID SEARCH", fields); err == nil {
+			cmd, err = c.WaitC(ctx, cmd)
+		}
 		Log.Debug("UID SEARCH", "fields", fields, "error", err)
 		if err != nil {
 			return nil, err
@@ -230,39 +279,75 @@ func (c *client) List(mbox, pattern string, all bool) ([]uint32, error) {
 	return uids, nil
 }
 
+// List the mailbox, where subject meets the pattern, and only unseen (when all is false).
+func (c *client) List(mbox, pattern string, all bool) ([]uint32, error) {
+	return c.ListC(context.Background(), mbox, pattern, all)
+}
+
 // Close closes the currently selected mailbox, then logs out.
-func (c *client) Close(expunge bool) error {
+func (c *client) CloseC(ctx context.Context, expunge bool) error {
 	if c.c == nil {
 		return nil
 	}
 	c.c.Close(expunge)
-	_, err := imap.Wait(c.c.Logout(Timeout))
+	cmd, err := c.c.Logout(getTimeout(ctx))
+	if err != nil {
+		return err
+	}
+	_, err = c.WaitC(ctx, cmd)
 	c.c = nil
 	return err
 }
 
+// Close closes the currently selected mailbox, then logs out.
+func (c *client) Close(expunge bool) error {
+	return c.CloseC(context.Background(), expunge)
+}
+
 // Mark the message seen/unseed
 func (c *client) Mark(msgID uint32, seen bool) error {
+	return c.MarkC(context.Background(), msgID, seen)
+}
+
+// MarkC marks the message seen/unseen, within the given context (deadline).
+func (c *client) MarkC(ctx context.Context, msgID uint32, seen bool) error {
 	set := &imap.SeqSet{}
 	set.AddNum(msgID)
 	item := "+FLAGS"
 	if !seen {
 		item = "-FLAGS"
 	}
-	_, err := imap.Wait(c.c.UIDStore(set, item, imap.Field(`\Seen`)))
+	cmd, err := c.c.UIDStore(set, item, imap.Field(`\Seen`))
+	if err == nil {
+		cmd, err = c.WaitC(ctx, cmd)
+	}
 	return err
 }
 
 // Delete the message
 func (c *client) Delete(msgID uint32) error {
+	return c.DeleteC(context.Background(), msgID)
+}
+
+// DeleteC deletes the message, within the given context (deadline).
+func (c *client) DeleteC(ctx context.Context, msgID uint32) error {
 	set := &imap.SeqSet{}
 	set.AddNum(msgID)
-	_, err := imap.Wait(c.c.UIDStore(set, "+FLAGS", imap.Field(`\Deleted`)))
+	cmd, err := c.c.UIDStore(set, "+FLAGS", imap.Field(`\Deleted`))
+	if err == nil {
+		cmd, err = c.WaitC(ctx, cmd)
+	}
 	return err
 }
 
 // Connect to the server.
 func (c *client) Connect() error {
+	return c.ConnectC(context.Background())
+}
+
+// ConnectC connects to the server, within the given context (deadline).
+func (c *client) ConnectC(ctx context.Context) error {
+	Log := xlog.FromContext(ctx)
 	addr := c.host + ":" + strconv.Itoa(c.port)
 	var err error
 	noTLS := c.tls == noTLS || c.tls == maybeTLS && c.port == 143
@@ -271,6 +356,11 @@ func (c *client) Connect() error {
 	} else {
 		c.c, err = imap.DialTLS(addr, &TLSConfig)
 		if err != nil {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+			}
 			if strings.Contains(err.Error(), "oversized") {
 				Log.Warn("Retry without TLS")
 				c.c, err = imap.Dial(addr)
@@ -281,9 +371,13 @@ func (c *client) Connect() error {
 		Log.Error("Connect", "addr", addr, "error", err)
 		return err
 	}
-	c.c.SetLogger(loghlp.AsStdLog(Log, log15.LvlDebug))
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
 	if c.logMask != 0 {
-		c.c.SetLogMask(c.logMask)
+		c.SetLogMaskC(ctx, c.logMask)
 	}
 	// Print server greeting (first response in the unilateral server data queue)
 	Log.Debug("Server says", "hello", c.c.Data[0].Info)
@@ -298,21 +392,21 @@ func (c *client) Connect() error {
 
 	// Authenticate
 	if c.c.State() == imap.Login {
-		sLog := Log.New("username", c.username)
-		sLog.Info("Login")
+		Log.SetField("username", c.username)
+		Log.Info("Login")
 		if _, err = c.c.Login(c.username, c.password); err != nil {
-			sLog.Error("Login", "capabilities", c.c.Caps, "error", err)
-			sLog.Info("CramAuth")
+			Log.Error("Login", "capabilities", c.c.Caps, "error", err)
+			Log.Info("CramAuth")
 			if _, err = c.c.Auth(CramAuth(c.username, c.password)); err != nil {
-				sLog.Error("Authenticate", "error", err)
+				Log.Error("Authenticate", "error", err)
 				username, identity := c.username, ""
 				if i := strings.IndexByte(username, '\\'); i >= 0 {
 					identity, username = strings.TrimPrefix(username[i+1:], "\\"), username[:i]
 				}
-				pLog := Log.New("username", username, "identity", identity)
-				pLog.Info("PlainAuth")
+
+				Log.Info("PlainAuth", "username", username, "identity", identity)
 				if _, err = c.c.Auth(imap.PlainAuth(username, c.password, identity)); err != nil {
-					pLog.Error("PlainAuth", "error", err)
+					Log.Error("PlainAuth", "username", username, "identity", identity, "error", err)
 					return err
 				}
 			}
@@ -326,4 +420,40 @@ func (c *client) Connect() error {
 	}
 
 	return nil
+}
+
+func getTimeout(ctx context.Context) time.Duration {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return Timeout
+	}
+	now := time.Now()
+	if deadline.After(now.Add(Timeout)) {
+		return Timeout
+	}
+	return deadline.Sub(now)
+}
+
+// WaitC waits to the response for the command, within context (deadline).
+func (c client) WaitC(ctx context.Context, cmd *imap.Command) (*imap.Command, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+	if cmd.InProgress() {
+		deadline := time.Now().Add(getTimeout(ctx))
+		for time.Now().Before(deadline) {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+				break
+			default:
+				if err := c.c.Recv(time.Second); err == nil || err != imap.ErrTimeout {
+					break
+				}
+			}
+		}
+	}
+	return imap.Wait(cmd, nil)
 }

@@ -73,6 +73,10 @@ type client struct {
 	logMask                  imap.LogMask
 }
 
+func init() {
+	imap.BufferSize = 1 << 20
+}
+
 // NewClient returns a new (not connected) Client, using TLS iff port == 143.
 func NewClient(host string, port int, username, password string) Client {
 	if port == 0 {

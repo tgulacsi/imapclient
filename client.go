@@ -372,7 +372,7 @@ func (c *client) ConnectC(ctx context.Context) error {
 		}
 	}
 	if err != nil {
-		Log.Error("Connect", "addr", addr, "error", err)
+		Log.Error("Connect", xlog.F{"addr": addr, "error": err})
 		return err
 	}
 	select {
@@ -384,7 +384,7 @@ func (c *client) ConnectC(ctx context.Context) error {
 		c.SetLogMaskC(ctx, c.logMask)
 	}
 	// Print server greeting (first response in the unilateral server data queue)
-	Log.Debug("Server says", "hello", c.c.Data[0].Info)
+	Log.Debug("Server says: %q", c.c.Data[0].Info)
 	c.c.Data = nil
 
 	Log.Debug("server", "capabilities", c.c.Caps)
@@ -398,19 +398,23 @@ func (c *client) ConnectC(ctx context.Context) error {
 	if c.c.State() == imap.Login {
 		Log.SetField("username", c.username)
 		Log.Info("Login")
-		if _, err = c.c.Login(c.username, c.password); err != nil {
-			Log.Error("Login", "capabilities", c.c.Caps, "error", err)
+		cmd, err := c.c.Login(c.username, c.password)
+		if err == nil {
+			cmd, err = c.WaitC(ctx, cmd)
+		}
+		if err != nil {
+			Log.Error("Login capabilities: %v error=%v", c.c.Caps, err)
 			Log.Info("CramAuth")
 			if _, err = c.c.Auth(CramAuth(c.username, c.password)); err != nil {
-				Log.Error("Authenticate", "error", err)
+				Log.Error("Authenticate error=%v", err)
 				username, identity := c.username, ""
 				if i := strings.IndexByte(username, '\\'); i >= 0 {
 					identity, username = strings.TrimPrefix(username[i+1:], "\\"), username[:i]
 				}
 
-				Log.Info("PlainAuth", "username", username, "identity", identity)
+				Log.Info("PlainAuth", xlog.F{"username": username, "identity": identity})
 				if _, err = c.c.Auth(imap.PlainAuth(username, c.password, identity)); err != nil {
-					Log.Error("PlainAuth", "username", username, "identity", identity, "error", err)
+					Log.Error("PlainAuth", xlog.F{"username": username, "identity": identity, "error": err})
 					return err
 				}
 			}
@@ -419,7 +423,7 @@ func (c *client) ConnectC(ctx context.Context) error {
 
 	if c.c.Caps["COMPRESS=DEFLATE"] {
 		if _, err := c.c.CompressDeflate(2); err != nil {
-			Log.Info("CompressDeflate", "error", err)
+			Log.Info("CompressDeflate: %v", err)
 		}
 	}
 
@@ -440,24 +444,26 @@ func getTimeout(ctx context.Context) time.Duration {
 
 // WaitC waits to the response for the command, within context (deadline).
 func (c client) WaitC(ctx context.Context, cmd *imap.Command) (*imap.Command, error) {
+	Log := xlog.FromContext(ctx)
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	default:
 	}
+	var err error
 	if cmd.InProgress() {
 		deadline := time.Now().Add(getTimeout(ctx))
-		for time.Now().Before(deadline) {
+		for cmd.InProgress() && time.Now().Before(deadline) {
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()
-				break
 			default:
-				if err := c.c.Recv(time.Second); err == nil || err != imap.ErrTimeout {
+				if err = c.c.Recv(time.Second); err == nil || err != imap.ErrTimeout {
+					Log.Debug("Recv", "error", err)
 					break
 				}
 			}
 		}
 	}
-	return imap.Wait(cmd, nil)
+	return imap.Wait(cmd, err)
 }

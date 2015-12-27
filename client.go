@@ -444,24 +444,25 @@ func getTimeout(ctx context.Context) time.Duration {
 
 // WaitC waits to the response for the command, within context (deadline).
 func (c client) WaitC(ctx context.Context, cmd *imap.Command) (*imap.Command, error) {
-	Log := xlog.FromContext(ctx)
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	default:
 	}
+	Log := xlog.FromContext(ctx)
+	if !cmd.InProgress() {
+		return imap.Wait(cmd, nil)
+	}
+	deadline := time.Now().Add(getTimeout(ctx))
 	var err error
-	if cmd.InProgress() {
-		deadline := time.Now().Add(getTimeout(ctx))
-		for cmd.InProgress() && time.Now().Before(deadline) {
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			default:
-				if err = c.c.Recv(time.Second); err == nil || err != imap.ErrTimeout {
-					Log.Debug("Recv", "error", err)
-					break
-				}
+	for cmd.InProgress() && time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+			if err = c.c.Recv(time.Second); err == nil || err != imap.ErrTimeout {
+				Log.Debug("Recv", "error", err)
+				break
 			}
 		}
 	}

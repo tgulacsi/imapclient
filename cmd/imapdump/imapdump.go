@@ -17,53 +17,154 @@ limitations under the License.
 package main
 
 import (
+	"bufio"
 	"bytes"
-	"flag"
+	"fmt"
+	"io"
+	"mime"
+	"net/textproto"
 	"os"
+	"strconv"
+	"time"
 
+	"golang.org/x/net/context"
+	"golang.org/x/text/encoding/htmlindex"
+	"golang.org/x/text/transform"
+
+	"github.com/rs/xlog"
+	"github.com/spf13/cobra"
 	"github.com/tgulacsi/imapclient"
-	"gopkg.in/inconshreveable/log15.v2"
 )
 
 // Log is the logger.
-var Log = log15.New()
+var Log xlog.Logger
 
 func main() {
-	hndl := log15.StderrHandler
-	Log.SetHandler(hndl)
-	imapclient.Log.SetHandler(hndl)
-	flagUsername := flag.String("u", "", "username")
-	flagPassword := flag.String("p", "", "password")
-	flagHost := flag.String("H", "localhost", "host")
-	flagPort := flag.Int("P", 143, "port")
-	flagAll := flag.Bool("all", false, "dump all, not just UNSEEN")
-	flag.Parse()
+	Log = xlog.New(xlog.Config{Output: xlog.NewConsoleOutput()})
+	imapclient.Log = Log
 
-	c := imapclient.NewClient(*flagHost, *flagPort, *flagUsername, *flagPassword)
-	if err := c.Connect(); err != nil {
-		Log.Crit("CONNECT", "error", err)
-		os.Exit(1)
+	dumpCmd := &cobra.Command{
+		Use: "dump",
 	}
-	defer c.Close(false)
+	var (
+		username, password string
+		host, mbox         string
+		port               int
+		all                bool
+	)
+	P := dumpCmd.PersistentFlags()
+	P.StringVarP(&username, "username", "U", "", "username")
+	P.StringVarP(&password, "password", "P", "", "password")
+	P.StringVarP(&host, "host", "H", "localhost", "host")
+	P.IntVarP(&port, "port", "p", 143, "port")
+	P.StringVarP(&mbox, "mbox", "m", "INBOX", "mail box")
 
-	uids, err := c.List("INBOX", "", *flagAll)
-	if err != nil {
-		Log.Error("LIST", "error", err)
-		os.Exit(2)
+	listCmd := &cobra.Command{
+		Use: "list",
+		Run: func(_ *cobra.Command, args []string) {
+			c := imapclient.NewClient(host, port, username, password)
+			if err := c.Connect(); err != nil {
+				Log.Fatalf("CONNECT: %v", err)
+			}
+			defer c.Close(false)
+			uids, err := c.List(mbox, "", all)
+			if err != nil {
+				Log.Fatalf("LIST: %v", err)
+			}
+			var buf bytes.Buffer
+			ctx := context.Background()
+			for _, uid := range uids {
+				buf.Reset()
+				ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+				_, err := c.Peek(ctx, &buf, uid, "")
+				cancel()
+				if err != nil {
+					Log.Errorf("Peek(%d): %v", uid, err)
+					continue
+				}
+				hdr, err := textproto.NewReader(bufio.NewReader(bytes.NewReader(buf.Bytes()))).ReadMIMEHeader()
+				if err != nil {
+					Log.Errorf("parse(%d) %q: %v", uid, buf.String(), err)
+					continue
+				}
+				fmt.Fprintf(os.Stdout, "%d\t%s\n", uid, HeadDecode(hdr.Get("Subject")))
+			}
+		},
 	}
+	listCmd.Flags().BoolVarP(&all, "all", "a", false, "list all, not just UNSEEN")
+	dumpCmd.AddCommand(listCmd)
 
-	Log.Info("LIST", "uids", uids)
-	var body bytes.Buffer
-	for _, uid := range uids {
-		body.Reset()
-		n, err := c.ReadTo(&body, uid)
+	var out string
+	saveCmd := &cobra.Command{
+		Use:     "save",
+		Aliases: []string{"dump", "write"},
+		Run: func(_ *cobra.Command, args []string) {
+			c := imapclient.NewClient(host, port, username, password)
+			if err := c.Connect(); err != nil {
+				Log.Fatalf("CONNECT: %v", err)
+			}
+			defer c.Close(false)
+			ctx := context.Background()
+			ctx2, cancel := context.WithTimeout(ctx, 10*time.Second)
+			err := c.Select(ctx2, mbox)
+			cancel()
+			if err != nil {
+				Log.Fatalf("SELECT(%q): %v", mbox, err)
+			}
+
+			dest := os.Stdout
+			if !(out == "" || out == "-") {
+				var err error
+				dest, err = os.Create(out)
+				if err != nil {
+					Log.Fatalf("create output %q: %v", out, err)
+				}
+			}
+			defer func() {
+				if err := dest.Close(); err != nil {
+					Log.Errorf("close output: %v", err)
+				}
+			}()
+			for _, a := range args {
+				uid, err := strconv.ParseUint(a, 10, 32)
+				if err != nil {
+					Log.Errorf("parse %q as uid: %v", a, err)
+					continue
+				}
+				ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+				_, err = c.ReadToC(ctx, dest, uint32(uid))
+				cancel()
+				if err != nil {
+					Log.Fatalf("Read(%d): %v", uid, err)
+				}
+			}
+
+		},
+	}
+	saveCmd.Flags().StringVarP(&out, "out", "o", "-", "output mail(s) to this file")
+	dumpCmd.AddCommand(saveCmd)
+
+	dumpCmd.Execute()
+}
+
+var WordDecoder = &mime.WordDecoder{
+	CharsetReader: func(charset string, input io.Reader) (io.Reader, error) {
+		//enc, err := ianaindex.MIME.Get(charset)
+		enc, err := htmlindex.Get(charset)
 		if err != nil {
-			Log.Error("Read", "uid", uid, "error", err)
-			continue
+			return input, err
 		}
-		if n > 1024 {
-			n = 1024
-		}
-		body.WriteTo(os.Stdout)
+		return transform.NewReader(input, enc.NewDecoder()), nil
+	},
+}
+
+func HeadDecode(head string) string {
+	res, err := WordDecoder.DecodeHeader(head)
+	if err == nil {
+		return res
 	}
+	if err != nil {
+		Log.Error("decode %q: %v", head, err)
+	}
+	return head
 }

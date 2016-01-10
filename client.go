@@ -53,10 +53,12 @@ type Client interface {
 	ListC(ctx context.Context, mbox, pattern string, all bool) ([]uint32, error)
 	ReadTo(w io.Writer, msgID uint32) (int64, error)
 	ReadToC(ctx context.Context, w io.Writer, msgID uint32) (int64, error)
+	Peek(ctx context.Context, w io.Writer, msgID uint32, what string) (int64, error)
 	Mark(msgID uint32, seen bool) error
 	Delete(msgID uint32) error
 	Move(msgID uint32, mbox string) error
 	SetLogMask(mask imap.LogMask) imap.LogMask
+	Select(ctx context.Context, mbox string) error
 }
 
 const (
@@ -131,13 +133,28 @@ func (c client) SetLogMask(mask imap.LogMask) imap.LogMask {
 	return c.SetLogMaskC(context.Background(), mask)
 }
 
+// Select selects the mailbox to use - it is needed before ReadTo
+// (List includes this).
+func (c client) Select(ctx context.Context, mbox string) error {
+	cmd, err := c.c.Select(mbox, false)
+	if err == nil {
+		_, err = c.WaitC(ctx, cmd)
+	}
+	return err
+}
+
 // ReadToC reads the message identified by the given msgID, into the io.Writer,
 // within the given context (deadline).
 func (c client) ReadToC(ctx context.Context, w io.Writer, msgID uint32) (int64, error) {
+	return c.Peek(ctx, w, msgID, "")
+}
+
+// Peek into the message. Possible what: HEADER, TEXT, or empty (both).
+func (c client) Peek(ctx context.Context, w io.Writer, msgID uint32, what string) (int64, error) {
 	var length int64
 	set := &imap.SeqSet{}
 	set.AddNum(msgID)
-	cmd, err := c.c.UIDFetch(set, "BODY.PEEK[]")
+	cmd, err := c.c.UIDFetch(set, "BODY.PEEK["+what+"]")
 	if err != nil {
 		return length, err
 	}
@@ -228,11 +245,7 @@ func (c *client) MoveC(ctx context.Context, msgID uint32, mbox string) error {
 func (c *client) ListC(ctx context.Context, mbox, pattern string, all bool) ([]uint32, error) {
 	Log := xlog.FromContext(ctx)
 	Log.Debug("List", "mbox", mbox, "pattern", pattern)
-	cmd, err := c.c.Select(mbox, false)
-	if err == nil {
-		cmd, err = c.WaitC(ctx, cmd)
-	}
-	if err != nil {
+	if err := c.Select(ctx, mbox); err != nil {
 		return nil, err
 	}
 	var fields = make([]imap.Field, 0, 4)
@@ -245,8 +258,10 @@ func (c *client) ListC(ctx context.Context, mbox, pattern string, all bool) ([]u
 		fields = append(fields, imap.Field("SUBJECT"), c.c.Quote(pattern))
 	}
 	ok := false
+	var cmd *imap.Command
+	var err error
 	if !c.noUTF8 {
-		if cmd, err = c.c.UIDSearch(fields...); err == nil {
+		if cmd, err := c.c.UIDSearch(fields...); err == nil {
 			cmd, err = c.WaitC(ctx, cmd)
 		}
 		if err != nil {

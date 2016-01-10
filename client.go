@@ -177,7 +177,6 @@ func (c client) Peek(ctx context.Context, w io.Writer, msgID uint32, what string
 		}
 		// Process data.
 		for _, resp := range cmd.Data {
-			//Log.Debug("resp", "resp", resp, "messageinfo", resp.MessageInfo(), "attrs", resp.MessageInfo().Attrs)
 			n, err := w.Write(imap.AsBytes(resp.MessageInfo().Attrs["BODY[]"]))
 			if err != nil {
 				return length, err
@@ -214,14 +213,14 @@ func (c *client) MoveC(ctx context.Context, msgID uint32, mbox string) error {
 		}
 	}
 	if !created {
-		Log.Info("Create", "mbox", mbox)
+		Log.Infof("Create %q", mbox)
 		c.created = append(c.created, mbox)
 		cmd, err := c.c.Create(mbox)
 		if err == nil {
 			cmd, err = c.WaitC(ctx, cmd)
 		}
 		if err != nil {
-			Log.Warn("Create", "mbox", mbox, "error", err)
+			Log.Warnf("Create %q: %v", mbox, err)
 		}
 	}
 
@@ -244,7 +243,7 @@ func (c *client) MoveC(ctx context.Context, msgID uint32, mbox string) error {
 // withing the given context (deadline).
 func (c *client) ListC(ctx context.Context, mbox, pattern string, all bool) ([]uint32, error) {
 	Log := xlog.FromContext(ctx)
-	Log.Debug("List", "mbox", mbox, "pattern", pattern)
+	Log.Debugf("List(%q, %q)", mbox, pattern)
 	if err := c.Select(ctx, mbox); err != nil {
 		return nil, err
 	}
@@ -261,11 +260,11 @@ func (c *client) ListC(ctx context.Context, mbox, pattern string, all bool) ([]u
 	var cmd *imap.Command
 	var err error
 	if !c.noUTF8 {
-		if cmd, err := c.c.UIDSearch(fields...); err == nil {
+		if cmd, err = c.c.UIDSearch(fields...); err == nil {
 			cmd, err = c.WaitC(ctx, cmd)
 		}
 		if err != nil {
-			Log.Debug("UIDSearch", "fields", fields, "error", err)
+			Log.Debugf("UIDSearch(%q): %v", fields, err)
 			if strings.Index(err.Error(), "BADCHARSET") >= 0 {
 				c.noUTF8 = true
 			} else {
@@ -282,7 +281,7 @@ func (c *client) ListC(ctx context.Context, mbox, pattern string, all bool) ([]u
 		if cmd, err = c.c.Send("UID SEARCH", fields); err == nil {
 			cmd, err = c.WaitC(ctx, cmd)
 		}
-		Log.Debug("UID SEARCH", "fields", fields, "error", err)
+		Log.Debugf("UID SEARCH(%q): %v", fields, err)
 		if err != nil {
 			return nil, err
 		}
@@ -290,7 +289,7 @@ func (c *client) ListC(ctx context.Context, mbox, pattern string, all bool) ([]u
 	if _, err = cmd.Result(imap.OK); err != nil {
 		return nil, err
 	}
-	Log.Debug("List", "data", cmd.Data)
+	Log.Debugf("List: %q", cmd.Data)
 	var uids []uint32
 	for _, resp := range cmd.Data {
 		uids = append(uids, resp.SearchResults()...)
@@ -399,10 +398,10 @@ func (c *client) ConnectC(ctx context.Context) error {
 		c.SetLogMaskC(ctx, c.logMask)
 	}
 	// Print server greeting (first response in the unilateral server data queue)
-	Log.Debug("Server says: %q", c.c.Data[0].Info)
+	Log.Debugf("Server says: %q", c.c.Data[0].Info)
 	c.c.Data = nil
 
-	Log.Debug("server", "capabilities", c.c.Caps)
+	Log.Debugf("server capabilities=%v", c.c.Caps)
 	// Enable encryption, if supported by the server
 	if c.c.Caps["STARTTLS"] {
 		Log.Info("Starting TLS")
@@ -418,10 +417,10 @@ func (c *client) ConnectC(ctx context.Context) error {
 			cmd, err = c.WaitC(ctx, cmd)
 		}
 		if err != nil {
-			Log.Error("Login capabilities: %v error=%v", c.c.Caps, err)
+			Log.Errorf("Login capabilities: %v error=%v", c.c.Caps, err)
 			Log.Info("CramAuth")
 			if _, err = c.c.Auth(CramAuth(c.username, c.password)); err != nil {
-				Log.Error("Authenticate error=%v", err)
+				Log.Errorf("Authenticate error=%v", err)
 				username, identity := c.username, ""
 				if i := strings.IndexByte(username, '\\'); i >= 0 {
 					identity, username = strings.TrimPrefix(username[i+1:], "\\"), username[:i]
@@ -438,7 +437,7 @@ func (c *client) ConnectC(ctx context.Context) error {
 
 	if c.c.Caps["COMPRESS=DEFLATE"] {
 		if _, err := c.c.CompressDeflate(2); err != nil {
-			Log.Info("CompressDeflate: %v", err)
+			Log.Infof("CompressDeflate: %v", err)
 		}
 	}
 
@@ -476,7 +475,7 @@ func (c client) WaitC(ctx context.Context, cmd *imap.Command) (*imap.Command, er
 			return nil, ctx.Err()
 		default:
 			if err = c.c.Recv(time.Second); err == nil || err != imap.ErrTimeout {
-				Log.Debug("Recv", "error", err)
+				Log.Debugf("Recv: %v", err)
 				break
 			}
 		}

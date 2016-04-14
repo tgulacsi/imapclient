@@ -164,7 +164,7 @@ func HeadDecode(head string) string {
 		return res
 	}
 	if err != nil {
-		Log.Error("decode %q: %v", head, err)
+		Log.Errorf("decode %q: %v", head, err)
 	}
 	return head
 }

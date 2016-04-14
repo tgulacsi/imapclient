@@ -52,9 +52,9 @@ func DeliveryLoop(c Client, inbox, pattern string, deliver DeliverFunc, outbox, 
 	for {
 		n, err := one(c, inbox, pattern, deliver, outbox, errbox)
 		if err != nil {
-			Log.Error("DeliveryLoop one round", "n", n, "error", err)
+			Log.Errorf("DeliveryLoop one round (%d): %v", n, err)
 		} else {
-			Log.Info("DeliveryLoop one round", "n", n)
+			Log.Infof("DeliveryLoop one round (%d)", n)
 		}
 		select {
 		case _, ok := <-closeCh:
@@ -93,14 +93,14 @@ type DeliverFunc func(r io.ReadSeeker, uid uint32, sha1 []byte) error
 
 func one(c Client, inbox, pattern string, deliver DeliverFunc, outbox, errbox string) (int, error) {
 	if err := c.Connect(); err != nil {
-		Log.Error("Connecting", "server", c, "error", err)
+		Log.Errorf("Connectingto %s: %v", c, err)
 		return 0, errgo.Notef(err, "connect to %v", c)
 	}
 	defer c.Close(true)
 
 	uids, err := c.List(inbox, pattern, outbox != "" && errbox != "")
 	if err != nil {
-		Log.Error("List", "server", c, "inbox", inbox, "error", err)
+		Log.Errorf("List %s/%q: %v", c, inbox, err)
 		return 0, errgo.Notef(err, "list %v/%v", c, inbox)
 	}
 
@@ -113,17 +113,17 @@ func one(c Client, inbox, pattern string, deliver DeliverFunc, outbox, errbox st
 		body := temp.NewMemorySlurper(strconv.FormatUint(uint64(uid), 10))
 		if _, err = c.ReadToC(ctx, io.MultiWriter(body, hsh), uid); err != nil {
 			body.Close()
-			Log.Error("Read", "error", err)
+			Log.Errorf("Read: %v", err)
 			continue
 		}
 
 		err = deliver(body, uid, hsh.Sum(nil))
 		body.Close()
 		if err != nil {
-			Log.Error("deliver", "error", err)
+			Log.Errorf("deliver: %v", err)
 			if errbox != "" {
 				if err = c.Move(uid, errbox); err != nil {
-					Log.Error("move", "errbox", errbox, "error", err)
+					Log.Errorf("move to %q: %v", errbox, err)
 				}
 			}
 			continue
@@ -131,12 +131,12 @@ func one(c Client, inbox, pattern string, deliver DeliverFunc, outbox, errbox st
 		n++
 
 		if err = c.Mark(uid, true); err != nil {
-			Log.Error("mark seen", "error", err)
+			Log.Errorf("mark seen: %v", err)
 		}
 
 		if outbox != "" {
 			if err = c.Move(uid, outbox); err != nil {
-				Log.Error("move", "outbox", outbox, "error", err)
+				Log.Error("move to %q: %v", outbox, err)
 				continue
 			}
 		}

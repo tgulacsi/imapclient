@@ -96,7 +96,6 @@ func one(c Client, inbox, pattern string, deliver DeliverFunc, outbox, errbox st
 		Log.Error("Connecting", "server", c, "error", err)
 		return 0, errgo.Notef(err, "connect to %v", c)
 	}
-	defer c.Close(true)
 
 	uids, err := c.List(inbox, pattern, outbox != "" && errbox != "")
 	if err != nil {

@@ -20,6 +20,7 @@ package imapclient
 
 import (
 	"crypto/tls"
+	"fmt"
 	"io"
 	"log"
 	"strconv"
@@ -58,6 +59,8 @@ type Client interface {
 	Delete(msgID uint32) error
 	Move(msgID uint32, mbox string) error
 	SetLogMask(mask imap.LogMask) imap.LogMask
+	SetLogger(*log.Logger)
+	SetLoggerC(ctx context.Context)
 	Select(ctx context.Context, mbox string) error
 }
 
@@ -74,6 +77,7 @@ type client struct {
 	c                        *imap.Client
 	created                  []string
 	logMask                  imap.LogMask
+	logger                   *log.Logger
 }
 
 func init() {
@@ -122,8 +126,10 @@ func (c client) SetLogMaskC(ctx context.Context, mask imap.LogMask) imap.LogMask
 	log.SetOutput(xlog.FromContext(ctx))
 
 	c.logMask = mask
-	if c.c != nil {
-		return c.c.SetLogMask(imap.LogAll)
+	if c.c == nil {
+		imap.DefaultLogMask = c.logMask
+	} else {
+		return c.c.SetLogMask(c.logMask)
 	}
 	return mask
 }
@@ -131,6 +137,25 @@ func (c client) SetLogMaskC(ctx context.Context, mask imap.LogMask) imap.LogMask
 // SetLogMask allows setting the underlying imap.LogMask.
 func (c client) SetLogMask(mask imap.LogMask) imap.LogMask {
 	return c.SetLogMaskC(context.Background(), mask)
+}
+
+func (c client) SetLogger(logger *log.Logger) {
+	c.logger = logger
+	if c.c == nil {
+		logger.Println("Set Default Logger!")
+		imap.DefaultLogger = c.logger
+	} else {
+		c.c.SetLogger(c.logger)
+	}
+}
+
+func (c client) SetLoggerC(ctx context.Context) {
+	Log := xlog.Copy(xlog.FromContext(ctx))
+	Log.SetField("imap_server",
+		fmt.Sprintf("%s:%s:%d:%t", c.username, c.host, c.port, c.tls == forceTLS))
+	c.logger = log.New(Log, "", 0)
+	xlog.FromContext(ctx).Infof("SetLogger")
+	c.SetLogger(c.logger)
 }
 
 // Select selects the mailbox to use - it is needed before ReadTo
@@ -396,6 +421,9 @@ func (c *client) ConnectC(ctx context.Context) error {
 	}
 	if c.logMask != 0 {
 		c.SetLogMaskC(ctx, c.logMask)
+	}
+	if c.logger != nil {
+		c.SetLogger(c.logger)
 	}
 	// Print server greeting (first response in the unilateral server data queue)
 	Log.Debugf("Server says: %q", c.c.Data[0].Info)

@@ -63,6 +63,8 @@ func main() {
 	P.IntVarP(&port, "port", "p", 143, "port")
 	P.StringVarP(&mbox, "mbox", "m", "INBOX", "mail box")
 
+	rootCtx := xlog.NewContext(context.Background(), Log)
+
 	listCmd := &cobra.Command{
 		Use: "list",
 		Run: func(_ *cobra.Command, args []string) {
@@ -71,7 +73,7 @@ func main() {
 				Log.Fatalf("CONNECT: %v", err)
 			}
 			defer c.Close(false)
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
 			uids, err := c.ListC(ctx, mbox, "", all)
 			cancel()
 			if err != nil {
@@ -80,7 +82,7 @@ func main() {
 			var buf bytes.Buffer
 			for _, uid := range uids {
 				buf.Reset()
-				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
 				_, err := c.Peek(ctx, &buf, uid, "")
 				cancel()
 				if err != nil {
@@ -109,9 +111,8 @@ func main() {
 				Log.Fatalf("CONNECT: %v", err)
 			}
 			defer c.Close(false)
-			ctx := context.Background()
-			ctx2, cancel := context.WithTimeout(ctx, 10*time.Second)
-			err := c.Select(ctx2, mbox)
+			ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
+			err := c.Select(ctx, mbox)
 			cancel()
 			if err != nil {
 				Log.Fatalf("SELECT(%q): %v", mbox, err)
@@ -133,9 +134,9 @@ func main() {
 
 			var uids []uint32
 			if len(args) == 0 || strings.ToUpper(args[0]) == "ALL" {
-				ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+				ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
 				var err error
-				uids, err = c.ListC(ctx, mbox, "", all)
+				uids, err = c.ListC(ctx, mbox, "", true)
 				cancel()
 				if err != nil {
 					Log.Fatalf("list %q: %v", mbox, err)
@@ -155,7 +156,7 @@ func main() {
 				return
 			}
 			if len(args) == 1 {
-				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
 				_, err = c.ReadToC(ctx, dest, uids[0])
 				cancel()
 				if err != nil {
@@ -171,7 +172,7 @@ func main() {
 			osUid, osGid := os.Getuid(), os.Getgid()
 			for _, uid := range uids {
 				buf.Reset()
-				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
 				_, err = c.ReadToC(ctx, &buf, uint32(uid))
 				cancel()
 				if err != nil {

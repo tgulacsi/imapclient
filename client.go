@@ -52,6 +52,7 @@ type Client interface {
 	Close(commit bool) error
 	List(mbox, pattern string, all bool) ([]uint32, error)
 	ListC(ctx context.Context, mbox, pattern string, all bool) ([]uint32, error)
+	Mailboxes(ctx context.Context, root string) ([]string, error)
 	ReadTo(w io.Writer, msgID uint32) (int64, error)
 	ReadToC(ctx context.Context, w io.Writer, msgID uint32) (int64, error)
 	Peek(ctx context.Context, w io.Writer, msgID uint32, what string) (int64, error)
@@ -72,6 +73,7 @@ const (
 
 type client struct {
 	host, username, password string
+	PathSep                  string
 	port, tls                int
 	noUTF8                   bool
 	c                        *imap.Client
@@ -328,6 +330,20 @@ func (c *client) List(mbox, pattern string, all bool) ([]uint32, error) {
 	return c.ListC(context.Background(), mbox, pattern, all)
 }
 
+// Mailboxes returns the list of mailboxes under root
+func (c *client) Mailboxes(ctx context.Context, root string) ([]string, error) {
+	cmd, err := c.c.List(root, "*")
+	if err != nil {
+		return nil, err
+	}
+	cmd, err = c.WaitC(ctx, cmd)
+	names := make([]string, 0, len(cmd.Data))
+	for _, d := range cmd.Data {
+		names = append(names, d.MailboxInfo().Name)
+	}
+	return names, err
+}
+
 // Close closes the currently selected mailbox, then logs out.
 func (c *client) CloseC(ctx context.Context, expunge bool) error {
 	if c.c == nil {
@@ -470,6 +486,15 @@ func (c *client) ConnectC(ctx context.Context) error {
 		}
 	}
 
+	cmd, err := c.c.List("", "")
+	if err != nil {
+		return err
+	}
+	if _, err = c.WaitC(ctx, cmd); err != nil {
+		return err
+	}
+	c.PathSep = cmd.Data[0].MailboxInfo().Delim
+
 	return nil
 }
 
@@ -504,7 +529,9 @@ func (c client) WaitC(ctx context.Context, cmd *imap.Command) (*imap.Command, er
 			return nil, ctx.Err()
 		default:
 			if err = c.c.Recv(time.Second); err == nil || err != imap.ErrTimeout {
-				Log.Debugf("Recv: %v", err)
+				if err != nil {
+					Log.Errorf("Recv: %v", err)
+				}
 				break
 			}
 		}

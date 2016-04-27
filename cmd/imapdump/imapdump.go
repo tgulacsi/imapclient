@@ -61,7 +61,7 @@ func main() {
 	P.StringVarP(&password, "password", "P", "", "password")
 	P.StringVarP(&host, "host", "H", "localhost", "host")
 	P.IntVarP(&port, "port", "p", 143, "port")
-	P.StringVarP(&mbox, "mbox", "m", "INBOX", "mail box")
+	P.StringVarP(&mbox, "mbox", "m", "", "mail box")
 
 	rootCtx := xlog.NewContext(context.Background(), Log)
 
@@ -101,7 +101,29 @@ func main() {
 	listCmd.Flags().BoolVarP(&all, "all", "a", false, "list all, not just UNSEEN")
 	dumpCmd.AddCommand(listCmd)
 
+	treeCmd := &cobra.Command{
+		Use: "tree",
+		Run: func(_ *cobra.Command, args []string) {
+			c := imapclient.NewClient(host, port, username, password)
+			if err := c.Connect(); err != nil {
+				Log.Fatalf("CONNECT: %v", err)
+			}
+			defer c.Close(false)
+			ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
+			boxes, err := c.Mailboxes(ctx, mbox)
+			cancel()
+			if err != nil {
+				Log.Fatalf("LIST: %v", err)
+			}
+			for _, m := range boxes {
+				fmt.Fprintln(os.Stdout, m)
+			}
+		},
+	}
+	dumpCmd.AddCommand(treeCmd)
+
 	var out string
+	recursive := false
 	saveCmd := &cobra.Command{
 		Use:     "save",
 		Aliases: []string{"dump", "write"},
@@ -200,6 +222,7 @@ func main() {
 		},
 	}
 	saveCmd.Flags().StringVarP(&out, "out", "o", "-", "output mail(s) to this file")
+	saveCmd.Flags().BoolVarP(&recursive, "recursive", "r", recursive, "dump recursively (all subfolders)")
 	dumpCmd.AddCommand(saveCmd)
 
 	dumpCmd.Execute()

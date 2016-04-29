@@ -44,25 +44,40 @@ import (
 var Log xlog.Logger
 
 func main() {
-	Log = xlog.New(xlog.Config{Output: xlog.NewConsoleOutput(), Level: xlog.LevelInfo})
-	imapclient.Log = Log
+	logCfg := xlog.Config{Output: xlog.NewConsoleOutput(), Level: xlog.LevelInfo}
+	Log = xlog.New(logCfg)
 
 	dumpCmd := &cobra.Command{
 		Use: "dump",
 	}
+
 	var (
 		username, password string
-		host               string
-		port               int
-		all                bool
+		verbose, all       bool
 	)
+	host := os.Getenv("IMAPDUMP_HOST")
+	port := 143
+	if s := os.Getenv("IMAPDUMP_PORT"); s != "" {
+		if i, err := strconv.Atoi(s); err == nil {
+			port = i
+		}
+	}
 	P := dumpCmd.PersistentFlags()
-	P.StringVarP(&username, "username", "U", "", "username")
-	P.StringVarP(&password, "password", "P", "", "password")
-	P.StringVarP(&host, "host", "H", "localhost", "host")
-	P.IntVarP(&port, "port", "p", 143, "port")
+	P.StringVarP(&username, "username", "U", os.Getenv("IMAPDUMP_USER"), "username")
+	P.StringVarP(&password, "password", "P", os.Getenv("IMAPDUMP_PASS"), "password")
+	P.StringVarP(&host, "host", "H", host, "host")
+	P.BoolVarP(&verbose, "verbose", "v", false, "verbose logging")
+	P.IntVarP(&port, "port", "p", port, "port")
 
 	rootCtx := xlog.NewContext(context.Background(), Log)
+	dumpCmd.PersistentPreRun = func(_ *cobra.Command, _ []string) {
+		if verbose {
+			logCfg.Level = xlog.LevelDebug
+			Log = xlog.New(logCfg)
+			imapclient.Log = Log
+			rootCtx = xlog.NewContext(rootCtx, Log)
+		}
+	}
 
 	listCmd := &cobra.Command{
 		Use: "list",
@@ -91,7 +106,11 @@ func main() {
 			}
 			defer c.Close(false)
 			ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
-			boxes, err := c.Mailboxes(ctx, args[0])
+			mbox := "INBOX"
+			if len(args) > 0 {
+				mbox = args[0]
+			}
+			boxes, err := c.Mailboxes(ctx, mbox)
 			cancel()
 			if err != nil {
 				Log.Fatalf("LIST: %v", err)
@@ -239,22 +258,20 @@ func listMbox(rootCtx context.Context, c imapclient.Client, mbox string, all boo
 	if err != nil {
 		return errgo.Notef(err, "LIST %q", mbox)
 	}
-	var buf bytes.Buffer
-	for _, uid := range uids {
-		buf.Reset()
-		ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
-		_, err := c.Peek(ctx, &buf, uid, "")
-		cancel()
+
+	ctx, cancel = context.WithTimeout(rootCtx, 10*time.Second)
+	attrs, err := c.FetchArgs(ctx, "RFC822.SIZE RFC822.HEADER", uids...)
+	cancel()
+	if err != nil {
+		Log.Errorf("Peek(%d): %v", uids, err)
+		return err
+	}
+	for uid, m := range attrs {
+		hdr, err := textproto.NewReader(bufio.NewReader(strings.NewReader(m["RFC822.HEADER"][0]))).ReadMIMEHeader()
 		if err != nil {
-			Log.Errorf("Peek(%d): %v", uid, err)
-			continue
+			Log.Errorf("parse(%d): %v", uid, err)
 		}
-		hdr, err := textproto.NewReader(bufio.NewReader(bytes.NewReader(buf.Bytes()))).ReadMIMEHeader()
-		if err != nil {
-			Log.Errorf("parse(%d) %q: %v", uid, buf.String(), err)
-			continue
-		}
-		fmt.Fprintf(os.Stdout, "%d\t%s\n", uid, HeadDecode(hdr.Get("Subject")))
+		fmt.Fprintf(os.Stdout, "%d\t%s\t%s\n", uid, m["RFC822.SIZE"][0], HeadDecode(hdr.Get("Subject")))
 	}
 	return nil
 }

@@ -55,6 +55,7 @@ type Client interface {
 	Mailboxes(ctx context.Context, root string) ([]string, error)
 	ReadTo(w io.Writer, msgID uint32) (int64, error)
 	ReadToC(ctx context.Context, w io.Writer, msgID uint32) (int64, error)
+	FetchArgs(ctx context.Context, what string, msgIDs ...uint32) (map[uint32]map[string][]string, error)
 	Peek(ctx context.Context, w io.Writer, msgID uint32, what string) (int64, error)
 	Mark(msgID uint32, seen bool) error
 	Delete(msgID uint32) error
@@ -182,7 +183,10 @@ func (c client) Peek(ctx context.Context, w io.Writer, msgID uint32, what string
 	var length int64
 	set := &imap.SeqSet{}
 	set.AddNum(msgID)
-	cmd, err := c.c.UIDFetch(set, "BODY.PEEK["+what+"]")
+	Log := xlog.FromContext(ctx)
+	what = "BODY.PEEK[" + what + "]"
+	Log.Debugf("FETCH %v %q", set, what)
+	cmd, err := c.c.UIDFetch(set, what)
 	if err != nil {
 		return length, err
 	}
@@ -205,6 +209,7 @@ func (c client) Peek(ctx context.Context, w io.Writer, msgID uint32, what string
 		}
 		// Process data.
 		for _, resp := range cmd.Data {
+			Log.Debugf("resp=%v", resp)
 			n, err := w.Write(imap.AsBytes(resp.MessageInfo().Attrs["BODY[]"]))
 			if err != nil {
 				return length, err
@@ -219,6 +224,87 @@ func (c client) Peek(ctx context.Context, w io.Writer, msgID uint32, what string
 		return length, err
 	}
 	return length, nil
+}
+
+// Fetch the message. Possible what: RFC3551 6.5.4 (RFC822.SIZE, ENVELOPE, ...). The default is "RFC822.SIZE ENVELOPE".
+func (c client) FetchArgs(ctx context.Context, what string, msgIDs ...uint32) (map[uint32]map[string][]string, error) {
+	result := make(map[uint32]map[string][]string, len(msgIDs))
+	set := &imap.SeqSet{}
+	for _, msgID := range msgIDs {
+		set.AddNum(msgID)
+	}
+	if what == "" {
+		what = "RFC822.SIZE ENVELOPE"
+	}
+
+	Log := xlog.FromContext(ctx)
+	Log.Debugf("FETCH %v %q", set, what)
+	cmd, err := c.c.UIDFetch(set, what)
+	if err != nil {
+		return nil, err
+	}
+	deadline, deadlineOk := ctx.Deadline()
+
+	for cmd.InProgress() {
+		d := Timeout
+		if deadlineOk {
+			now := time.Now()
+			if deadline.Before(now.Add(d)) {
+				d = deadline.Sub(now)
+			}
+		}
+		// wait for server response
+		if err = c.c.Recv(d); err != nil {
+			if err == io.EOF {
+				break
+			}
+			return result, err
+		}
+		// Process data.
+		for _, resp := range cmd.Data {
+			Log.Debugf("resp=%v", resp)
+			mi := resp.MessageInfo()
+			m := make(map[string][]string, len(mi.Attrs))
+			for k, v := range mi.Attrs {
+				switch x := v.(type) {
+				case []imap.Field:
+					m[k] = fieldsAsStrings(x)
+				case imap.Field:
+					m[k] = fieldsAsStrings([]imap.Field{x})
+				default:
+					m[k] = []string{fmt.Sprintf("%v", x)}
+				}
+			}
+			result[mi.UID] = m
+		}
+		cmd.Data = nil
+	}
+
+	// Check command completion status.
+	if _, err = cmd.Result(imap.OK); err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func fieldsAsStrings(fields []imap.Field) []string {
+	result := make([]string, len(fields))
+	for i, f := range fields {
+		if f == nil {
+			continue
+		}
+		switch x := f.(type) {
+		case string:
+			result[i] = x
+		case fmt.Stringer:
+			result[i] = x.String()
+		case uint32:
+			result[i] = fmt.Sprintf("%d", x)
+		default:
+			result[i] = imap.AsString(f)
+		}
+	}
+	return result
 }
 
 // ReadTo reads the message identified by the given msgID, into the io.Writer.

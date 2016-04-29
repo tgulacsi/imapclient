@@ -157,11 +157,15 @@ func main() {
 				Log.Fatalf("CONNECT: %v", err)
 			}
 			defer c.Close(false)
-			ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
-			err := c.Select(ctx, mbox)
-			cancel()
-			if err != nil {
-				Log.Fatalf("SELECT(%q): %v", mbox, err)
+			mailboxes := []string{mbox}
+			if recursive {
+				ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
+				var err error
+				mailboxes, err = c.Mailboxes(ctx, mbox)
+				cancel()
+				if err != nil {
+					Log.Fatalf("List mailboxes under %q: %v", mbox, err)
+				}
 			}
 
 			dest := os.Stdout
@@ -178,79 +182,98 @@ func main() {
 				}
 			}()
 
-			var uids []uint32
-			if len(args) == 0 || strings.ToUpper(args[0]) == "ALL" {
+			var tw *tar.Writer
+			for _, mbox := range mailboxes {
+
 				ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
-				var err error
-				uids, err = c.ListC(ctx, mbox, "", true)
+				err := c.Select(ctx, mbox)
 				cancel()
 				if err != nil {
-					Log.Fatalf("list %q: %v", mbox, err)
+					Log.Fatalf("SELECT(%q): %v", mbox, err)
 				}
-			} else {
-				for _, a := range args {
-					uid, err := strconv.ParseUint(a, 10, 32)
+
+				var uids []uint32
+				if len(args) == 0 || strings.ToUpper(args[0]) == "ALL" {
+					ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
+					var err error
+					uids, err = c.ListC(ctx, mbox, "", true)
+					cancel()
 					if err != nil {
-						Log.Errorf("parse %q as uid: %v", a, err)
+						Log.Fatalf("list %q: %v", mbox, err)
+					}
+				} else {
+					for _, a := range args {
+						uid, err := strconv.ParseUint(a, 10, 32)
+						if err != nil {
+							Log.Errorf("parse %q as uid: %v", a, err)
+							continue
+						}
+						uids = append(uids, uint32(uid))
+					}
+				}
+
+				switch len(uids) {
+				case 0:
+					if recursive {
 						continue
 					}
-					uids = append(uids, uint32(uid))
-				}
-			}
-
-			switch len(uids) {
-			case 0:
-				return
-			case 1:
-				ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
-				_, err = c.ReadToC(ctx, dest, uids[0])
-				cancel()
-				if err != nil {
-					Log.Fatalf("Read(%d): %v", uids[0], err)
-				}
-				return
-			}
-
-			tw := tar.NewWriter(dest)
-			defer tw.Close()
-			var buf bytes.Buffer
-			now := time.Now()
-			osUid, osGid := os.Getuid(), os.Getgid()
-			Log.Infof("Saving %d messages from %q...", len(uids), mbox)
-			for _, uid := range uids {
-				buf.Reset()
-				ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
-				_, err = c.ReadToC(ctx, &buf, uint32(uid))
-				cancel()
-				if err != nil {
-					Log.Fatalf("Read(%d): %v", uid, errgo.Details(err))
-				}
-				hdr, err := textproto.NewReader(bufio.NewReader(bytes.NewReader(buf.Bytes()))).ReadMIMEHeader()
-				t := now
-				if err != nil {
-					Log.Errorf("parse(%d): %v", uid, err)
-				} else {
-					var ok bool
-					if t, ok = HeadDate(hdr.Get("Date")); !ok {
-						t = now
+					return
+				case 1:
+					ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
+					_, err = c.ReadToC(ctx, dest, uids[0])
+					cancel()
+					if err != nil {
+						Log.Fatalf("Read(%d): %v", uids[0], err)
 					}
+					if recursive {
+						continue
+					}
+					return
 				}
-				if err := tw.WriteHeader(&tar.Header{
-					Name:     fmt.Sprintf("%d.eml", uid),
-					Size:     int64(buf.Len()),
-					Mode:     0640,
-					Typeflag: tar.TypeReg,
-					ModTime:  t,
-					Uid:      osUid, Gid: osGid,
-				}); err != nil {
-					Log.Fatal(err)
-				}
-				if _, err := io.Copy(tw, bytes.NewReader(buf.Bytes())); err != nil {
-					Log.Fatal(err)
+				if tw == nil {
+					tw = tar.NewWriter(dest)
+					defer tw.Close()
 				}
 
-				if err := tw.Flush(); err != nil {
-					Log.Fatal(err)
+				now := time.Now()
+				osUid, osGid := os.Getuid(), os.Getgid()
+				Log.Infof("Saving %d messages from %q...", len(uids), mbox)
+				var buf bytes.Buffer
+				for _, uid := range uids {
+					buf.Reset()
+					ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
+					_, err = c.ReadToC(ctx, &buf, uint32(uid))
+					cancel()
+					if err != nil {
+						Log.Fatal(errgo.Notef(err, "read(%d)", uid))
+					}
+					hdr, err := textproto.NewReader(bufio.NewReader(bytes.NewReader(buf.Bytes()))).ReadMIMEHeader()
+					t := now
+					if err != nil {
+						Log.Errorf("parse(%d): %v", uid, err)
+					} else {
+						var ok bool
+						if t, ok = HeadDate(hdr.Get("Date")); !ok {
+							t = now
+						}
+					}
+					if err := tw.WriteHeader(&tar.Header{
+						Name:     fmt.Sprintf("%s/%d.eml", mbox, uid),
+						Size:     int64(buf.Len()),
+						Mode:     0640,
+						Typeflag: tar.TypeReg,
+						ModTime:  t,
+						Uid:      osUid, Gid: osGid,
+					}); err != nil {
+						Log.Fatal(errgo.Notef(err, "WriteHeader"))
+					}
+					if _, err := io.Copy(tw, bytes.NewReader(buf.Bytes())); err != nil {
+						Log.Fatal(errgo.Notef(err, "write tar"))
+					}
+
+					if err := tw.Flush(); err != nil {
+						Log.Fatal(errgo.Notef(err, "flush tar"))
+					}
 				}
 			}
 

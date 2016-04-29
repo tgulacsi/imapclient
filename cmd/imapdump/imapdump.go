@@ -44,7 +44,7 @@ import (
 var Log xlog.Logger
 
 func main() {
-	Log = xlog.New(xlog.Config{Output: xlog.NewConsoleOutput()})
+	Log = xlog.New(xlog.Config{Output: xlog.NewConsoleOutput(), Level: xlog.LevelInfo})
 	imapclient.Log = Log
 
 	dumpCmd := &cobra.Command{
@@ -52,7 +52,7 @@ func main() {
 	}
 	var (
 		username, password string
-		host, mbox         string
+		host               string
 		port               int
 		all                bool
 	)
@@ -61,7 +61,6 @@ func main() {
 	P.StringVarP(&password, "password", "P", "", "password")
 	P.StringVarP(&host, "host", "H", "localhost", "host")
 	P.IntVarP(&port, "port", "p", 143, "port")
-	P.StringVarP(&mbox, "mbox", "m", "", "mail box")
 
 	rootCtx := xlog.NewContext(context.Background(), Log)
 
@@ -73,28 +72,10 @@ func main() {
 				Log.Fatalf("CONNECT: %v", err)
 			}
 			defer c.Close(false)
-			ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
-			uids, err := c.ListC(ctx, mbox, "", all)
-			cancel()
-			if err != nil {
-				Log.Fatalf("LIST: %v", err)
-			}
-			var buf bytes.Buffer
-			for _, uid := range uids {
-				buf.Reset()
-				ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
-				_, err := c.Peek(ctx, &buf, uid, "")
-				cancel()
-				if err != nil {
-					Log.Errorf("Peek(%d): %v", uid, err)
-					continue
+			for _, mbox := range args {
+				if err := listMbox(rootCtx, c, mbox, all); err != nil {
+					Log.Errorf("Listing %q: %v", mbox, err)
 				}
-				hdr, err := textproto.NewReader(bufio.NewReader(bytes.NewReader(buf.Bytes()))).ReadMIMEHeader()
-				if err != nil {
-					Log.Errorf("parse(%d) %q: %v", uid, buf.String(), err)
-					continue
-				}
-				fmt.Fprintf(os.Stdout, "%d\t%s\n", uid, HeadDecode(hdr.Get("Subject")))
 			}
 		},
 	}
@@ -110,7 +91,7 @@ func main() {
 			}
 			defer c.Close(false)
 			ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
-			boxes, err := c.Mailboxes(ctx, mbox)
+			boxes, err := c.Mailboxes(ctx, args[0])
 			cancel()
 			if err != nil {
 				Log.Fatalf("LIST: %v", err)
@@ -122,7 +103,7 @@ func main() {
 	}
 	dumpCmd.AddCommand(treeCmd)
 
-	var out string
+	var out, mbox string
 	recursive := false
 	saveCmd := &cobra.Command{
 		Use:     "save",
@@ -222,6 +203,7 @@ func main() {
 		},
 	}
 	saveCmd.Flags().StringVarP(&out, "out", "o", "-", "output mail(s) to this file")
+	saveCmd.Flags().StringVarP(&mbox, "mbox", "m", "INBOX", "mailbox to save from")
 	saveCmd.Flags().BoolVarP(&recursive, "recursive", "r", recursive, "dump recursively (all subfolders)")
 	dumpCmd.AddCommand(saveCmd)
 
@@ -248,4 +230,31 @@ func HeadDecode(head string) string {
 		Log.Errorf("decode %q: %v", head, err)
 	}
 	return head
+}
+
+func listMbox(rootCtx context.Context, c imapclient.Client, mbox string, all bool) error {
+	ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
+	uids, err := c.ListC(ctx, mbox, "", all)
+	cancel()
+	if err != nil {
+		return errgo.Notef(err, "LIST %q", mbox)
+	}
+	var buf bytes.Buffer
+	for _, uid := range uids {
+		buf.Reset()
+		ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
+		_, err := c.Peek(ctx, &buf, uid, "")
+		cancel()
+		if err != nil {
+			Log.Errorf("Peek(%d): %v", uid, err)
+			continue
+		}
+		hdr, err := textproto.NewReader(bufio.NewReader(bytes.NewReader(buf.Bytes()))).ReadMIMEHeader()
+		if err != nil {
+			Log.Errorf("parse(%d) %q: %v", uid, buf.String(), err)
+			continue
+		}
+		fmt.Fprintf(os.Stdout, "%d\t%s\n", uid, HeadDecode(hdr.Get("Subject")))
+	}
+	return nil
 }

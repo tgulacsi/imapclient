@@ -1,5 +1,5 @@
 /*
-Copyright 2014 Tamás Gulácsi
+Copyright 2016 Tamás Gulácsi
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -39,6 +39,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/tgulacsi/imapclient"
 )
+
+const fetchBatchLen = 1024
 
 // Log is the logger.
 var Log xlog.Logger
@@ -88,8 +90,12 @@ func main() {
 			}
 			defer c.Close(false)
 			for _, mbox := range args {
-				if err := listMbox(rootCtx, c, mbox, all); err != nil {
+				mails, err := listMbox(rootCtx, c, mbox, all)
+				if err != nil {
 					Log.Errorf("Listing %q: %v", mbox, err)
+				}
+				for _, m := range mails {
+					fmt.Fprintf(os.Stdout, "%d\t%d\t%s\n", m.UID, m.Size, m.Subject)
 				}
 			}
 		},
@@ -97,6 +103,7 @@ func main() {
 	listCmd.Flags().BoolVarP(&all, "all", "a", false, "list all, not just UNSEEN")
 	dumpCmd.AddCommand(listCmd)
 
+	var du bool
 	treeCmd := &cobra.Command{
 		Use: "tree",
 		Run: func(_ *cobra.Command, args []string) {
@@ -115,11 +122,28 @@ func main() {
 			if err != nil {
 				Log.Fatalf("LIST: %v", err)
 			}
+			if !du {
+				for _, m := range boxes {
+					fmt.Fprintln(os.Stdout, m)
+				}
+				return
+			}
 			for _, m := range boxes {
-				fmt.Fprintln(os.Stdout, m)
+				ctx, cancel := context.WithTimeout(rootCtx, 5*time.Minute)
+				mails, err := listMbox(ctx, c, m, true)
+				cancel()
+				if err != nil {
+					Log.Errorf("list %q: %v", m, err)
+				}
+				var s uint64
+				for _, m := range mails {
+					s += uint64(m.Size)
+				}
+				fmt.Fprintf(os.Stdout, "%s\t%d\n", m, s)
 			}
 		},
 	}
+	treeCmd.Flags().BoolVarP(&du, "du", "l", false, "print dir sizes, too")
 	dumpCmd.AddCommand(treeCmd)
 
 	var out, mbox string
@@ -174,10 +198,10 @@ func main() {
 				}
 			}
 
-			if len(uids) == 0 {
+			switch len(uids) {
+			case 0:
 				return
-			}
-			if len(args) == 1 {
+			case 1:
 				ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
 				_, err = c.ReadToC(ctx, dest, uids[0])
 				cancel()
@@ -192,6 +216,7 @@ func main() {
 			var buf bytes.Buffer
 			now := time.Now()
 			osUid, osGid := os.Getuid(), os.Getgid()
+			Log.Infof("Saving %d messages from %q...", len(uids), mbox)
 			for _, uid := range uids {
 				buf.Reset()
 				ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
@@ -200,12 +225,22 @@ func main() {
 				if err != nil {
 					Log.Fatalf("Read(%d): %v", uid, errgo.Details(err))
 				}
+				hdr, err := textproto.NewReader(bufio.NewReader(bytes.NewReader(buf.Bytes()))).ReadMIMEHeader()
+				t := now
+				if err != nil {
+					Log.Errorf("parse(%d): %v", uid, err)
+				} else {
+					var ok bool
+					if t, ok = HeadDate(hdr.Get("Date")); !ok {
+						t = now
+					}
+				}
 				if err := tw.WriteHeader(&tar.Header{
 					Name:     fmt.Sprintf("%d.eml", uid),
 					Size:     int64(buf.Len()),
 					Mode:     0640,
 					Typeflag: tar.TypeReg,
-					ModTime:  now,
+					ModTime:  t,
 					Uid:      osUid, Gid: osGid,
 				}); err != nil {
 					Log.Fatal(err)
@@ -251,27 +286,67 @@ func HeadDecode(head string) string {
 	return head
 }
 
-func listMbox(rootCtx context.Context, c imapclient.Client, mbox string, all bool) error {
-	ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
+type Mail struct {
+	UID     uint32
+	Subject string
+	Size    uint32
+}
+
+func listMbox(rootCtx context.Context, c imapclient.Client, mbox string, all bool) ([]Mail, error) {
+	ctx, cancel := context.WithTimeout(rootCtx, 30*time.Second)
 	uids, err := c.ListC(ctx, mbox, "", all)
 	cancel()
 	if err != nil {
-		return errgo.Notef(err, "LIST %q", mbox)
+		return nil, errgo.Notef(err, "LIST %q", mbox)
+	}
+	if len(uids) == 0 {
+		return nil, nil
 	}
 
-	ctx, cancel = context.WithTimeout(rootCtx, 10*time.Second)
-	attrs, err := c.FetchArgs(ctx, "RFC822.SIZE RFC822.HEADER", uids...)
-	cancel()
-	if err != nil {
-		Log.Errorf("Peek(%d): %v", uids, err)
-		return err
-	}
-	for uid, m := range attrs {
-		hdr, err := textproto.NewReader(bufio.NewReader(strings.NewReader(m["RFC822.HEADER"][0]))).ReadMIMEHeader()
-		if err != nil {
-			Log.Errorf("parse(%d): %v", uid, err)
+	result := make([]Mail, 0, len(uids))
+	for len(uids) > 0 {
+		n := len(uids)
+		if n > fetchBatchLen {
+			n = fetchBatchLen
+			Log.Infof("Fetching %d of %d.", n, len(uids))
 		}
-		fmt.Fprintf(os.Stdout, "%d\t%s\t%s\n", uid, m["RFC822.SIZE"][0], HeadDecode(hdr.Get("Subject")))
+		ctx, cancel = context.WithTimeout(rootCtx, 10*time.Second)
+		attrs, err := c.FetchArgs(ctx, "RFC822.SIZE RFC822.HEADER", uids[:n]...)
+		uids = uids[n:]
+		cancel()
+		if err != nil {
+			Log.Errorf("FetchArgs(%d): %v", uids, err)
+			return nil, err
+		}
+		for uid, a := range attrs {
+			m := Mail{UID: uid}
+			result = append(result, m)
+			hdr, err := textproto.NewReader(bufio.NewReader(strings.NewReader(a["RFC822.HEADER"][0]))).ReadMIMEHeader()
+			if err != nil {
+				Log.Errorf("parse(%d): %v", uid, err)
+				continue
+			}
+			m.Subject = HeadDecode(hdr.Get("Subject"))
+			if s, err := strconv.ParseUint(a["RFC822.SIZE"][0], 10, 32); err != nil {
+				Log.Errorf("size(%d)=%v: %v", uid, a["RFC822.SIZE"], err)
+				continue
+			} else {
+				m.Size = uint32(s)
+				result[len(result)-1] = m
+			}
+		}
 	}
-	return nil
+	return result, nil
+}
+
+func HeadDate(s string) (time.Time, bool) {
+	if s == "" {
+		return time.Time{}, false
+	}
+	for _, pat := range []string{time.RFC1123Z, time.RFC1123, time.RFC822Z, time.RFC822} {
+		if t, err := time.Parse(pat, s); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
 }

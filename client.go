@@ -27,6 +27,8 @@ import (
 	"strings"
 	"time"
 
+	"gopkg.in/errgo.v1"
+
 	"golang.org/x/net/context"
 
 	"github.com/mxk/go-imap/imap"
@@ -166,9 +168,10 @@ func (c client) SetLoggerC(ctx context.Context) {
 // (List includes this).
 func (c client) Select(ctx context.Context, mbox string) error {
 	cmd, err := c.c.Select(mbox, false)
-	if err == nil {
-		_, err = c.WaitC(ctx, cmd)
+	if err != nil {
+		return errgo.Notef(err, "SELECT %q", mbox)
 	}
+	_, err = c.WaitC(ctx, cmd)
 	return err
 }
 
@@ -188,7 +191,7 @@ func (c client) Peek(ctx context.Context, w io.Writer, msgID uint32, what string
 	Log.Debugf("FETCH %v %q", set, what)
 	cmd, err := c.c.UIDFetch(set, what)
 	if err != nil {
-		return length, err
+		return length, errgo.Notef(err, "UIDFetch %v %v", set, what)
 	}
 	deadline, deadlineOk := ctx.Deadline()
 
@@ -220,10 +223,8 @@ func (c client) Peek(ctx context.Context, w io.Writer, msgID uint32, what string
 	}
 
 	// Check command completion status.
-	if _, err = cmd.Result(imap.OK); err != nil {
-		return length, err
-	}
-	return length, nil
+	_, err = cmd.Result(imap.OK)
+	return length, err
 }
 
 // Fetch the message. Possible what: RFC3551 6.5.4 (RFC822.SIZE, ENVELOPE, ...). The default is "RFC822.SIZE ENVELOPE".
@@ -347,7 +348,10 @@ func (c *client) MoveC(ctx context.Context, msgID uint32, mbox string) error {
 	if err != nil {
 		return err
 	}
-	cmd, err = c.c.UIDStore(set, "+FLAGS", imap.Field(`\Deleted`))
+	if cmd, err = c.c.UIDStore(set, "+FLAGS", imap.Field(`\Deleted`)); err != nil {
+		c.WaitC(ctx, cmd)
+		return err
+	}
 	_, err = c.WaitC(ctx, cmd)
 	return err
 }
@@ -359,12 +363,11 @@ func (c *client) ListC(ctx context.Context, mbox, pattern string, all bool) ([]u
 	Log := xlog.FromContext(ctx)
 	Log.Debugf("List(%q, %q)", mbox, pattern)
 	if err := c.Select(ctx, mbox); err != nil {
-		return nil, err
+		return nil, errgo.Notef(err, "SELECT %q", mbox)
 	}
 	var fields = make([]imap.Field, 0, 4)
-	if all {
-		fields = append(fields, imap.Field("NOT"), imap.Field("DELETED"))
-	} else {
+	fields = append(fields, imap.Field("ALL"))
+	if !all {
 		fields = append(fields, imap.Field("UNSEEN"))
 	}
 	if pattern != "" {
@@ -382,7 +385,7 @@ func (c *client) ListC(ctx context.Context, mbox, pattern string, all bool) ([]u
 			if strings.Index(err.Error(), "BADCHARSET") >= 0 {
 				c.noUTF8 = true
 			} else {
-				return nil, err
+				return nil, errgo.Notef(err, "UIDSearch(%v)", fields)
 			}
 		} else {
 			ok = true
@@ -397,14 +400,14 @@ func (c *client) ListC(ctx context.Context, mbox, pattern string, all bool) ([]u
 		}
 		Log.Debugf("UID SEARCH(%q): %v", fields, err)
 		if err != nil {
-			return nil, err
+			return nil, errgo.Notef(err, "UIDSearch %v", fields)
 		}
 	}
 	if _, err = cmd.Result(imap.OK); err != nil {
 		return nil, err
 	}
 	Log.Debugf("List: %q", cmd.Data)
-	var uids []uint32
+	uids := make([]uint32, 0, len(cmd.Data))
 	for _, resp := range cmd.Data {
 		uids = append(uids, resp.SearchResults()...)
 	}
@@ -420,9 +423,11 @@ func (c *client) List(mbox, pattern string, all bool) ([]uint32, error) {
 func (c *client) Mailboxes(ctx context.Context, root string) ([]string, error) {
 	cmd, err := c.c.List(root, "*")
 	if err != nil {
-		return nil, err
+		return nil, errgo.Notef(err, "LIST %q *", root)
 	}
-	cmd, err = c.WaitC(ctx, cmd)
+	if cmd, err = c.WaitC(ctx, cmd); err != nil {
+		err = errgo.Notef(err, "%q", cmd)
+	}
 	names := make([]string, 0, len(cmd.Data))
 	for _, d := range cmd.Data {
 		names = append(names, d.MailboxInfo().Name)
@@ -438,7 +443,7 @@ func (c *client) CloseC(ctx context.Context, expunge bool) error {
 	c.c.Close(expunge)
 	cmd, err := c.c.Logout(getTimeout(ctx))
 	if err != nil {
-		return err
+		return errgo.Notef(err, "LOGOUT")
 	}
 	_, err = c.WaitC(ctx, cmd)
 	c.c = nil

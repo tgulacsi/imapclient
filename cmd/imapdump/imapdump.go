@@ -20,6 +20,7 @@ import (
 	"archive/tar"
 	"bufio"
 	"bytes"
+	"crypto/sha1"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -322,6 +323,7 @@ func dumpMails(rootCtx context.Context, tw *syncTW, c imapclient.Client, mbox st
 	buf := bufPool.Get().(*bytes.Buffer)
 	defer bufPool.Put(buf)
 	seen := make(map[string]struct{}, 1024)
+	var hshB []byte
 	for _, uid := range uids {
 		buf.Reset()
 		ctx, cancel := context.WithTimeout(rootCtx, 10*time.Minute)
@@ -330,19 +332,24 @@ func dumpMails(rootCtx context.Context, tw *syncTW, c imapclient.Client, mbox st
 		if err != nil {
 			Log.Fatal(errgo.Notef(err, "read(%d)", uid))
 		}
-		hdr, err := textproto.NewReader(bufio.NewReader(bytes.NewReader(buf.Bytes()))).ReadMIMEHeader()
-		msgID := hdr.Get("Message-ID")
-		if msgID == "" {
-			msgID = fmt.Sprintf("%06d", uid)
-		}
-		if _, ok := seen[msgID]; ok {
-			Log.Warnf("Deleting already seen %s (%s/%d).", msgID, mbox, uid)
+		hsh := sha1.New()
+		io.Copy(hsh, bytes.NewReader(buf.Bytes()))
+		hshB = hsh.Sum(hshB[:0])
+		hshS := base64.URLEncoding.EncodeToString(hshB)
+		if _, ok := seen[hshS]; ok {
+			Log.Warnf("Deleting already seen (%s/%d).", mbox, uid)
 			if err := c.Delete(uid); err != nil {
 				Log.Warnf("Delete(%s/%d): %v", mbox, uid, err)
 			}
 			continue
 		}
-		seen[msgID] = struct{}{}
+		seen[hshS] = struct{}{}
+
+		hdr, err := textproto.NewReader(bufio.NewReader(bytes.NewReader(buf.Bytes()))).ReadMIMEHeader()
+		msgID := hdr.Get("Message-ID")
+		if msgID == "" {
+			msgID = fmt.Sprintf("%06d", uid)
+		}
 		t := now
 		if err != nil {
 			Log.Errorf("parse(%d): %v", uid, err)

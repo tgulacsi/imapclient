@@ -364,7 +364,7 @@ func (c *client) ListC(ctx context.Context, mbox, pattern string, all bool) ([]u
 		return nil, errgo.Notef(err, "SELECT %q", mbox)
 	}
 	var fields = make([]imap.Field, 0, 4)
-	fields = append(fields, imap.Field("ALL"))
+	fields = append(fields, imap.Field("NOT DELETED"))
 	if !all {
 		fields = append(fields, imap.Field("UNSEEN"))
 	}

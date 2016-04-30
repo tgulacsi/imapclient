@@ -23,11 +23,17 @@ import (
 	"fmt"
 	"io"
 	"mime"
+	"net/http"
+	_ "net/http/pprof"
 	"net/textproto"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+
+	"go4.org/syncutil"
 
 	"gopkg.in/errgo.v1"
 
@@ -54,6 +60,7 @@ func main() {
 	}
 
 	var (
+		pprofListen        string
 		username, password string
 		verbose, all       bool
 	)
@@ -65,6 +72,7 @@ func main() {
 		}
 	}
 	P := dumpCmd.PersistentFlags()
+	P.StringVarP(&pprofListen, "pprof", "", "", "HTTP address to pprof to listen on")
 	P.StringVarP(&username, "username", "U", os.Getenv("IMAPDUMP_USER"), "username")
 	P.StringVarP(&password, "password", "P", os.Getenv("IMAPDUMP_PASS"), "password")
 	P.StringVarP(&host, "host", "H", host, "host")
@@ -79,13 +87,23 @@ func main() {
 			imapclient.Log = Log
 			rootCtx = xlog.NewContext(rootCtx, Log)
 		}
+		if pprofListen != "" {
+			go func() {
+				Log.Info(http.ListenAndServe(pprofListen, nil))
+			}()
+		}
+	}
+
+	NewClient := func() (imapclient.Client, error) {
+		c := imapclient.NewClient(host, port, username, password)
+		return c, c.Connect()
 	}
 
 	listCmd := &cobra.Command{
 		Use: "list",
 		Run: func(_ *cobra.Command, args []string) {
-			c := imapclient.NewClient(host, port, username, password)
-			if err := c.Connect(); err != nil {
+			c, err := NewClient()
+			if err != nil {
 				Log.Fatalf("CONNECT: %v", err)
 			}
 			defer c.Close(false)
@@ -107,8 +125,8 @@ func main() {
 	treeCmd := &cobra.Command{
 		Use: "tree",
 		Run: func(_ *cobra.Command, args []string) {
-			c := imapclient.NewClient(host, port, username, password)
-			if err := c.Connect(); err != nil {
+			c, err := NewClient()
+			if err != nil {
 				Log.Fatalf("CONNECT: %v", err)
 			}
 			defer c.Close(false)
@@ -152,8 +170,8 @@ func main() {
 		Use:     "save",
 		Aliases: []string{"dump", "write"},
 		Run: func(_ *cobra.Command, args []string) {
-			c := imapclient.NewClient(host, port, username, password)
-			if err := c.Connect(); err != nil {
+			c, err := NewClient()
+			if err != nil {
 				Log.Fatalf("CONNECT: %v", err)
 			}
 			defer c.Close(false)
@@ -182,9 +200,7 @@ func main() {
 				}
 			}()
 
-			var tw *tar.Writer
-			for _, mbox := range mailboxes {
-
+			if !recursive {
 				ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
 				err := c.Select(ctx, mbox)
 				cancel()
@@ -212,69 +228,59 @@ func main() {
 					}
 				}
 
-				switch len(uids) {
-				case 0:
-					if recursive {
-						continue
-					}
-					return
-				case 1:
+				if 1 == len(uids) {
 					ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
 					_, err = c.ReadToC(ctx, dest, uids[0])
 					cancel()
 					if err != nil {
 						Log.Fatalf("Read(%d): %v", uids[0], err)
 					}
-					if recursive {
-						continue
-					}
-					return
 				}
-				if tw == nil {
-					tw = tar.NewWriter(dest)
-					defer tw.Close()
+				tw := &syncTW{Writer: tar.NewWriter(dest)}
+				err = dumpMails(rootCtx, tw, c, mbox, uids)
+				if closeErr := tw.Close(); closeErr != nil && err == nil {
+					err = closeErr
+				}
+				if err != nil {
+					Log.Fatal(err)
+				}
+				return
+			}
+
+			tw := &syncTW{Writer: tar.NewWriter(dest)}
+			defer func() {
+				if err := tw.Close(); err != nil {
+					Log.Fatalf("Close tar: %v", err)
+				}
+			}()
+
+			var grp syncutil.Group
+			for _, mbox := range mailboxes {
+				ctx, cancel := context.WithTimeout(rootCtx, 10*time.Minute)
+				uids, err := c.ListC(ctx, mbox, "", true)
+				cancel()
+				if err != nil {
+					Log.Fatalf("list %q: %v", mbox, err)
+				}
+				if len(uids) == 0 {
+					continue
 				}
 
-				now := time.Now()
-				osUid, osGid := os.Getuid(), os.Getgid()
-				Log.Infof("Saving %d messages from %q...", len(uids), mbox)
-				var buf bytes.Buffer
-				for _, uid := range uids {
-					buf.Reset()
-					ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
-					_, err = c.ReadToC(ctx, &buf, uint32(uid))
-					cancel()
+				mbox := mbox
+				grp.Go(func() error {
+					c, err := NewClient()
 					if err != nil {
-						Log.Fatal(errgo.Notef(err, "read(%d)", uid))
+						return err
 					}
-					hdr, err := textproto.NewReader(bufio.NewReader(bytes.NewReader(buf.Bytes()))).ReadMIMEHeader()
-					t := now
-					if err != nil {
-						Log.Errorf("parse(%d): %v", uid, err)
-					} else {
-						var ok bool
-						if t, ok = HeadDate(hdr.Get("Date")); !ok {
-							t = now
-						}
-					}
-					if err := tw.WriteHeader(&tar.Header{
-						Name:     fmt.Sprintf("%s/%d.eml", mbox, uid),
-						Size:     int64(buf.Len()),
-						Mode:     0640,
-						Typeflag: tar.TypeReg,
-						ModTime:  t,
-						Uid:      osUid, Gid: osGid,
-					}); err != nil {
-						Log.Fatal(errgo.Notef(err, "WriteHeader"))
-					}
-					if _, err := io.Copy(tw, bytes.NewReader(buf.Bytes())); err != nil {
-						Log.Fatal(errgo.Notef(err, "write tar"))
-					}
-
-					if err := tw.Flush(); err != nil {
-						Log.Fatal(errgo.Notef(err, "flush tar"))
-					}
-				}
+					defer func() {
+						c.Close(false)
+						runtime.GC()
+					}()
+					return dumpMails(rootCtx, tw, c, mbox, uids)
+				})
+			}
+			if err := grp.Err(); err != nil {
+				Log.Fatal(err)
 			}
 
 		},
@@ -285,6 +291,80 @@ func main() {
 	dumpCmd.AddCommand(saveCmd)
 
 	dumpCmd.Execute()
+}
+
+var bufPool = sync.Pool{New: func() interface{} { return bytes.NewBuffer(make([]byte, 0, 1<<20)) }}
+
+func dumpMails(rootCtx context.Context, tw *syncTW, c imapclient.Client, mbox string, uids []uint32) error {
+	ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
+	err := c.Select(ctx, mbox)
+	cancel()
+	if err != nil {
+		Log.Fatalf("SELECT(%q): %v", mbox, err)
+	}
+
+	if len(uids) == 0 {
+		ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
+		var err error
+		uids, err = c.ListC(ctx, mbox, "", true)
+		cancel()
+		if err != nil {
+			Log.Fatalf("list %q: %v", mbox, err)
+		}
+	}
+
+	now := time.Now()
+	osUid, osGid := os.Getuid(), os.Getgid()
+	Log.Infof("Saving %d messages from %q...", len(uids), mbox)
+	buf := bufPool.Get().(*bytes.Buffer)
+	defer bufPool.Put(buf)
+	for _, uid := range uids {
+		buf.Reset()
+		ctx, cancel := context.WithTimeout(rootCtx, 10*time.Minute)
+		_, err = c.ReadToC(ctx, buf, uint32(uid))
+		cancel()
+		if err != nil {
+			Log.Fatal(errgo.Notef(err, "read(%d)", uid))
+		}
+		hdr, err := textproto.NewReader(bufio.NewReader(bytes.NewReader(buf.Bytes()))).ReadMIMEHeader()
+		t := now
+		if err != nil {
+			Log.Errorf("parse(%d): %v", uid, err)
+		} else {
+			var ok bool
+			if t, ok = HeadDate(hdr.Get("Date")); !ok {
+				t = now
+			}
+		}
+		tw.Lock()
+		if err := tw.WriteHeader(&tar.Header{
+			Name:     fmt.Sprintf("%s/%d.eml", mbox, uid),
+			Size:     int64(buf.Len()),
+			Mode:     0640,
+			Typeflag: tar.TypeReg,
+			ModTime:  t,
+			Uid:      osUid, Gid: osGid,
+		}); err != nil {
+			tw.Unlock()
+			return errgo.Notef(err, "WriteHeader")
+		}
+		if _, err := io.Copy(tw, bytes.NewReader(buf.Bytes())); err != nil {
+			tw.Unlock()
+			return errgo.Notef(err, "write tar")
+		}
+
+		if err := tw.Flush(); err != nil {
+			tw.Unlock()
+			return errgo.Notef(err, "flush tar")
+		}
+		tw.Unlock()
+	}
+	return nil
+}
+
+type syncTW struct {
+	*tar.Writer
+	sync.Mutex
 }
 
 var WordDecoder = &mime.WordDecoder{

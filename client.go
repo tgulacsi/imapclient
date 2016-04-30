@@ -25,6 +25,7 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"gopkg.in/errgo.v1"
@@ -193,37 +194,24 @@ func (c client) Peek(ctx context.Context, w io.Writer, msgID uint32, what string
 	if err != nil {
 		return length, errgo.Notef(err, "UIDFetch %v %v", set, what)
 	}
-	deadline, deadlineOk := ctx.Deadline()
-
-	for cmd.InProgress() {
-		d := Timeout
-		if deadlineOk {
-			now := time.Now()
-			if deadline.Before(now.Add(d)) {
-				d = deadline.Sub(now)
-			}
-		}
-		// wait for server response
-		if err = c.c.Recv(d); err != nil {
-			if err == io.EOF {
-				break
-			}
-			return length, err
-		}
-		// Process data.
-		for _, resp := range cmd.Data {
+	var writeErr error
+	ch := make(chan *imap.Response)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for resp := range ch {
 			Log.Debugf("resp=%v", resp)
 			n, err := w.Write(imap.AsBytes(resp.MessageInfo().Attrs["BODY[]"]))
-			if err != nil {
-				return length, err
+			if err != nil && writeErr == nil {
+				writeErr = err
 			}
 			length += int64(n)
 		}
-		cmd.Data = nil
-	}
+	}()
 
-	// Check command completion status.
-	_, err = cmd.Result(imap.OK)
+	err = c.recvLoop(ctx, ch, cmd)
+	wg.Wait()
 	return length, err
 }
 
@@ -244,26 +232,9 @@ func (c client) FetchArgs(ctx context.Context, what string, msgIDs ...uint32) (m
 	if err != nil {
 		return nil, err
 	}
-	deadline, deadlineOk := ctx.Deadline()
-
-	for cmd.InProgress() {
-		d := Timeout
-		if deadlineOk {
-			now := time.Now()
-			if deadline.Before(now.Add(d)) {
-				d = deadline.Sub(now)
-			}
-		}
-		// wait for server response
-		if err = c.c.Recv(d); err != nil {
-			if err == io.EOF {
-				break
-			}
-			return result, err
-		}
-		// Process data.
-		for _, resp := range cmd.Data {
-			Log.Debugf("resp=%v", resp)
+	ch := make(chan *imap.Response, 1)
+	go func() {
+		for resp := range ch {
 			mi := resp.MessageInfo()
 			m := make(map[string][]string, len(mi.Attrs))
 			for k, v := range mi.Attrs {
@@ -278,14 +249,41 @@ func (c client) FetchArgs(ctx context.Context, what string, msgIDs ...uint32) (m
 			}
 			result[mi.UID] = m
 		}
-		cmd.Data = nil
+	}()
+	err = c.recvLoop(ctx, ch, cmd)
+	return result, err
+}
+
+func (c client) recvLoop(ctx context.Context, dst chan<- *imap.Response, cmd *imap.Command) error {
+	defer close(dst)
+	deadline, deadlineOk := ctx.Deadline()
+
+	for cmd.InProgress() {
+		d := Timeout
+		if deadlineOk {
+			now := time.Now()
+			if deadline.Before(now.Add(d)) {
+				d = deadline.Sub(now)
+			}
+		}
+		// wait for server response
+		if err := c.c.Recv(d); err != nil {
+			if err == io.EOF {
+				break
+			}
+			return err
+		}
+		// Process data.
+		for _, resp := range cmd.Data {
+			Log.Debugf("resp=%v", resp)
+			dst <- resp
+		}
+		cmd.Data = cmd.Data[:0]
 	}
 
 	// Check command completion status.
-	if _, err = cmd.Result(imap.OK); err != nil {
-		return result, err
-	}
-	return result, nil
+	_, err := cmd.Result(imap.OK)
+	return err
 }
 
 func fieldsAsStrings(fields []imap.Field) []string {

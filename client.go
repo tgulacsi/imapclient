@@ -444,6 +444,9 @@ func (c *client) CloseC(ctx context.Context, expunge bool) error {
 		return errgo.Notef(err, "LOGOUT")
 	}
 	_, err = c.WaitC(ctx, cmd)
+	if _, logoutErr := c.c.Logout(getTimeout(ctx)); logoutErr != nil && err == nil {
+		err = logoutErr
+	}
 	c.c = nil
 	return err
 }

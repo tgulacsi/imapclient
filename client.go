@@ -499,6 +499,10 @@ func (c *client) Connect() error {
 
 // ConnectC connects to the server, within the given context (deadline).
 func (c *client) ConnectC(ctx context.Context) error {
+	if c.c != nil {
+		c.c.Logout(1 * time.Second)
+		c.c = nil
+	}
 	Log := xlog.FromContext(ctx)
 	addr := c.host + ":" + strconv.Itoa(c.port)
 	var err error

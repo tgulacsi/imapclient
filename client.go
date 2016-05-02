@@ -149,7 +149,6 @@ func (c client) SetLogMask(mask imap.LogMask) imap.LogMask {
 func (c client) SetLogger(logger *log.Logger) {
 	c.logger = logger
 	if c.c == nil {
-		logger.Println("Set Default Logger!")
 		imap.DefaultLogger = c.logger
 	} else {
 		c.c.SetLogger(c.logger)
@@ -161,7 +160,6 @@ func (c client) SetLoggerC(ctx context.Context) {
 	Log.SetField("imap_server",
 		fmt.Sprintf("%s:%s:%d:%t", c.username, c.host, c.port, c.tls == forceTLS))
 	c.logger = log.New(Log, "", 0)
-	xlog.FromContext(ctx).Infof("SetLogger")
 	c.SetLogger(c.logger)
 }
 

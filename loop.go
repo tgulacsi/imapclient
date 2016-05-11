@@ -93,7 +93,7 @@ type DeliverFunc func(r io.ReadSeeker, uid uint32, sha1 []byte) error
 
 func one(c Client, inbox, pattern string, deliver DeliverFunc, outbox, errbox string) (int, error) {
 	if err := c.Connect(); err != nil {
-		Log.Errorf("Connectingto %s: %v", c, err)
+		Log.Errorf("Connecting to %s: %v", c, err)
 		return 0, errgo.Notef(err, "connect to %v", c)
 	}
 	defer c.Close(true)

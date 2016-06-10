@@ -24,10 +24,9 @@ import (
 
 	"golang.org/x/net/context"
 
-	"github.com/rs/xlog"
+	"github.com/pkg/errors"
+	"github.com/tgulacsi/go/loghlp/kitloghlp"
 	"github.com/tgulacsi/go/temp"
-
-	"gopkg.in/errgo.v1"
 )
 
 var (
@@ -52,9 +51,9 @@ func DeliveryLoop(c Client, inbox, pattern string, deliver DeliverFunc, outbox, 
 	for {
 		n, err := one(c, inbox, pattern, deliver, outbox, errbox)
 		if err != nil {
-			Log.Errorf("DeliveryLoop one round (%d): %v", n, err)
+			Log("msg", "DeliveryLoop one round", "count", n, "error", err)
 		} else {
-			Log.Infof("DeliveryLoop one round (%d)", n)
+			Log("msg", "DeliveryLoop one round", "count", n)
 		}
 		select {
 		case _, ok := <-closeCh:
@@ -93,37 +92,37 @@ type DeliverFunc func(r io.ReadSeeker, uid uint32, sha1 []byte) error
 
 func one(c Client, inbox, pattern string, deliver DeliverFunc, outbox, errbox string) (int, error) {
 	if err := c.Connect(); err != nil {
-		Log.Errorf("Connecting to %s: %v", c, err)
-		return 0, errgo.Notef(err, "connect to %v", c)
+		Log("msg", "Connecting to %s: %v", c, err)
+		return 0, errors.Wrapf(err, "connect to %v", c)
 	}
 	defer c.Close(true)
 
 	uids, err := c.List(inbox, pattern, outbox != "" && errbox != "")
 	if err != nil {
-		Log.Errorf("List %s/%q: %v", c, inbox, err)
-		return 0, errgo.Notef(err, "list %v/%v", c, inbox)
+		Log("msg", "List %s/%q: %v", c, inbox, err)
+		return 0, errors.Wrapf(err, "list %v/%v", c, inbox)
 	}
 
 	var n int
 	hsh := sha1.New()
 	for _, uid := range uids {
-		Log.SetField("uid", uid)
-		ctx := xlog.NewContext(context.Background(), Log)
+		Log := kitloghlp.With(Log, "uid", uid)
+		ctx := context.WithValue(context.Background(), "Log", Log)
 		hsh.Reset()
 		body := temp.NewMemorySlurper(strconv.FormatUint(uint64(uid), 10))
 		if _, err = c.ReadToC(ctx, io.MultiWriter(body, hsh), uid); err != nil {
 			body.Close()
-			Log.Errorf("Read: %v", err)
+			Log("msg", "Read", "error", err)
 			continue
 		}
 
 		err = deliver(body, uid, hsh.Sum(nil))
 		body.Close()
 		if err != nil {
-			Log.Errorf("deliver: %v", err)
+			Log("msg", "deliver", "error", err)
 			if errbox != "" {
 				if err = c.Move(uid, errbox); err != nil {
-					Log.Errorf("move to %q: %v", errbox, err)
+					Log("msg", "move to", "errbox", errbox, "error", err)
 				}
 			}
 			continue
@@ -131,12 +130,12 @@ func one(c Client, inbox, pattern string, deliver DeliverFunc, outbox, errbox st
 		n++
 
 		if err = c.Mark(uid, true); err != nil {
-			Log.Errorf("mark seen: %v", err)
+			Log("msg", "mark seen", "error", err)
 		}
 
 		if outbox != "" {
 			if err = c.Move(uid, outbox); err != nil {
-				Log.Error("move to %q: %v", outbox, err)
+				Log("msg", "move to", "outbox", outbox, "error", err)
 				continue
 			}
 		}

@@ -557,6 +557,7 @@ func (c *client) ConnectC(ctx context.Context) error {
 		if bearer := os.Getenv("BEARER"); bearer != "" {
 			if _, err := c.c.Auth(XOAuth2Auth(c.username, bearer)); err != nil {
 				Log("msg", "XOAuth2", "error", err)
+				return errors.Wrap(err, "XOAuth2 username="+c.username)
 			} else {
 				goto Authenticated
 			}
@@ -663,6 +664,7 @@ type xoauth2Auth []byte
 func (a xoauth2Auth) Start(s *imap.ServerInfo) (mech string, ir []byte, err error) {
 	b := make([]byte, base64.StdEncoding.EncodedLen(len(a)))
 	base64.StdEncoding.Encode(b, a)
+	Log("msg", "Start", "a", string(a), "b", string(b))
 	return "XOAUTH2", b, nil
 }
 

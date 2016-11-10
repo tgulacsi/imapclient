@@ -20,9 +20,11 @@ package imapclient
 
 import (
 	"crypto/tls"
+	"encoding/base64"
 	"fmt"
 	"io"
 	stdlog "log"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -551,29 +553,39 @@ func (c *client) ConnectC(ctx context.Context) error {
 
 	// Authenticate
 	if c.c.State() == imap.Login {
+		// https://msdn.microsoft.com/en-us/library/dn440163.aspx
+		if bearer := os.Getenv("BEARER"); bearer != "" {
+			if _, err := c.c.Auth(XOAuth2Auth(c.username, bearer)); err != nil {
+				Log("msg", "XOAuth2", "error", err)
+			} else {
+				goto Authenticated
+			}
+		}
+
 		Log := kitloghlp.With(Log, "username", c.username)
 		Log("msg", "Login")
 		cmd, err := c.c.Login(c.username, c.password)
 		if err == nil {
-			cmd, err = c.WaitC(ctx, cmd)
+			if cmd, err = c.WaitC(ctx, cmd); err == nil {
+				goto Authenticated
+			}
 		}
-		if err != nil {
-			Log("msg", "Login CramAuth", "capabilities", c.c.Caps, "error", err)
-			if _, err = c.c.Auth(CramAuth(c.username, c.password)); err != nil {
-				Log("msg", "Authenticate", "error", err)
-				username, identity := c.username, ""
-				if i := strings.IndexByte(username, '\\'); i >= 0 {
-					identity, username = strings.TrimPrefix(username[i+1:], "\\"), username[:i]
-				}
+		Log("msg", "Login CramAuth", "capabilities", c.c.Caps, "error", err)
+		if _, err = c.c.Auth(CramAuth(c.username, c.password)); err != nil {
+			Log("msg", "Authenticate", "error", err)
+			username, identity := c.username, ""
+			if i := strings.IndexByte(username, '\\'); i >= 0 {
+				identity, username = strings.TrimPrefix(username[i+1:], "\\"), username[:i]
+			}
 
-				Log("msg", "PlainAuth", "username", username, "identity", identity)
-				if _, err = c.c.Auth(imap.PlainAuth(username, c.password, identity)); err != nil {
-					Log("msg", "PlainAuth", "username", username, "identity", identity, "error", err)
-					return err
-				}
+			Log("msg", "PlainAuth", "username", username, "identity", identity)
+			if _, err = c.c.Auth(imap.PlainAuth(username, c.password, identity)); err != nil {
+				Log("msg", "PlainAuth", "username", username, "identity", identity, "error", err)
+				return err
 			}
 		}
 	}
+Authenticated:
 
 	if c.c.Caps["COMPRESS=DEFLATE"] {
 		if _, err := c.c.CompressDeflate(2); err != nil {
@@ -639,4 +651,21 @@ func GetLog(ctx context.Context) func(...interface{}) error {
 		return Log
 	}
 	return Log
+}
+
+// XOAuth2Auth returns an imap.SASL that authenticates with a username and a bearer token.
+func XOAuth2Auth(username, bearer string) imap.SASL {
+	return xoauth2Auth("user=" + username + "\x01auth=Bearer " + bearer + "\x01\x01")
+}
+
+type xoauth2Auth []byte
+
+func (a xoauth2Auth) Start(s *imap.ServerInfo) (mech string, ir []byte, err error) {
+	b := make([]byte, base64.StdEncoding.EncodedLen(len(a)))
+	base64.StdEncoding.Encode(b, a)
+	return "XOAUTH2", b, nil
+}
+
+func (a xoauth2Auth) Next(challenge []byte) (response []byte, err error) {
+	return nil, errors.New("unexpected server challenge")
 }

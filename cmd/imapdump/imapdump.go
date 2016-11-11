@@ -42,6 +42,7 @@ import (
 	"golang.org/x/text/transform"
 
 	"github.com/go-kit/kit/log"
+	"github.com/mxk/go-imap/imap"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	"github.com/tgulacsi/go/loghlp/kitloghlp"
@@ -93,6 +94,10 @@ func main() {
 
 	NewClient := func() (imapclient.Client, error) {
 		c := imapclient.NewClient(host, port, username, password)
+		c.SetLoggerC(rootCtx)
+		if verbose {
+			c.SetLogMask(imap.LogAll)
+		}
 		return c, c.Connect()
 	}
 

@@ -555,6 +555,7 @@ func (c *client) ConnectC(ctx context.Context) error {
 	if c.c.State() == imap.Login {
 		// https://msdn.microsoft.com/en-us/library/dn440163.aspx
 		if bearer := os.Getenv("BEARER"); bearer != "" {
+			c.c.SetLogMask(imap.LogAll)
 			if _, err := c.c.Auth(XOAuth2Auth(c.username, bearer)); err != nil {
 				Log("msg", "XOAuth2", "error", err)
 				return errors.Wrap(err, "XOAuth2 username="+c.username)
@@ -662,12 +663,11 @@ func XOAuth2Auth(username, bearer string) imap.SASL {
 type xoauth2Auth []byte
 
 func (a xoauth2Auth) Start(s *imap.ServerInfo) (mech string, ir []byte, err error) {
-	b := make([]byte, base64.StdEncoding.EncodedLen(len(a)))
-	base64.StdEncoding.Encode(b, a)
-	Log("msg", "Start", "a", string(a), "b", string(b))
-	return "XOAUTH2", b, nil
+	return "XOAUTH2", nil, nil
 }
 
 func (a xoauth2Auth) Next(challenge []byte) (response []byte, err error) {
-	return nil, errors.New("unexpected server challenge")
+	b := make([]byte, base64.StdEncoding.EncodedLen(len(a)))
+	base64.StdEncoding.Encode(b, a)
+	return b, nil
 }

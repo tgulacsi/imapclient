@@ -24,7 +24,6 @@ import (
 	"fmt"
 	"io"
 	stdlog "log"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -78,14 +77,15 @@ const (
 )
 
 type client struct {
-	host, username, password string
-	PathSep                  string
-	port, tls                int
-	noUTF8                   bool
-	c                        *imap.Client
-	created                  []string
-	logMask                  imap.LogMask
-	logger                   *stdlog.Logger
+	host               string
+	username, password string
+	PathSep            string
+	port, tls          int
+	noUTF8             bool
+	c                  *imap.Client
+	created            []string
+	logMask            imap.LogMask
+	logger             *stdlog.Logger
 }
 
 func init() {
@@ -160,9 +160,15 @@ func (c client) SetLogger(logger *stdlog.Logger) {
 }
 
 func (c client) SetLoggerC(ctx context.Context) {
-	Log := kitloghlp.With(GetLog(ctx),
+	var ssl string
+	if c.tls == forceTLS {
+		ssl = "SSL"
+	}
+	Log := kitloghlp.With(
+		GetLog(ctx),
 		"imap_server",
-		fmt.Sprintf("%s:%s:%d:%t", c.username, c.host, c.port, c.tls == forceTLS))
+		fmt.Sprintf("%s:%s:%d:%s", c.username, c.host, c.port, ssl),
+	)
 	c.logger = stdlog.New(log.NewStdlibAdapter(log.LoggerFunc(Log)), "", 0)
 	c.SetLogger(c.logger)
 }
@@ -553,41 +559,10 @@ func (c *client) ConnectC(ctx context.Context) error {
 
 	// Authenticate
 	if c.c.State() == imap.Login {
-		// https://msdn.microsoft.com/en-us/library/dn440163.aspx
-		if bearer := os.Getenv("BEARER"); bearer != "" {
-			c.c.SetLogMask(imap.LogAll)
-			if _, err := c.c.Auth(XOAuth2Auth(c.username, bearer)); err != nil {
-				Log("msg", "XOAuth2", "error", err)
-				return errors.Wrap(err, "XOAuth2 username="+c.username)
-			} else {
-				goto Authenticated
-			}
-		}
-
-		Log := kitloghlp.With(Log, "username", c.username)
-		Log("msg", "Login")
-		cmd, err := c.c.Login(c.username, c.password)
-		if err == nil {
-			if cmd, err = c.WaitC(ctx, cmd); err == nil {
-				goto Authenticated
-			}
-		}
-		Log("msg", "Login CramAuth", "capabilities", c.c.Caps, "error", err)
-		if _, err = c.c.Auth(CramAuth(c.username, c.password)); err != nil {
-			Log("msg", "Authenticate", "error", err)
-			username, identity := c.username, ""
-			if i := strings.IndexByte(username, '\\'); i >= 0 {
-				identity, username = strings.TrimPrefix(username[i+1:], "\\"), username[:i]
-			}
-
-			Log("msg", "PlainAuth", "username", username, "identity", identity)
-			if _, err = c.c.Auth(imap.PlainAuth(username, c.password, identity)); err != nil {
-				Log("msg", "PlainAuth", "username", username, "identity", identity, "error", err)
-				return err
-			}
+		if err := c.login(ctx); err != nil {
+			return err
 		}
 	}
-Authenticated:
 
 	if c.c.Caps["COMPRESS=DEFLATE"] {
 		if _, err := c.c.CompressDeflate(2); err != nil {
@@ -605,6 +580,70 @@ Authenticated:
 	c.PathSep = cmd.Data[0].MailboxInfo().Delim
 
 	return nil
+}
+
+func (c client) login(ctx context.Context) error {
+	Log("caps", c.c.Caps)
+	Log := kitloghlp.With(Log, "username", c.username)
+	order := []string{"login", "xoauth2", "cram-md5", "plain"}
+	if len(c.password) > 40 {
+		order[0], order[1] = order[1], order[0]
+	}
+
+	var err error
+	for _, method := range order {
+		switch method {
+		case "login":
+			Log("msg", "Login")
+			cmd, err := c.c.Login(c.username, c.password)
+			if err == nil {
+				if cmd, err = c.WaitC(ctx, cmd); err == nil {
+					return nil
+				}
+				Log("msg", "Login", "error", err)
+			}
+
+		case "xoauth2":
+			Log("user", c.username, "passw", c.password)
+			// https://msdn.microsoft.com/en-us/library/dn440163.aspx
+			if c.c.Caps["AUTH=XOAUTH2"] {
+				c.c.SetLogMask(imap.LogAll)
+				_, err = c.c.Auth(XOAuth2Auth(c.username, c.password))
+				c.SetLogMaskC(ctx, c.logMask)
+				if err == nil {
+					return nil
+				}
+				Log("msg", "XOAuth2", "error", err)
+			}
+
+		case "cram-md5":
+			if c.c.Caps["AUTH=CRAM-MD5"] {
+				Log("msg", "Login CramAuth", "capabilities", c.c.Caps, "error", err)
+				if _, err = c.c.Auth(CramAuth(c.username, c.password)); err == nil {
+					return nil
+				}
+				Log("msg", "Authenticate", "error", err)
+			}
+
+		case "plain":
+			if c.c.Caps["AUTH=PLAIN"] {
+				username, identity := c.username, ""
+				if i := strings.IndexByte(username, '\\'); i >= 0 {
+					identity, username = strings.TrimPrefix(username[i+1:], "\\"), username[:i]
+				}
+
+				Log("msg", "PlainAuth", "username", username, "identity", identity)
+				if _, err = c.c.Auth(imap.PlainAuth(username, c.password, identity)); err == nil {
+					return nil
+				}
+				Log("msg", "PlainAuth", "username", username, "identity", identity, "error", err)
+			}
+		}
+	}
+	if err != nil {
+		return err
+	}
+	return errors.New("could not log in")
 }
 
 func getTimeout(ctx context.Context) time.Duration {
@@ -663,11 +702,11 @@ func XOAuth2Auth(username, bearer string) imap.SASL {
 type xoauth2Auth []byte
 
 func (a xoauth2Auth) Start(s *imap.ServerInfo) (mech string, ir []byte, err error) {
-	return "XOAUTH2", nil, nil
+	b := make([]byte, base64.StdEncoding.EncodedLen(len(a)))
+	base64.StdEncoding.Encode(b, a)
+	return "XOAUTH2", b, nil
 }
 
 func (a xoauth2Auth) Next(challenge []byte) (response []byte, err error) {
-	b := make([]byte, base64.StdEncoding.EncodedLen(len(a)))
-	base64.StdEncoding.Encode(b, a)
-	return b, nil
+	return nil, errors.Errorf("unexpected challenge: %s", challenge)
 }

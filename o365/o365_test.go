@@ -3,6 +3,7 @@ package o365
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -17,7 +18,34 @@ func TestList(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var id string
 	for i, m := range messages {
 		t.Logf("%d. %#v", i, m)
+		id = m.ID
+	}
+
+	msg, err := cl.Get(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("%q: %#v", id, msg)
+}
+
+func TestSend(t *testing.T) {
+	cl := NewClient(clientID, clientSecret, "")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := cl.Send(ctx,
+		Message{
+			Subject:      "test",
+			Body:         ItemBody{ContentType: "Text", Content: "test"},
+			ToRecipients: []Recipient{Recipient{EmailAddress{Address: "tgulacsi78@gmail.com"}}},
+		},
+	); err != nil {
+		if strings.Contains(err.Error(), "Forbidden") {
+			t.Skip(err)
+		}
+		t.Fatal(err)
 	}
 }

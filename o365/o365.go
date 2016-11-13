@@ -39,7 +39,7 @@ func NewClient(clientID, clientSecret, redirectURL string) *client {
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
 		RedirectURL:  redirectURL,
-		Scopes:       []string{"https://outlook.office.com/mail.read"},
+		Scopes:       []string{"https://outlook.office.com/mail.readwrite", "offline_access"},
 		Endpoint:     oauth2client.AzureV2Endpoint,
 	}
 

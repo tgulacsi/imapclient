@@ -51,13 +51,20 @@ var (
 // Client interface declares the needed methods for listing messages,
 // deleting and moving them around.
 type Client interface {
+	MinClient
 	Connect() error
+	List(mbox, pattern string, all bool) ([]uint32, error)
+	ReadTo(w io.Writer, msgID uint32) (int64, error)
+	SetLogger(*stdlog.Logger)
+}
+
+// MinClient is the minimal required methods for a client.
+// You can make a full Client from it by wrapping in a MaxClient.
+type MinClient interface {
 	ConnectC(context.Context) error
 	Close(commit bool) error
-	List(mbox, pattern string, all bool) ([]uint32, error)
 	ListC(ctx context.Context, mbox, pattern string, all bool) ([]uint32, error)
 	Mailboxes(ctx context.Context, root string) ([]string, error)
-	ReadTo(w io.Writer, msgID uint32) (int64, error)
 	ReadToC(ctx context.Context, w io.Writer, msgID uint32) (int64, error)
 	FetchArgs(ctx context.Context, what string, msgIDs ...uint32) (map[uint32]map[string][]string, error)
 	Peek(ctx context.Context, w io.Writer, msgID uint32, what string) (int64, error)
@@ -65,9 +72,33 @@ type Client interface {
 	Delete(msgID uint32) error
 	Move(msgID uint32, mbox string) error
 	SetLogMask(mask imap.LogMask) imap.LogMask
-	SetLogger(*stdlog.Logger)
 	SetLoggerC(ctx context.Context)
 	Select(ctx context.Context, mbox string) error
+}
+
+var _ = Client(MaxClient{})
+
+type MaxClient struct {
+	MinClient
+}
+
+func (c MaxClient) Connect() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+	defer cancel()
+	return c.ConnectC(ctx)
+}
+func (c MaxClient) List(mbox, pattern string, all bool) ([]uint32, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+	defer cancel()
+	return c.ListC(ctx, mbox, pattern, all)
+}
+func (c MaxClient) ReadTo(w io.Writer, msgID uint32) (int64, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+	defer cancel()
+	return c.ReadToC(ctx, w, msgID)
+}
+func (c MaxClient) SetLogger(logger *stdlog.Logger) {
+	c.SetLoggerC(context.WithValue(context.Background(), "Log", logger))
 }
 
 const (

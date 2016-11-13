@@ -102,7 +102,7 @@ type Message struct {
 	Attachments []Attachment `json:",omitempty"`
 	// The Bcc recipients for the message.
 	// W-S
-	BccRecipients []Recipient `json:",omitempty"`
+	Bcc []Recipient `json:"BccRecipients,omitempty"`
 	// The body of the message.
 	// W--
 	Body ItemBody `json:",omitempty"`
@@ -114,7 +114,7 @@ type Message struct {
 	Categories []string `json:",omitempty"`
 	// The Cc recipients for the message.
 	// W-S
-	CcRecipients []Recipient `json:",omitempty"`
+	Cc []Recipient `json:"CcRecipients,omitempty"`
 	// The version of the message.
 	// ---
 	ChangeKey string `json:",omitempty"`
@@ -123,7 +123,7 @@ type Message struct {
 	ConversationID string `json:"ConversationId,omitempty"`
 	// The date and time the message was created.
 	// -F-
-	CreatedDateTime *time.Time `json:",omitempty"`
+	Created *time.Time `json:"CreatedDateTime,omitempty"`
 	// The collection of open type data extensions defined for the message. Navigation property.
 	// -F-
 	Extensions []string `json:",omitempty"`
@@ -156,7 +156,7 @@ type Message struct {
 	IsReadReceiptRequested bool `json:",omitempty"`
 	// The date and time the message was last changed.
 	// -F-
-	LastModifiedDateTime *time.Time `json:",omitempty"`
+	LastModified *time.Time `json:"LastModifiedDateTime,omitempty"`
 	// A collection of multi-value extended properties of type MultiValueLegacyExtendedProperty. This is a navigation property. Find more information about extended properties.
 	// WF-
 	MultiValueExtendedProperties *MultiValueLegacyExtendedProperty `json:",omitempty"`
@@ -165,7 +165,7 @@ type Message struct {
 	ParentFolderID string `json:"ParentFolderId,omitempty"`
 	// The date and time the message was received.
 	// -FS
-	ReceivedDateTime *time.Time `json:",omitempty"`
+	Received *time.Time `json:"ReceivedDateTime,omitempty"`
 	// The email addresses to use when replying.
 	// ---
 	ReplyTo []Recipient `json:",omitempty"`
@@ -177,13 +177,13 @@ type Message struct {
 	SingleValueExtendedProperties *SingleValueLegacyExtendedProperty `json:",omitempty"`
 	// The date and time the message was sent.
 	// -F-
-	SentDateTime *time.Time `json:",omitempty"`
+	Sent *time.Time `json:"SentDateTime,omitempty"`
 	// The subject of the message.
 	// WF-
 	Subject string `json:",omitempty"`
 	// The To recipients for the message.
 	// W-S
-	ToRecipients []Recipient `json:",omitempty"`
+	To []Recipient `json:"ToRecipients,omitempty"`
 	// The body of the message that is unique to the conversation.
 	// ---
 	UniqueBody *ItemBody `json:",omitempty"`

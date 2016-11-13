@@ -249,20 +249,34 @@ func (c *client) Send(ctx context.Context, msg Message) error {
 }
 
 func (c *client) post(ctx context.Context, path string, body io.Reader) error {
-	var buf bytes.Buffer
-	resp, err := oauth2.NewClient(ctx, c.TokenSource).
-		Post(baseURL+path, "application/json", io.TeeReader(body, &buf))
-	if err != nil {
-		return errors.Wrap(err, buf.String())
+	rc, err := c.p(ctx, "POST", path, body)
+	if rc != nil {
+		rc.Close()
 	}
-	defer resp.Body.Close()
+	return err
+}
+func (c *client) p(ctx context.Context, method, path string, body io.Reader) (io.ReadCloser, error) {
+	if method == "" {
+		method = "POST"
+	}
+	var buf bytes.Buffer
+	req, err := http.NewRequest(method, baseURL+path, io.TeeReader(body, &buf))
+	req.Header.Set("Content-Type", "application/json")
+	if err != nil {
+		return nil, errors.Wrap(err, path)
+	}
+	resp, err := oauth2.NewClient(ctx, c.TokenSource).Do(req)
+	if err != nil {
+		return nil, errors.Wrap(err, buf.String())
+	}
 	if resp.StatusCode > 299 {
+		defer resp.Body.Close()
 		io.Copy(&buf, body)
 		io.WriteString(&buf, "\n\n")
 		io.Copy(&buf, resp.Body)
-		return errors.Errorf("POST %q: %s\n%s", path, resp.Status, buf.Bytes())
+		return nil, errors.Errorf("POST %q: %s\n%s", path, resp.Status, buf.Bytes())
 	}
-	return nil
+	return resp.Body, nil
 }
 
 func (c *client) Delete(ctx context.Context, msgID string) error {
@@ -274,6 +288,48 @@ func (c *client) Move(ctx context.Context, msgID, destinationID string) error {
 }
 func (c *client) Copy(ctx context.Context, msgID, destinationID string) error {
 	return c.post(ctx, "/messages/"+msgID+"/copy", bytes.NewReader(jsonObj("DestinationId", destinationID)))
+}
+
+func (c *client) Update(ctx context.Context, msgID string, upd map[string]interface{}) error {
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(upd); err != nil {
+		return errors.Wrapf(err, "%#v", upd)
+	}
+	body, err := c.p(ctx, "PATCH", "/messages/"+msgID, bytes.NewReader(buf.Bytes()))
+	if body != nil {
+		body.Close()
+	}
+	return errors.Wrapf(err, "%#v", upd)
+}
+
+type Folder struct {
+	ID          string `json:"Id"`
+	Name        string `json:"DisplayName"`
+	ParentID    string `json:"ParentFolderId,omitempty"`
+	ChildCount  uint32 `json:"ChildFolderCount,omitempty"`
+	UnreadCount uint32 `json:"UnreadItemCount,omitempty"`
+	TotalCount  uint32 `json:"TotalItemCount,omitempty"`
+}
+
+func (c *client) ListFolders(ctx context.Context, parent string) ([]Folder, error) {
+	path := "/MailFolders"
+	if parent != "" {
+		path += "/" + parent + "/childfolders"
+	}
+	body, err := c.get(ctx, path)
+	if body != nil {
+		defer body.Close()
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	type folderList struct {
+		Value []Folder `json:"value"`
+	}
+	var resp folderList
+	err = json.NewDecoder(body).Decode(&resp)
+	return resp.Value, err
 }
 
 func (c *client) CreateFolder(ctx context.Context, parent, folder string) error {

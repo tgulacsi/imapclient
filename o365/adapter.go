@@ -52,15 +52,10 @@ func (c *oClient) ListC(ctx context.Context, mbox, pattern string, all bool) ([]
 	}
 	return uids, err
 }
-func (c oClient) Mailboxes(ctx context.Context, root string) ([]string, error) {
-	return nil, errors.New("not implemented")
-}
 func (c oClient) ReadToC(ctx context.Context, w io.Writer, msgID uint32) (int64, error) {
-	c.mu.Lock()
-	s := c.u2s[msgID]
-	c.mu.Unlock()
-	if s == "" {
-		return 0, errors.Errorf("unknown UID %d", msgID)
+	s, err := c.uidToStr(msgID)
+	if err != nil {
+		return 0, err
 	}
 	msg, err := c.client.Get(ctx, s)
 	var n int64
@@ -114,32 +109,32 @@ func rcpt(r *Recipient) string {
 	}
 	return fmt.Sprintf(`%q <%s>`, r.EmailAddress.Name, r.EmailAddress.Address)
 }
-func (c oClient) FetchArgs(ctx context.Context, what string, msgIDs ...uint32) (map[uint32]map[string][]string, error) {
-	return nil, errors.New("not implemented")
-}
 func (c oClient) Peek(ctx context.Context, w io.Writer, msgID uint32, what string) (int64, error) {
 	return c.ReadToC(ctx, w, msgID)
 }
-func (c oClient) Mark(msgID uint32, seen bool) error {
-	return errors.New("not implemented")
-}
 func (c oClient) Delete(msgID uint32) error {
-	c.mu.Lock()
-	s := c.u2s[msgID]
-	c.mu.Unlock()
-	if s == "" {
-		return errors.Errorf("unknown msgID %d", msgID)
+	s, err := c.uidToStr(msgID)
+	if err != nil {
+		return err
 	}
 	return c.client.Delete(context.Background(), s)
 }
 func (c oClient) Move(msgID uint32, mbox string) error {
+	s, err := c.uidToStr(msgID)
+	if err != nil {
+		return err
+	}
+	return c.client.Move(context.Background(), s, mbox)
+}
+
+func (c oClient) uidToStr(msgID uint32) (string, error) {
 	c.mu.Lock()
 	s := c.u2s[msgID]
 	c.mu.Unlock()
 	if s == "" {
-		return errors.Errorf("unknown msgID %d", msgID)
+		return "", errors.Errorf("unknown msgID %d", msgID)
 	}
-	return c.client.Move(context.Background(), s, mbox)
+	return s, nil
 }
 func (c oClient) SetLogMask(mask imap.LogMask) imap.LogMask { return 0 }
 func (c oClient) SetLoggerC(ctx context.Context)            {}
@@ -148,4 +143,24 @@ func (c oClient) Select(ctx context.Context, mbox string) error {
 	c.selected = mbox
 	c.mu.Unlock()
 	return nil
+}
+func (c oClient) FetchArgs(ctx context.Context, what string, msgIDs ...uint32) (map[uint32]map[string][]string, error) {
+	return nil, errors.New("not implemented")
+}
+func (c oClient) Mark(msgID uint32, seen bool) error {
+	s, err := c.uidToStr(msgID)
+	if err != nil {
+		return err
+	}
+	return c.client.Update(context.Background(), s, map[string]interface{}{
+		"IsRead": seen,
+	})
+}
+func (c oClient) Mailboxes(ctx context.Context, root string) ([]string, error) {
+	folders, err := c.client.ListFolders(ctx, root)
+	names := make([]string, len(folders))
+	for i, f := range folders {
+		names[i] = f.Name
+	}
+	return names, err
 }

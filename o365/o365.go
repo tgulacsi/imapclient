@@ -31,16 +31,23 @@ type client struct {
 	oauth2.TokenSource
 }
 
-func NewClient(clientID, clientSecret, redirectURL string) *client {
+func NewClient(clientID, clientSecret, redirectURL string, readOnly bool) *client {
 	if redirectURL == "" {
 		redirectURL = "http://localhost:8123"
+	}
+	var sWrite string
+	if !readOnly {
+		sWrite = "write"
 	}
 	conf := &oauth2.Config{
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
 		RedirectURL:  redirectURL,
-		Scopes:       []string{"https://outlook.office.com/mail.readwrite", "offline_access"},
-		Endpoint:     oauth2client.AzureV2Endpoint,
+		Scopes: []string{
+			"https://outlook.office.com/mail.read" + sWrite,
+			"offline_access",
+		},
+		Endpoint: oauth2client.AzureV2Endpoint,
 	}
 
 	return &client{

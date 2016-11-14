@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"golang.org/x/net/context"
@@ -32,13 +33,18 @@ type client struct {
 }
 
 type clientOptions struct {
-	ReadOnly   bool
-	TokensFile string
+	ReadOnly                bool
+	TokensFile              string
+	TLSCertFile, TLSKeyFile string
 }
 type ClientOption func(*clientOptions)
 
 func ReadOnly(readOnly bool) ClientOption { return func(o *clientOptions) { o.ReadOnly = readOnly } }
 func TokensFile(file string) ClientOption { return func(o *clientOptions) { o.TokensFile = file } }
+func TLS(certFile, keyFile string) ClientOption {
+	return func(o *clientOptions) { o.TLSCertFile, o.TLSKeyFile = certFile, keyFile }
+}
+
 func NewClient(clientID, clientSecret, redirectURL string, options ...ClientOption) *client {
 	if clientID == "" || clientSecret == "" {
 		panic("clientID and clientSecret is a must!")
@@ -46,14 +52,18 @@ func NewClient(clientID, clientSecret, redirectURL string, options ...ClientOpti
 	if redirectURL == "" {
 		redirectURL = "http://localhost:8123"
 	}
-	var sWrite string
 	var opts clientOptions
 	for _, f := range options {
 		f(&opts)
 	}
+	var sWrite string
 	if !opts.ReadOnly {
 		sWrite = "write"
 	}
+	if opts.TLSCertFile != "" && opts.TLSKeyFile != "" && strings.HasPrefix(redirectURL, "http://") {
+		redirectURL = "https" + redirectURL[4:]
+	}
+
 	conf := &oauth2.Config{
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
@@ -71,7 +81,7 @@ func NewClient(clientID, clientSecret, redirectURL string, options ...ClientOpti
 	}
 	return &client{
 		Config:      conf,
-		TokenSource: oauth2client.NewTokenSource(conf, tokensFile),
+		TokenSource: oauth2client.NewTokenSource(conf, tokensFile, opts.TLSCertFile, opts.TLSKeyFile),
 	}
 }
 

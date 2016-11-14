@@ -52,7 +52,7 @@ func (c *oClient) ListC(ctx context.Context, mbox, pattern string, all bool) ([]
 	}
 	return uids, err
 }
-func (c oClient) ReadToC(ctx context.Context, w io.Writer, msgID uint32) (int64, error) {
+func (c *oClient) ReadToC(ctx context.Context, w io.Writer, msgID uint32) (int64, error) {
 	s, err := c.uidToStr(msgID)
 	if err != nil {
 		return 0, err
@@ -109,17 +109,17 @@ func rcpt(r *Recipient) string {
 	}
 	return fmt.Sprintf(`%q <%s>`, r.EmailAddress.Name, r.EmailAddress.Address)
 }
-func (c oClient) Peek(ctx context.Context, w io.Writer, msgID uint32, what string) (int64, error) {
+func (c *oClient) Peek(ctx context.Context, w io.Writer, msgID uint32, what string) (int64, error) {
 	return c.ReadToC(ctx, w, msgID)
 }
-func (c oClient) Delete(msgID uint32) error {
+func (c *oClient) Delete(msgID uint32) error {
 	s, err := c.uidToStr(msgID)
 	if err != nil {
 		return err
 	}
 	return c.client.Delete(context.Background(), s)
 }
-func (c oClient) Move(msgID uint32, mbox string) error {
+func (c *oClient) Move(msgID uint32, mbox string) error {
 	s, err := c.uidToStr(msgID)
 	if err != nil {
 		return err
@@ -127,7 +127,7 @@ func (c oClient) Move(msgID uint32, mbox string) error {
 	return c.client.Move(context.Background(), s, mbox)
 }
 
-func (c oClient) uidToStr(msgID uint32) (string, error) {
+func (c *oClient) uidToStr(msgID uint32) (string, error) {
 	c.mu.Lock()
 	s := c.u2s[msgID]
 	c.mu.Unlock()
@@ -138,7 +138,7 @@ func (c oClient) uidToStr(msgID uint32) (string, error) {
 }
 func (c oClient) SetLogMask(mask imap.LogMask) imap.LogMask { return 0 }
 func (c oClient) SetLoggerC(ctx context.Context)            {}
-func (c oClient) Select(ctx context.Context, mbox string) error {
+func (c *oClient) Select(ctx context.Context, mbox string) error {
 	c.mu.Lock()
 	c.selected = mbox
 	c.mu.Unlock()
@@ -147,7 +147,7 @@ func (c oClient) Select(ctx context.Context, mbox string) error {
 func (c oClient) FetchArgs(ctx context.Context, what string, msgIDs ...uint32) (map[uint32]map[string][]string, error) {
 	return nil, errors.New("not implemented")
 }
-func (c oClient) Mark(msgID uint32, seen bool) error {
+func (c *oClient) Mark(msgID uint32, seen bool) error {
 	s, err := c.uidToStr(msgID)
 	if err != nil {
 		return err
@@ -156,7 +156,7 @@ func (c oClient) Mark(msgID uint32, seen bool) error {
 		"IsRead": seen,
 	})
 }
-func (c oClient) Mailboxes(ctx context.Context, root string) ([]string, error) {
+func (c *oClient) Mailboxes(ctx context.Context, root string) ([]string, error) {
 	folders, err := c.client.ListFolders(ctx, root)
 	names := make([]string, len(folders))
 	for i, f := range folders {

@@ -31,12 +31,27 @@ type client struct {
 	oauth2.TokenSource
 }
 
-func NewClient(clientID, clientSecret, redirectURL string, readOnly bool) *client {
+type clientOptions struct {
+	ReadOnly   bool
+	TokensFile string
+}
+type ClientOption func(*clientOptions)
+
+func ReadOnly(readOnly bool) ClientOption { return func(o *clientOptions) { o.ReadOnly = readOnly } }
+func TokensFile(file string) ClientOption { return func(o *clientOptions) { o.TokensFile = file } }
+func NewClient(clientID, clientSecret, redirectURL string, options ...ClientOption) *client {
+	if clientID == "" || clientSecret == "" {
+		panic("clientID and clientSecret is a must!")
+	}
 	if redirectURL == "" {
 		redirectURL = "http://localhost:8123"
 	}
 	var sWrite string
-	if !readOnly {
+	var opts clientOptions
+	for _, f := range options {
+		f(&opts)
+	}
+	if !opts.ReadOnly {
 		sWrite = "write"
 	}
 	conf := &oauth2.Config{
@@ -50,11 +65,13 @@ func NewClient(clientID, clientSecret, redirectURL string, readOnly bool) *clien
 		Endpoint: oauth2client.AzureV2Endpoint,
 	}
 
+	tokensFile := opts.TokensFile
+	if tokensFile == "" {
+		tokensFile = filepath.Join(os.Getenv("HOME"), ".config", "o365.conf")
+	}
 	return &client{
-		Config: conf,
-		TokenSource: oauth2client.NewTokenSource(
-			conf,
-			filepath.Join(os.Getenv("HOME"), ".config", "o365.conf")),
+		Config:      conf,
+		TokenSource: oauth2client.NewTokenSource(conf, tokensFile),
 	}
 }
 

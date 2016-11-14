@@ -25,17 +25,19 @@ var Log = func(keyvals ...interface{}) error {
 	return nil
 }
 
-const baseURL = "https://outlook.office.com/api/v2.0/me"
+const baseURL = "https://outlook.office.com/api/v2.0"
 
 type client struct {
 	*oauth2.Config
 	oauth2.TokenSource
+	Me string
 }
 
 type clientOptions struct {
 	ReadOnly                bool
 	TokensFile              string
 	TLSCertFile, TLSKeyFile string
+	Impersonate             string
 }
 type ClientOption func(*clientOptions)
 
@@ -44,6 +46,7 @@ func TokensFile(file string) ClientOption { return func(o *clientOptions) { o.To
 func TLS(certFile, keyFile string) ClientOption {
 	return func(o *clientOptions) { o.TLSCertFile, o.TLSKeyFile = certFile, keyFile }
 }
+func Impersonate(email string) ClientOption { return func(o *clientOptions) { o.Impersonate = email } }
 
 func NewClient(clientID, clientSecret, redirectURL string, options ...ClientOption) *client {
 	if clientID == "" || clientSecret == "" {
@@ -79,8 +82,12 @@ func NewClient(clientID, clientSecret, redirectURL string, options ...ClientOpti
 	if tokensFile == "" {
 		tokensFile = filepath.Join(os.Getenv("HOME"), ".config", "o365.conf")
 	}
+	if opts.Impersonate == "" {
+		opts.Impersonate = "me"
+	}
 	return &client{
 		Config:      conf,
+		Me:          opts.Impersonate,
 		TokenSource: oauth2client.NewTokenSource(conf, tokensFile, opts.TLSCertFile, opts.TLSKeyFile),
 	}
 }
@@ -294,7 +301,7 @@ func (c *client) p(ctx context.Context, method, path string, body io.Reader) (io
 		method = "POST"
 	}
 	var buf bytes.Buffer
-	req, err := http.NewRequest(method, baseURL+path, io.TeeReader(body, &buf))
+	req, err := http.NewRequest(method, c.URLFor(path), io.TeeReader(body, &buf))
 	req.Header.Set("Content-Type", "application/json")
 	if err != nil {
 		return nil, errors.Wrap(err, path)
@@ -384,9 +391,12 @@ func (c *client) DeleteFolder(ctx context.Context, folderID string) error {
 	return c.delete(ctx, "/MailFolders/"+folderID)
 }
 
+func (c *client) URLFor(path string) string { return baseURL + "/" + c.Me + path }
 func (c *client) get(ctx context.Context, path string) (io.ReadCloser, error) {
-	Log("get", baseURL+path)
-	resp, err := oauth2.NewClient(ctx, c.TokenSource).Get(baseURL + path)
+	URL := c.URLFor(path)
+	Log("get", URL)
+	resp, err := oauth2.NewClient(ctx, c.TokenSource).Get(URL)
+	Log("resp", resp, "error", err)
 	if err != nil {
 		return nil, errors.Wrap(err, path)
 	}
@@ -394,7 +404,7 @@ func (c *client) get(ctx context.Context, path string) (io.ReadCloser, error) {
 }
 
 func (c *client) delete(ctx context.Context, path string) error {
-	req, err := http.NewRequest("DELETE", baseURL+path, nil)
+	req, err := http.NewRequest("DELETE", c.URLFor(path), nil)
 	if err != nil {
 		return errors.Wrap(err, path)
 	}

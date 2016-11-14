@@ -47,6 +47,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/tgulacsi/go/loghlp/kitloghlp"
 	"github.com/tgulacsi/imapclient"
+	"github.com/tgulacsi/imapclient/o365"
 )
 
 const fetchBatchLen = 1024
@@ -61,9 +62,11 @@ func main() {
 	}
 
 	var (
-		pprofListen        string
-		username, password string
-		verbose, all       bool
+		pprofListen            string
+		username, password     string
+		verbose, all           bool
+		clientID, clientSecret string
+		impersonate            string
 	)
 	host := os.Getenv("IMAPDUMP_HOST")
 	port := 143
@@ -79,6 +82,9 @@ func main() {
 	P.StringVarP(&host, "host", "H", host, "host")
 	P.BoolVarP(&verbose, "verbose", "v", false, "verbose logging")
 	P.IntVarP(&port, "port", "p", port, "port")
+	P.StringVarP(&clientID, "client-id", "", os.Getenv("CLIENT_ID"), "CLIENT_ID")
+	P.StringVarP(&clientSecret, "client-secret", "", os.Getenv("CLIENT_SECRET"), "CLIENT_SECRET")
+	P.StringVarP(&impersonate, "impersonate", "", "", "impersonate")
 
 	rootCtx := context.WithValue(context.Background(), "Log", logger.Log)
 	dumpCmd.PersistentPreRun = func(_ *cobra.Command, _ []string) {
@@ -93,6 +99,12 @@ func main() {
 	}
 
 	NewClient := func() (imapclient.Client, error) {
+		if clientID != "" && clientSecret != "" {
+			return o365.NewIMAPClient(o365.NewClient(
+				clientID, clientSecret, "http://localhost:8123",
+				o365.Impersonate(impersonate),
+			)), nil
+		}
 		c := imapclient.NewClient(host, port, username, password)
 		c.SetLoggerC(rootCtx)
 		if verbose {
@@ -441,11 +453,12 @@ func listMbox(rootCtx context.Context, c imapclient.Client, mbox string, all boo
 	if err != nil {
 		return nil, errors.Wrapf(err, "LIST %q", mbox)
 	}
+	Log := imapclient.GetLog(rootCtx)
 	if len(uids) == 0 {
+		Log("msg", "empty", "mbox", mbox)
 		return nil, nil
 	}
 
-	Log := imapclient.GetLog(rootCtx)
 	result := make([]Mail, 0, len(uids))
 	for len(uids) > 0 {
 		n := len(uids)

@@ -1,5 +1,5 @@
 /*
-Copyright 2014 Tamás Gulácsi
+Copyright 2017 Tamás Gulácsi
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -34,7 +34,6 @@ import (
 	"github.com/go-kit/kit/log"
 	"github.com/mxk/go-imap/imap"
 	"github.com/pkg/errors"
-	"github.com/tgulacsi/go/loghlp/kitloghlp"
 )
 
 var (
@@ -195,12 +194,12 @@ func (c client) SetLoggerC(ctx context.Context) {
 	if c.tls == forceTLS {
 		ssl = "SSL"
 	}
-	Log := kitloghlp.With(
-		GetLog(ctx),
+	logger := log.With(
+		log.LoggerFunc(GetLog(ctx)),
 		"imap_server",
 		fmt.Sprintf("%s:%s:%d:%s", c.username, c.host, c.port, ssl),
 	)
-	c.logger = stdlog.New(log.NewStdlibAdapter(log.LoggerFunc(Log)), "", 0)
+	c.logger = stdlog.New(log.NewStdlibAdapter(logger), "", 0)
 	c.SetLogger(c.logger)
 }
 
@@ -615,7 +614,7 @@ func (c *client) ConnectC(ctx context.Context) error {
 
 func (c client) login(ctx context.Context) error {
 	Log("caps", c.c.Caps)
-	Log := kitloghlp.With(Log, "username", c.username)
+	Log := log.With(log.LoggerFunc(Log), "username", c.username).Log
 	order := []string{"login", "xoauth2", "cram-md5", "plain"}
 	if len(c.password) > 40 {
 		order[0], order[1] = order[1], order[0]

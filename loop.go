@@ -1,5 +1,5 @@
 /*
-Copyright 2014 Tamás Gulácsi
+Copyright 2017 Tamás Gulácsi
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -24,8 +24,8 @@ import (
 
 	"golang.org/x/net/context"
 
+	"github.com/go-kit/kit/log"
 	"github.com/pkg/errors"
-	"github.com/tgulacsi/go/loghlp/kitloghlp"
 	"github.com/tgulacsi/go/temp"
 )
 
@@ -106,7 +106,7 @@ func one(c Client, inbox, pattern string, deliver DeliverFunc, outbox, errbox st
 	var n int
 	hsh := sha1.New()
 	for _, uid := range uids {
-		Log := kitloghlp.With(Log, "uid", uid)
+		Log := log.With(log.LoggerFunc(Log), "uid", uid).Log
 		ctx := context.WithValue(context.Background(), "Log", Log)
 		hsh.Reset()
 		body := temp.NewMemorySlurper(strconv.FormatUint(uint64(uid), 10))

@@ -32,8 +32,11 @@ func NewIMAPClient(c *client) imapclient.Client {
 	}}
 }
 
-func (c *oClient) ConnectC(context.Context) error { return nil }
-func (c *oClient) Close(commit bool) error        { return nil }
+var ErrNotSupported = errors.New("not supported")
+
+func (c *oClient) Watch(context.Context) ([]uint32, error) { return nil, ErrNotSupported }
+func (c *oClient) ConnectC(context.Context) error          { return nil }
+func (c *oClient) Close(commit bool) error                 { return nil }
 func (c *oClient) ListC(ctx context.Context, mbox, pattern string, all bool) ([]uint32, error) {
 	ids, err := c.client.List(ctx, mbox, pattern, all)
 	c.mu.Lock()

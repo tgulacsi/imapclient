@@ -53,8 +53,9 @@ import (
 const fetchBatchLen = 1024
 
 // Log is the logger.
-var logger = log.NewContext(kitloghlp.Stringify{log.NewLogfmtLogger(os.Stderr)}).
-	With("ts", log.DefaultTimestamp)
+var logger = log.With(
+	kitloghlp.Stringify{log.NewLogfmtLogger(os.Stderr)},
+	"ts", log.DefaultTimestamp)
 
 func main() {
 	dumpCmd := &cobra.Command{
@@ -89,7 +90,7 @@ func main() {
 	rootCtx := context.WithValue(context.Background(), "Log", logger.Log)
 	dumpCmd.PersistentPreRun = func(_ *cobra.Command, _ []string) {
 		if verbose {
-			imapclient.Log = logger.With("lib", "imapclient").Log
+			imapclient.Log = log.With(logger, "lib", "imapclient").Log
 		}
 		if pprofListen != "" {
 			go func() {

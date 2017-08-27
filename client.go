@@ -331,6 +331,9 @@ func (c client) recvLoop(ctx context.Context, dst chan<- *imap.Response, cmd *im
 		}
 		// Process data.
 		for _, resp := range cmd.Data {
+			if resp == nil {
+				continue
+			}
 			//Log("resp", resp)
 			dst <- resp
 		}
@@ -599,7 +602,7 @@ func (c *client) Watch(ctx context.Context) ([]uint32, error) {
 		return res, err
 	case resp := <-dst:
 		Log("msg", "IDLE", "response", resp)
-		if resp.Type == imap.Data && len(resp.Fields) > 0 {
+		if resp != nil && resp.Type == imap.Data && len(resp.Fields) > 0 {
 			if u := imap.AsNumber(resp.Fields[0]); u == 0 {
 				Log("error", string(resp.Raw))
 			} else {

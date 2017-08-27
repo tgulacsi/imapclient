@@ -314,14 +314,18 @@ func (c client) recvLoop(ctx context.Context, dst chan<- *imap.Response, cmd *im
 			return err
 		}
 		d := Timeout
+		var last bool
 		if e := time.Until(deadline); e < d {
 			d = e
+			last = true
 		}
 
 		// wait for server response
 		if err := c.c.Recv(d); err != nil {
 			if err == io.EOF {
 				break
+			} else if !last && strings.Contains(errors.Cause(err).Error(), "timeout") {
+				continue
 			}
 			return errors.Wrap(err, "Recv "+cmd.String())
 		}

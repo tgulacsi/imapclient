@@ -98,7 +98,7 @@ func (c MaxClient) ReadTo(w io.Writer, msgID uint32) (int64, error) {
 	return c.ReadToC(ctx, w, msgID)
 }
 func (c MaxClient) SetLogger(logger *stdlog.Logger) {
-	c.SetLoggerC(context.WithValue(context.Background(), "Log", logger))
+	c.SetLoggerC(CtxWithLogFunc(context.Background(), Log))
 }
 
 const (
@@ -392,7 +392,7 @@ func (c *client) MoveC(ctx context.Context, msgID uint32, mbox string) error {
 		c.created = append(c.created, mbox)
 		cmd, err := c.c.Create(mbox)
 		if err == nil {
-			cmd, err = c.WaitC(ctx, cmd)
+			_, err = c.WaitC(ctx, cmd)
 		}
 		if err != nil {
 			Log("msg", "Create", "box", mbox, "error", err)
@@ -404,7 +404,7 @@ func (c *client) MoveC(ctx context.Context, msgID uint32, mbox string) error {
 	cmd, err := c.c.UIDCopy(set, mbox)
 	err = errors.Wrap(err, "copy "+mbox)
 	if err == nil {
-		cmd, err = c.WaitC(ctx, cmd)
+		_, err = c.WaitC(ctx, cmd)
 	}
 	if err != nil {
 		return err
@@ -446,7 +446,7 @@ func (c *client) ListC(ctx context.Context, mbox, pattern string, all bool) ([]u
 		}
 		if err != nil {
 			//Log("msg","UIDSearch", "fields",fields, "error",err)
-			if strings.Index(err.Error(), "BADCHARSET") >= 0 {
+			if strings.Contains(err.Error(), "BADCHARSET") {
 				c.noUTF8 = true
 			} else {
 				return nil, errors.Wrapf(err, "UIDSearch(%v)", fields)
@@ -548,7 +548,7 @@ func (c *client) MarkC(ctx context.Context, msgID uint32, seen bool) error {
 	if err != nil {
 		err = errors.Wrap(err, "\\Seen")
 	} else {
-		cmd, err = c.WaitC(ctx, cmd)
+		_, err = c.WaitC(ctx, cmd)
 	}
 	return err
 }
@@ -569,7 +569,7 @@ func (c *client) DeleteC(ctx context.Context, msgID uint32) error {
 	if err != nil {
 		err = errors.Wrap(err, "\\Deleted")
 	} else {
-		cmd, err = c.WaitC(ctx, cmd)
+		_, err = c.WaitC(ctx, cmd)
 	}
 	return err
 }
@@ -720,7 +720,7 @@ func (c client) login(ctx context.Context) error {
 			Log("msg", "Login")
 			cmd, err := c.c.Login(c.username, c.password)
 			if err == nil {
-				if cmd, err = c.WaitC(ctx, cmd); err == nil {
+				if _, err = c.WaitC(ctx, cmd); err == nil {
 					return nil
 				}
 				Log("msg", "Login", "error", err)
@@ -794,6 +794,7 @@ func (c client) WaitC(ctx context.Context, cmd *imap.Command) (*imap.Command, er
 	}
 	deadline := time.Now().Add(getTimeout(ctx))
 	var err error
+Loop:
 	for cmd.InProgress() && time.Now().Before(deadline) {
 		select {
 		case <-ctx.Done():
@@ -803,7 +804,7 @@ func (c client) WaitC(ctx context.Context, cmd *imap.Command) (*imap.Command, er
 				if err != nil {
 					Log("msg", "Recv", "error", err)
 				}
-				break
+				break Loop
 			}
 		}
 	}
@@ -811,7 +812,7 @@ func (c client) WaitC(ctx context.Context, cmd *imap.Command) (*imap.Command, er
 }
 
 func GetLog(ctx context.Context) func(...interface{}) error {
-	if Log, _ := ctx.Value("Log").(func(...interface{}) error); Log != nil {
+	if Log, _ := ctx.Value(logCtxKey).(func(...interface{}) error); Log != nil {
 		return Log
 	}
 	return Log

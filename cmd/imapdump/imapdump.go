@@ -54,7 +54,7 @@ const fetchBatchLen = 1024
 
 // Log is the logger.
 var logger = log.With(
-	kitloghlp.Stringify{log.NewLogfmtLogger(os.Stderr)},
+	kitloghlp.Stringify{Logger: log.NewLogfmtLogger(os.Stderr)},
 	"ts", log.DefaultTimestamp)
 
 func main() {
@@ -87,7 +87,7 @@ func main() {
 	P.StringVarP(&clientSecret, "client-secret", "", os.Getenv("CLIENT_SECRET"), "CLIENT_SECRET")
 	P.StringVarP(&impersonate, "impersonate", "", "", "impersonate")
 
-	rootCtx := context.WithValue(context.Background(), "Log", logger.Log)
+	rootCtx := imapclient.CtxWithLogFunc(context.Background(), logger.Log)
 	dumpCmd.PersistentPreRun = func(_ *cobra.Command, _ []string) {
 		if verbose {
 			imapclient.Log = log.With(logger, "lib", "imapclient").Log
@@ -347,7 +347,7 @@ func dumpMails(rootCtx context.Context, tw *syncTW, c imapclient.Client, mbox st
 	}
 
 	now := time.Now()
-	osUid, osGid := os.Getuid(), os.Getgid()
+	osUID, osGID := os.Getuid(), os.Getgid()
 	Log("msg", "Saving messages", "count", len(uids), "box", mbox)
 	buf := bufPool.Get().(*bytes.Buffer)
 	defer bufPool.Put(buf)
@@ -395,7 +395,7 @@ func dumpMails(rootCtx context.Context, tw *syncTW, c imapclient.Client, mbox st
 			Mode:     0640,
 			Typeflag: tar.TypeReg,
 			ModTime:  t,
-			Uid:      osUid, Gid: osGid,
+			Uid:      osUID, Gid: osGID,
 		}); err != nil {
 			tw.Unlock()
 			return errors.Wrapf(err, "WriteHeader")

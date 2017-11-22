@@ -61,6 +61,9 @@ func (c *oClient) ReadToC(ctx context.Context, w io.Writer, msgID uint32) (int64
 		return 0, err
 	}
 	msg, err := c.client.Get(ctx, s)
+	if err != nil {
+		return 0, err
+	}
 	var n int64
 	hdr := [][2]string{
 		{"From", rcpt(msg.Sender)},
@@ -139,15 +142,15 @@ func (c *oClient) uidToStr(msgID uint32) (string, error) {
 	}
 	return s, nil
 }
-func (c oClient) SetLogMask(mask imap.LogMask) imap.LogMask { return 0 }
-func (c oClient) SetLoggerC(ctx context.Context)            {}
+func (c *oClient) SetLogMask(mask imap.LogMask) imap.LogMask { return 0 }
+func (c *oClient) SetLoggerC(ctx context.Context)            {}
 func (c *oClient) Select(ctx context.Context, mbox string) error {
 	c.mu.Lock()
 	c.selected = mbox
 	c.mu.Unlock()
 	return nil
 }
-func (c oClient) FetchArgs(ctx context.Context, what string, msgIDs ...uint32) (map[uint32]map[string][]string, error) {
+func (c *oClient) FetchArgs(ctx context.Context, what string, msgIDs ...uint32) (map[uint32]map[string][]string, error) {
 	return nil, errors.New("not implemented")
 }
 func (c *oClient) Mark(msgID uint32, seen bool) error {

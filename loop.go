@@ -107,7 +107,7 @@ func one(c Client, inbox, pattern string, deliver DeliverFunc, outbox, errbox st
 	hsh := sha1.New()
 	for _, uid := range uids {
 		Log := log.With(log.LoggerFunc(Log), "uid", uid).Log
-		ctx := context.WithValue(context.Background(), "Log", Log)
+		ctx := CtxWithLogFunc(context.Background(), Log)
 		hsh.Reset()
 		body := temp.NewMemorySlurper(strconv.FormatUint(uint64(uid), 10))
 		if _, err = c.ReadToC(ctx, io.MultiWriter(body, hsh), uid); err != nil {
@@ -142,4 +142,12 @@ func one(c Client, inbox, pattern string, deliver DeliverFunc, outbox, errbox st
 	}
 
 	return n, nil
+}
+
+type ctxKey string
+
+const logCtxKey = ctxKey("Log")
+
+func CtxWithLogFunc(ctx context.Context, Log func(...interface{}) error) context.Context {
+	return context.WithValue(ctx, logCtxKey, Log)
 }

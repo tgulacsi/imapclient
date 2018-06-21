@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
@@ -256,7 +257,10 @@ func (c *client) List(ctx context.Context, mbox, pattern string, all bool) ([]Me
 	if err != nil {
 		return nil, err
 	}
-	defer body.Close()
+	defer func() {
+		io.Copy(ioutil.Discard, body)
+		body.Close()
+	}()
 
 	type listResponse struct {
 		Value []Message `json:"value"`
@@ -273,7 +277,10 @@ func (c *client) Get(ctx context.Context, msgID string) (Message, error) {
 	if err != nil {
 		return msg, err
 	}
-	defer body.Close()
+	defer func() {
+		io.Copy(ioutil.Discard, body)
+		body.Close()
+	}()
 	err = json.NewDecoder(body).Decode(&msg)
 	return msg, err
 }
@@ -359,7 +366,10 @@ func (c *client) ListFolders(ctx context.Context, parent string) ([]Folder, erro
 	}
 	body, err := c.get(ctx, path)
 	if body != nil {
-		defer body.Close()
+		defer func() {
+			io.Copy(ioutil.Discard, body)
+			body.Close()
+		}()
 	}
 	if err != nil {
 		return nil, err

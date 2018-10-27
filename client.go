@@ -247,9 +247,9 @@ func (c client) Peek(ctx context.Context, w io.Writer, msgID uint32, what string
 		defer wg.Done()
 		for resp := range ch {
 			//Log("resp", resp)
-			n, err := w.Write(imap.AsBytes(resp.MessageInfo().Attrs["BODY[]"]))
-			if err != nil && writeErr == nil {
-				writeErr = err
+			n, wErr := w.Write(imap.AsBytes(resp.MessageInfo().Attrs["BODY[]"]))
+			if wErr != nil && writeErr == nil {
+				writeErr = wErr
 			}
 			length += int64(n)
 		}
@@ -598,7 +598,7 @@ func (c *client) Watch(ctx context.Context) ([]uint32, error) {
 	select {
 	case <-ctx.Done():
 		return res, ctx.Err()
-	case err := <-done:
+	case err = <-done:
 		return res, err
 	case resp := <-dst:
 		Log("msg", "IDLE", "response", resp)
@@ -679,13 +679,13 @@ func (c *client) ConnectC(ctx context.Context) error {
 
 	// Authenticate
 	if c.c.State() == imap.Login {
-		if err := c.login(ctx); err != nil {
+		if err = c.login(ctx); err != nil {
 			return err
 		}
 	}
 
 	if c.c.Caps["COMPRESS=DEFLATE"] {
-		if _, err := c.c.CompressDeflate(2); err != nil {
+		if _, err = c.c.CompressDeflate(2); err != nil {
 			Log("msg", "CompressDeflate", "error", err)
 		}
 	}
@@ -718,8 +718,10 @@ func (c client) login(ctx context.Context) error {
 		switch method {
 		case "login":
 			Log("msg", "Login")
-			cmd, err := c.c.Login(c.username, c.password)
-			if err == nil {
+			cmd, loginErr := c.c.Login(c.username, c.password)
+			if loginErr != nil {
+				err = loginErr
+			} else {
 				if _, err = c.WaitC(ctx, cmd); err == nil {
 					return nil
 				}

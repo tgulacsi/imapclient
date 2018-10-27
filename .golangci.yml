@@ -1,0 +1,15 @@
+linters-settings:
+  maligned:
+    suggest-new: true
+
+linters:
+  disable:
+    - errcheck
+    - typecheck
+    - megacheck
+
+issues:
+  exclude:
+    - "`?encodeFixed(32|64)Pb`? is unused"
+
+# vim: set et shiftwidth=2:

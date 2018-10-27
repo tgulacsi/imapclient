@@ -25,17 +25,13 @@ import (
 	"fmt"
 	"io"
 	"mime"
-	"net/http"
 	_ "net/http/pprof"
 	"net/textproto"
 	"os"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
-
-	"go4.org/syncutil"
 
 	"golang.org/x/net/context"
 	"golang.org/x/text/encoding/htmlindex"
@@ -93,6 +89,7 @@ func Main() error {
 
 	listCmd := app.Command("list", "list mailbox")
 	listCmd.Flag("all", "list all, not just UNSEEN").Short('a').BoolVar(&all)
+	listMboxes := listCmd.Arg("mboxes", "mailboxes to list").Strings()
 
 	treeCmd := app.Command("tree", "print the tree of mailboxes")
 	treeCmd.Flag("du", "print dir sizes, too").Short('l').BoolVar(&du)
@@ -101,7 +98,8 @@ func Main() error {
 	saveCmd := app.Command("save", "save the mails").Alias("dump").Alias("write")
 	saveOut := saveCmd.Flag("out", "output mail(s) to this file").Short('o').Default("-").String()
 	saveMbox := saveCmd.Flag("mbox", "mailbox to save from").Short('m').Default("INBOX").String()
-	saveCmd.Flags("recursive", "dump recursively (all subfolders)").Short('r').BoolVar(&recursive)
+	saveCmd.Flag("recursive", "dump recursively (all subfolders)").Short('r').BoolVar(&recursive)
+	saveUIDs := saveCmd.Arg("uids", "uids to save - empty for all").Uints()
 
 	rootCtx := imapclient.CtxWithLogFunc(context.Background(), logger.Log)
 
@@ -113,22 +111,18 @@ func Main() error {
 		imapclient.Log = log.With(logger, "lib", "imapclient").Log
 	}
 
-	var c imapcliet.Client
+	var c imapclient.Client
 	if clientID != "" && clientSecret != "" {
 		c = o365.NewIMAPClient(o365.NewClient(
 			clientID, clientSecret, "http://localhost:8123",
 			o365.Impersonate(impersonate),
-		)), nil
+		))
 	} else {
-		c := imapclient.NewClient(host, port, username, password)
+		c = imapclient.NewClient(host, port, username, password)
 		c.SetLoggerC(rootCtx)
 		if verbose {
 			c.SetLogMask(imap.LogAll)
 		}
-		c, err = NewClient()
-	}
-	if err != nil {
-		return err
 	}
 	defer c.Close(false)
 
@@ -138,7 +132,7 @@ func Main() error {
 	//case dumpCmd.FullCommand():
 
 	case listCmd.FullCommand():
-		for _, mbox := range args {
+		for _, mbox := range *listMboxes {
 			mails, err := listMbox(rootCtx, c, mbox, all)
 			if err != nil {
 				Log("msg", "Listing", "box", mbox, "error", err)
@@ -160,7 +154,7 @@ func Main() error {
 			for _, m := range boxes {
 				fmt.Fprintln(os.Stdout, m)
 			}
-			return
+			return nil
 		}
 		for _, m := range boxes {
 			ctx, cancel := context.WithTimeout(rootCtx, 5*time.Minute)
@@ -177,7 +171,8 @@ func Main() error {
 		}
 
 	case saveCmd.FullCommand():
-		mailboxes := []string{*saveMbox}
+		mbox := *saveMbox
+		mailboxes := []string{mbox}
 		if recursive {
 			ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
 			var err error
@@ -214,7 +209,7 @@ func Main() error {
 			}
 
 			var uids []uint32
-			if len(args) == 0 || strings.ToUpper(args[0]) == "ALL" {
+			if len(*saveUIDs) == 0 {
 				ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
 				var err error
 				uids, err = c.ListC(ctx, mbox, "", true)
@@ -224,13 +219,9 @@ func Main() error {
 					return err
 				}
 			} else {
-				for _, a := range args {
-					uid, err := strconv.ParseUint(a, 10, 32)
-					if err != nil {
-						Log("msg", "parse as uid", "text", a, "error", err)
-						continue
-					}
-					uids = append(uids, uint32(uid))
+				uids = make([]uint32, len(*saveUIDs))
+				for i, u := range *saveUIDs {
+					uids[i] = uint32(u)
 				}
 			}
 
@@ -279,6 +270,7 @@ func Main() error {
 			}
 		}
 	}
+	return nil
 }
 
 var bufPool = sync.Pool{New: func() interface{} { return bytes.NewBuffer(make([]byte, 0, 1<<20)) }}

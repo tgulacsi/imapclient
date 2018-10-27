@@ -75,6 +75,7 @@ func Main() error {
 	}
 
 	app := kingpin.New("imapdump", "dump/load mail through IMAP")
+	app.HelpFlag.Short('h')
 	app.Flag("verbose", "verbose").Short('v').BoolVar(&verbose)
 
 	app.Flag("username", "username").Short('U').Default(os.Getenv("IMAPDUMP_USER")).StringVar(&username)
@@ -123,6 +124,9 @@ func Main() error {
 		if verbose {
 			c.SetLogMask(imap.LogAll)
 		}
+	}
+	if err = c.Connect(); err != nil {
+		return err
 	}
 	defer c.Close(false)
 

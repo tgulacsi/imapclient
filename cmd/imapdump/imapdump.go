@@ -44,10 +44,10 @@ import (
 	"github.com/go-kit/kit/log"
 	"github.com/mxk/go-imap/imap"
 	"github.com/pkg/errors"
-	"github.com/spf13/cobra"
 	"github.com/tgulacsi/go/loghlp/kitloghlp"
 	"github.com/tgulacsi/imapclient"
 	"github.com/tgulacsi/imapclient/o365"
+	"gopkg.in/alecthomas/kingpin.v2"
 )
 
 const fetchBatchLen = 1024
@@ -58,16 +58,17 @@ var logger = log.With(
 	"ts", log.DefaultTimestamp)
 
 func main() {
-	dumpCmd := &cobra.Command{
-		Use: "dump",
+	if err := Main(); err != nil {
+		fmt.Fprintf(os.Stderr, "%+v", err)
 	}
+}
 
+func Main() error {
 	var (
-		pprofListen            string
-		username, password     string
-		verbose, all           bool
-		clientID, clientSecret string
-		impersonate            string
+		username, password          string
+		recursive, verbose, all, du bool
+		clientID, clientSecret      string
+		impersonate                 string
 	)
 	host := os.Getenv("IMAPDUMP_HOST")
 	port := 143
@@ -76,251 +77,208 @@ func main() {
 			port = i
 		}
 	}
-	P := dumpCmd.PersistentFlags()
-	P.StringVarP(&pprofListen, "pprof", "", "", "HTTP address to pprof to listen on")
-	P.StringVarP(&username, "username", "U", os.Getenv("IMAPDUMP_USER"), "username")
-	P.StringVarP(&password, "password", "P", os.Getenv("IMAPDUMP_PASS"), "password")
-	P.StringVarP(&host, "host", "H", host, "host")
-	P.BoolVarP(&verbose, "verbose", "v", false, "verbose logging")
-	P.IntVarP(&port, "port", "p", port, "port")
-	P.StringVarP(&clientID, "client-id", "", os.Getenv("CLIENT_ID"), "CLIENT_ID")
-	P.StringVarP(&clientSecret, "client-secret", "", os.Getenv("CLIENT_SECRET"), "CLIENT_SECRET")
-	P.StringVarP(&impersonate, "impersonate", "", "", "impersonate")
+
+	app := kingpin.New("imapdump", "dump/load mail through IMAP")
+	app.Flag("verbose", "verbose").Short('v').BoolVar(&verbose)
+
+	app.Flag("username", "username").Short('U').Default(os.Getenv("IMAPDUMP_USER")).StringVar(&username)
+	app.Flag("password", "password").Short('P').Default(os.Getenv("IMAPDUMP_PASS")).StringVar(&password)
+	app.Flag("host", "host").Short('H').Default(host).StringVar(&host)
+	app.Flag("port", "port").Short('p').Default(strconv.Itoa(port)).IntVar(&port)
+	app.Flag("client-id", "Office 365 CLIENT_ID").Default(os.Getenv("CLIENT_ID")).StringVar(&clientID)
+	app.Flag("client-secret", "Office 365 CLIENT_SECRET").Default(os.Getenv("CLIENT_SECRET")).StringVar(&clientSecret)
+	app.Flag("impersonate", "Office 365 impersonate").StringVar(&impersonate)
+
+	//dumpCmd := app.Command("dump", "dump mail").Default()
+
+	listCmd := app.Command("list", "list mailbox")
+	listCmd.Flag("all", "list all, not just UNSEEN").Short('a').BoolVar(&all)
+
+	treeCmd := app.Command("tree", "print the tree of mailboxes")
+	treeCmd.Flag("du", "print dir sizes, too").Short('l').BoolVar(&du)
+	treeMbox := treeCmd.Arg("mbox", "root mailbox").Default("INBOX").String()
+
+	saveCmd := app.Command("save", "save the mails").Alias("dump").Alias("write")
+	saveOut := saveCmd.Flag("out", "output mail(s) to this file").Short('o').Default("-").String()
+	saveMbox := saveCmd.Flag("mbox", "mailbox to save from").Short('m').Default("INBOX").String()
+	saveCmd.Flags("recursive", "dump recursively (all subfolders)").Short('r').BoolVar(&recursive)
 
 	rootCtx := imapclient.CtxWithLogFunc(context.Background(), logger.Log)
-	dumpCmd.PersistentPreRun = func(_ *cobra.Command, _ []string) {
-		if verbose {
-			imapclient.Log = log.With(logger, "lib", "imapclient").Log
-		}
-		if pprofListen != "" {
-			go func() {
-				logger.Log("msg", http.ListenAndServe(pprofListen, nil))
-			}()
-		}
+
+	todo, err := app.Parse(os.Args[1:])
+	if err != nil {
+		return err
+	}
+	if verbose {
+		imapclient.Log = log.With(logger, "lib", "imapclient").Log
 	}
 
-	NewClient := func() (imapclient.Client, error) {
-		if clientID != "" && clientSecret != "" {
-			return o365.NewIMAPClient(o365.NewClient(
-				clientID, clientSecret, "http://localhost:8123",
-				o365.Impersonate(impersonate),
-			)), nil
-		}
+	var c imapcliet.Client
+	if clientID != "" && clientSecret != "" {
+		c = o365.NewIMAPClient(o365.NewClient(
+			clientID, clientSecret, "http://localhost:8123",
+			o365.Impersonate(impersonate),
+		)), nil
+	} else {
 		c := imapclient.NewClient(host, port, username, password)
 		c.SetLoggerC(rootCtx)
 		if verbose {
 			c.SetLogMask(imap.LogAll)
 		}
-		return c, c.Connect()
+		c, err = NewClient()
 	}
+	if err != nil {
+		return err
+	}
+	defer c.Close(false)
 
 	Log := logger.Log
-	listCmd := &cobra.Command{
-		Use: "list",
-		Run: func(_ *cobra.Command, args []string) {
-			c, err := NewClient()
-			if err != nil {
-				Log("msg", "CONNECT", "error", err)
-				os.Exit(1)
-			}
-			defer c.Close(false)
-			for _, mbox := range args {
-				mails, err := listMbox(rootCtx, c, mbox, all)
-				if err != nil {
-					Log("msg", "Listing", "box", mbox, "error", err)
-				}
-				for _, m := range mails {
-					fmt.Fprintf(os.Stdout, "%d\t%d\t%s\n", m.UID, m.Size, m.Subject)
-				}
-			}
-		},
-	}
-	listCmd.Flags().BoolVarP(&all, "all", "a", false, "list all, not just UNSEEN")
-	dumpCmd.AddCommand(listCmd)
 
-	var du bool
-	treeCmd := &cobra.Command{
-		Use: "tree",
-		Run: func(_ *cobra.Command, args []string) {
-			c, err := NewClient()
+	switch todo {
+	//case dumpCmd.FullCommand():
+
+	case listCmd.FullCommand():
+		for _, mbox := range args {
+			mails, err := listMbox(rootCtx, c, mbox, all)
 			if err != nil {
-				Log("msg", "CONNECT", "error", err)
-				os.Exit(1)
+				Log("msg", "Listing", "box", mbox, "error", err)
 			}
-			defer c.Close(false)
-			ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
-			mbox := "INBOX"
-			if len(args) > 0 {
-				mbox = args[0]
+			for _, m := range mails {
+				fmt.Fprintf(os.Stdout, "%d\t%d\t%s\n", m.UID, m.Size, m.Subject)
 			}
-			boxes, err := c.Mailboxes(ctx, mbox)
+		}
+
+	case treeCmd.FullCommand():
+		ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
+		boxes, err := c.Mailboxes(ctx, *treeMbox)
+		cancel()
+		if err != nil {
+			Log("msg", "LIST", "error", err)
+			return err
+		}
+		if !du {
+			for _, m := range boxes {
+				fmt.Fprintln(os.Stdout, m)
+			}
+			return
+		}
+		for _, m := range boxes {
+			ctx, cancel := context.WithTimeout(rootCtx, 5*time.Minute)
+			mails, err := listMbox(ctx, c, m, true)
 			cancel()
 			if err != nil {
-				Log("msg", "LIST", "error", err)
-				os.Exit(1)
+				Log("msg", "list", "box", m, "error", err)
 			}
-			if !du {
-				for _, m := range boxes {
-					fmt.Fprintln(os.Stdout, m)
-				}
-				return
+			var s uint64
+			for _, m := range mails {
+				s += uint64(m.Size)
 			}
-			for _, m := range boxes {
-				ctx, cancel := context.WithTimeout(rootCtx, 5*time.Minute)
-				mails, err := listMbox(ctx, c, m, true)
-				cancel()
-				if err != nil {
-					Log("msg", "list", "box", m, "error", err)
-				}
-				var s uint64
-				for _, m := range mails {
-					s += uint64(m.Size)
-				}
-				fmt.Fprintf(os.Stdout, "%s\t%d\n", m, s)
-			}
-		},
-	}
-	treeCmd.Flags().BoolVarP(&du, "du", "l", false, "print dir sizes, too")
-	dumpCmd.AddCommand(treeCmd)
+			fmt.Fprintf(os.Stdout, "%s\t%d\n", m, s)
+		}
 
-	var out, mbox string
-	recursive := false
-	saveCmd := &cobra.Command{
-		Use:     "save",
-		Aliases: []string{"dump", "write"},
-		Run: func(_ *cobra.Command, args []string) {
-			c, err := NewClient()
+	case saveCmd.FullCommand():
+		mailboxes := []string{*saveMbox}
+		if recursive {
+			ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
+			var err error
+			mailboxes, err = c.Mailboxes(ctx, mbox)
+			cancel()
 			if err != nil {
-				Log("msg", "CONNECT", "error", err)
+				Log("msg", "List mailboxes under", "box", mbox, "error", err)
+				return err
 			}
-			defer c.Close(false)
-			mailboxes := []string{mbox}
-			if recursive {
+		}
+
+		dest := os.Stdout
+		if !(*saveOut == "" || *saveOut == "-") {
+			var err error
+			dest, err = os.Create(*saveOut)
+			if err != nil {
+				Log("msg", "create", "output", *saveOut, "error", err)
+				return err
+			}
+		}
+		defer func() {
+			if err := dest.Close(); err != nil {
+				Log("msg", "close output", "error", err)
+			}
+		}()
+
+		if !recursive {
+			ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
+			err := c.Select(ctx, mbox)
+			cancel()
+			if err != nil {
+				Log("msg", "SELECT", "box", mbox, "error", err)
+				return err
+			}
+
+			var uids []uint32
+			if len(args) == 0 || strings.ToUpper(args[0]) == "ALL" {
 				ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
 				var err error
-				mailboxes, err = c.Mailboxes(ctx, mbox)
-				cancel()
-				if err != nil {
-					Log("msg", "List mailboxes under", "box", mbox, "error", err)
-					os.Exit(1)
-				}
-			}
-
-			dest := os.Stdout
-			if !(out == "" || out == "-") {
-				var err error
-				dest, err = os.Create(out)
-				if err != nil {
-					Log("msg", "create", "output", out, "error", err)
-					os.Exit(1)
-				}
-			}
-			defer func() {
-				if err := dest.Close(); err != nil {
-					Log("msg", "close output", "error", err)
-				}
-			}()
-
-			if !recursive {
-				ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
-				err := c.Select(ctx, mbox)
-				cancel()
-				if err != nil {
-					Log("msg", "SELECT", "box", mbox, "error", err)
-					os.Exit(1)
-				}
-
-				var uids []uint32
-				if len(args) == 0 || strings.ToUpper(args[0]) == "ALL" {
-					ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
-					var err error
-					uids, err = c.ListC(ctx, mbox, "", true)
-					cancel()
-					if err != nil {
-						Log("msg", "list", "box", mbox, "error", err)
-						os.Exit(1)
-					}
-				} else {
-					for _, a := range args {
-						uid, err := strconv.ParseUint(a, 10, 32)
-						if err != nil {
-							Log("msg", "parse as uid", "text", a, "error", err)
-							continue
-						}
-						uids = append(uids, uint32(uid))
-					}
-				}
-
-				if 1 == len(uids) {
-					ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
-					_, err = c.ReadToC(ctx, dest, uids[0])
-					cancel()
-					if err != nil {
-						Log("msg", "Read", "uid", uids[0], "error", err)
-						os.Exit(1)
-					}
-				}
-				tw := &syncTW{Writer: tar.NewWriter(dest)}
-				err = dumpMails(rootCtx, tw, c, mbox, uids)
-				if closeErr := tw.Close(); closeErr != nil && err == nil {
-					err = closeErr
-				}
-				if err != nil {
-					Log("error", err)
-					os.Exit(1)
-				}
-				return
-			}
-
-			tw := &syncTW{Writer: tar.NewWriter(dest)}
-			defer func() {
-				if err := tw.Close(); err != nil {
-					Log("msg", "Close tar", "error", err)
-					os.Exit(1)
-				}
-			}()
-
-			var grp syncutil.Group
-			for _, mbox := range mailboxes {
-				ctx, cancel := context.WithTimeout(rootCtx, 10*time.Minute)
-				uids, err := c.ListC(ctx, mbox, "", true)
+				uids, err = c.ListC(ctx, mbox, "", true)
 				cancel()
 				if err != nil {
 					Log("msg", "list", "box", mbox, "error", err)
-					os.Exit(1)
+					return err
 				}
-				if len(uids) == 0 {
-					continue
-				}
-
-				mbox := mbox
-				grp.Go(func() error {
-					c, err := NewClient()
+			} else {
+				for _, a := range args {
+					uid, err := strconv.ParseUint(a, 10, 32)
 					if err != nil {
-						return err
+						Log("msg", "parse as uid", "text", a, "error", err)
+						continue
 					}
-					defer func() {
-						if err := c.Close(true); err != nil {
-							Log("msg", "Close", "error", err)
-						}
-						runtime.GC()
-					}()
-					return dumpMails(rootCtx, tw, c, mbox, uids)
-				})
+					uids = append(uids, uint32(uid))
+				}
 			}
-			if err := grp.Err(); err != nil {
+
+			if 1 == len(uids) {
+				ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
+				_, err = c.ReadToC(ctx, dest, uids[0])
+				cancel()
+				if err != nil {
+					Log("msg", "Read", "uid", uids[0], "error", err)
+					return err
+				}
+			}
+			tw := &syncTW{Writer: tar.NewWriter(dest)}
+			err = dumpMails(rootCtx, tw, c, mbox, uids)
+			if closeErr := tw.Close(); closeErr != nil && err == nil {
+				err = closeErr
+			}
+			if err != nil {
 				Log("error", err)
+			}
+			return err
+		}
+
+		tw := &syncTW{Writer: tar.NewWriter(dest)}
+		defer func() {
+			if err := tw.Close(); err != nil {
+				Log("msg", "Close tar", "error", err)
 				os.Exit(1)
 			}
+		}()
 
-		},
+		for _, mbox := range mailboxes {
+			ctx, cancel := context.WithTimeout(rootCtx, 10*time.Minute)
+			uids, err := c.ListC(ctx, mbox, "", true)
+			cancel()
+			if err != nil {
+				Log("msg", "list", "box", mbox, "error", err)
+				return err
+			}
+			if len(uids) == 0 {
+				continue
+			}
+
+			if err = dumpMails(rootCtx, tw, c, mbox, uids); err != nil {
+				return err
+			}
+		}
 	}
-	saveCmd.Flags().StringVarP(&out, "out", "o", "-", "output mail(s) to this file")
-	saveCmd.Flags().StringVarP(&mbox, "mbox", "m", "INBOX", "mailbox to save from")
-	saveCmd.Flags().BoolVarP(&recursive, "recursive", "r", recursive, "dump recursively (all subfolders)")
-	dumpCmd.AddCommand(saveCmd)
-
-	dumpCmd.Execute()
 }
 
 var bufPool = sync.Pool{New: func() interface{} { return bytes.NewBuffer(make([]byte, 0, 1<<20)) }}

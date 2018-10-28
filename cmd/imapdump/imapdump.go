@@ -316,7 +316,7 @@ func dumpMails(rootCtx context.Context, tw *syncTW, c imapclient.Client, mbox st
 			Log("error", errors.Wrapf(err, "read(%d)", uid))
 		}
 		hsh := sha1.New()
-		io.Copy(hsh, bytes.NewReader(buf.Bytes()))
+		hsh.Write(buf.Bytes())
 		hshB = hsh.Sum(hshB[:0])
 		hshS := base64.URLEncoding.EncodeToString(hshB)
 		if _, ok := seen[hshS]; ok {
@@ -354,7 +354,7 @@ func dumpMails(rootCtx context.Context, tw *syncTW, c imapclient.Client, mbox st
 			tw.Unlock()
 			return errors.Wrapf(err, "WriteHeader")
 		}
-		if _, err := io.Copy(tw, bytes.NewReader(buf.Bytes())); err != nil {
+		if _, err := tw.Write(buf.Bytes()); err != nil {
 			tw.Unlock()
 			return errors.Wrapf(err, "write tar")
 		}

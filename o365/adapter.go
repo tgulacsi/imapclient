@@ -170,3 +170,9 @@ func (c *oClient) Mailboxes(ctx context.Context, root string) ([]string, error) 
 	}
 	return names, err
 }
+
+func (c *oClient) WriteTo(ctx context.Context, mbox string, msg []byte, date time.Time) error {
+	return ErrNotImplemented
+}
+
+var ErrNotImplemented = errors.New("not implemented")

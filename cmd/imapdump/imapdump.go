@@ -20,10 +20,12 @@ import (
 	"archive/tar"
 	"bufio"
 	"bytes"
+	"compress/gzip"
 	"crypto/sha1"
 	"encoding/base64"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"mime"
 	_ "net/http/pprof"
 	"net/textproto"
@@ -101,6 +103,10 @@ func Main() error {
 	saveMbox := saveCmd.Flag("mbox", "mailbox to save from").Short('m').Default("INBOX").String()
 	saveCmd.Flag("recursive", "dump recursively (all subfolders)").Short('r').BoolVar(&recursive)
 	saveUIDs := saveCmd.Arg("uids", "uids to save - empty for all").Uints()
+
+	loadCmd := app.Command("load", "load the mails").Alias("push").Alias("read")
+	loadMbox := loadCmd.Arg("mbox", "mailbox to push to").String()
+	loadFiles := loadCmd.Arg("files", "files to load (or a .tar)").Strings()
 
 	rootCtx := imapclient.CtxWithLogFunc(context.Background(), logger.Log)
 
@@ -273,6 +279,84 @@ func Main() error {
 				return err
 			}
 		}
+
+	case loadCmd.FullCommand():
+		ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
+		err = c.Select(ctx, *loadMbox)
+		cancel()
+		if err != nil {
+			return err
+		}
+		for _, inpFn := range *loadFiles {
+			var date time.Time
+			var inpFh io.ReadCloser
+			if inpFn == "" || inpFn == "-" {
+				inpFh = os.Stdin
+				date = time.Now()
+			} else {
+				if fh, err := os.Open(inpFn); err != nil {
+					return errors.Wrap(err, inpFn)
+				} else if fi, err := fh.Stat(); err != nil {
+					fh.Close()
+					return err
+				} else {
+					inpFh = fh
+					date = fi.ModTime()
+				}
+			}
+			L := func(r io.Reader, date time.Time) error {
+				b, err := ioutil.ReadAll(r)
+				if err != nil {
+					inpFh.Close()
+					return err
+				}
+				ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
+				err = c.WriteTo(ctx, *loadMbox, b, date)
+				cancel()
+				if err != nil {
+					inpFh.Close()
+					return err
+				}
+				return nil
+			}
+			br := bufio.NewReader(inpFh)
+			b, err := br.Peek(8)
+			if err != nil {
+				inpFh.Close()
+				return errors.Wrap(err, inpFn)
+			}
+			if bytes.Equal(b[:2], []byte{0x1F, 0x8B}) { // GZIP
+				gr, err := gzip.NewReader(br)
+				if err != nil {
+					inpFh.Close()
+					return errors.Wrap(err, inpFn)
+				}
+				br = bufio.NewReader(gr)
+			}
+			if bytes.Equal(b, []byte{0x75, 0x73, 0x74, 0x61, 0x72, 0x20, 0x20, 0x00}) ||
+				bytes.Equal(b, []byte{0x75, 0x73, 0x74, 0x61, 0x72, 0x00, 0x30, 0x30}) { // TAR
+				tr := tar.NewReader(br)
+				for {
+					th, err := tr.Next()
+					if err != nil {
+						if err == io.EOF {
+							break
+						}
+						inpFh.Close()
+						return err
+					}
+					if err = L(tr, th.ModTime); err != nil {
+						return err
+					}
+				}
+			}
+			err = L(br, date)
+			inpFh.Close()
+			if err != nil {
+				return err
+			}
+		}
+
 	}
 	return nil
 }

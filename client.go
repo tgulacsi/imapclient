@@ -74,6 +74,7 @@ type MinClient interface {
 	SetLoggerC(ctx context.Context)
 	Select(ctx context.Context, mbox string) error
 	Watch(ctx context.Context) ([]uint32, error)
+	WriteTo(ctx context.Context, mbox string, msg []byte, date time.Time) error
 }
 
 var _ = Client(MaxClient{})
@@ -611,6 +612,20 @@ func (c *client) Watch(ctx context.Context) ([]uint32, error) {
 		}
 	}
 	return res, err
+}
+
+// WriteTo appends the message the given mailbox.
+func (c *client) WriteTo(ctx context.Context, mbox string, msg []byte, date time.Time) error {
+	var dt *time.Time
+	if !date.IsZero() {
+		dt = &date
+	}
+	cmd, err := c.c.Append(mbox, nil, dt, imap.NewLiteral(msg))
+	if err != nil {
+		return err
+	}
+	_, err = c.WaitC(ctx, cmd)
+	return err
 }
 
 // Connect to the server.

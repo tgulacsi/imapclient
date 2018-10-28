@@ -24,6 +24,8 @@ import (
 	"fmt"
 	"io"
 	stdlog "log"
+	"net"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -102,22 +104,22 @@ func (c MaxClient) SetLogger(logger *stdlog.Logger) {
 	c.SetLoggerC(CtxWithLogFunc(context.Background(), Log))
 }
 
+type tlsPolicy int8
+
 const (
-	noTLS    = -1
-	maybeTLS = 0
-	forceTLS = 1
+	NoTLS    = tlsPolicy(-1)
+	MaybeTLS = tlsPolicy(0)
+	ForceTLS = tlsPolicy(1)
 )
 
 type client struct {
-	host               string
-	username, password string
-	PathSep            string
-	port, tls          int
-	noUTF8             bool
-	c                  *imap.Client
-	created            []string
-	logMask            imap.LogMask
-	logger             *stdlog.Logger
+	ServerAddress
+	PathSep string
+	noUTF8  bool
+	c       *imap.Client
+	created []string
+	logMask imap.LogMask
+	logger  *stdlog.Logger
 }
 
 func init() {
@@ -143,7 +145,7 @@ func NewClientTLS(host string, port int, username, password string) Client {
 	if port == 0 {
 		port = 143
 	}
-	return &client{host: host, port: port, username: username, password: password, tls: forceTLS}
+	return &client{ServerAddress: ServerAddress{Host: host, Port: uint32(port), Username: username, Password: password, TLSPolicy: ForceTLS}}
 }
 
 // NewClientNoTLS returns a new (not connected) Client, without TLS.
@@ -151,12 +153,107 @@ func NewClientNoTLS(host string, port int, username, password string) Client {
 	if port == 0 {
 		port = 143
 	}
-	return &client{host: host, port: port, username: username, password: password, tls: noTLS}
+	return &client{ServerAddress: ServerAddress{Host: host, Port: uint32(port), Username: username, Password: password, TLSPolicy: NoTLS}}
+}
+
+// ServerAddress represents the server's address.
+type ServerAddress struct {
+	Host                   string
+	Port                   uint32
+	Username, Password     string
+	ClientID, ClientSecret string
+	TLSPolicy              tlsPolicy
+}
+
+// URL representation of the server address.
+func (m ServerAddress) URL() *url.URL {
+	if m.Port == 0 {
+		m.Port = 993
+	}
+	u := url.URL{
+		User: url.UserPassword(m.Username, m.Password),
+		Host: fmt.Sprintf("%s:%d", m.Host, m.Port),
+	}
+	if m.Port == 143 {
+		u.Scheme = "imap"
+	} else {
+		u.Scheme = "imaps"
+	}
+	if m.ClientID != "" {
+		u.RawQuery = fmt.Sprintf("clientID=%s&clientSecret=%s",
+			url.QueryEscape(m.ClientID), url.QueryEscape(m.ClientSecret))
+	}
+	return &u
+}
+func (m ServerAddress) String() string {
+	return m.URL().String()
+}
+
+// Mailbox is the ServerAddress with Mailbox info appended.
+type Mailbox struct {
+	ServerAddress
+	Mailbox string
+}
+
+func (m Mailbox) String() string {
+	u := m.URL()
+	u.Path = "/" + m.Mailbox
+	return u.String()
+}
+
+// ParseMailbox parses an imaps://user:passw@host:port/mailbox URL.
+func ParseMailbox(s string) (Mailbox, error) {
+	var m Mailbox
+	u, err := url.Parse(s)
+	if err != nil {
+		return m, err
+	}
+	host, portS, err := net.SplitHostPort(u.Host)
+	if err != nil {
+		return m, err
+	}
+	m.Host = host
+	if portS == "" {
+		m.Port = 993
+	} else if port, err := strconv.Atoi(portS); err != nil {
+		return m, err
+	} else {
+		m.Port = uint32(port)
+	}
+	if u.User != nil {
+		m.Username = u.User.Username()
+		m.Password, _ = u.User.Password()
+	}
+	m.Mailbox = strings.TrimLeft(u.Path, "/")
+	q := u.Query()
+	m.ClientID = q.Get("clientID")
+	m.ClientSecret = q.Get("clientSecret")
+	return m, nil
+}
+
+func (m Mailbox) Connect(ctx context.Context) (Client, error) {
+	c := NewClient(m.Host, int(m.Port), m.Username, m.Password).(*client)
+	if err := c.ConnectC(ctx); err != nil {
+		c.Close(false)
+		return nil, err
+	}
+	if err := c.Select(ctx, m.Mailbox); err == nil {
+		return c, nil
+	}
+	cmd, err := c.c.Create(m.Mailbox)
+	if err == nil {
+		_, err = c.WaitC(ctx, cmd)
+	}
+	if err != nil {
+		c.Close(false)
+		return nil, err
+	}
+	return c, c.Select(ctx, m.Mailbox)
 }
 
 // String returns the connection parameters.
 func (c client) String() string {
-	return c.username + "@" + c.host + ":" + strconv.Itoa(c.port)
+	return c.ServerAddress.String()
 }
 
 // SetLogMaskC allows setting the underlying imap.LogMask,
@@ -193,13 +290,13 @@ func (c client) SetLogger(logger *stdlog.Logger) {
 
 func (c client) SetLoggerC(ctx context.Context) {
 	var ssl string
-	if c.tls == forceTLS {
+	if c.TLSPolicy == ForceTLS {
 		ssl = "SSL"
 	}
 	logger := log.With(
 		log.LoggerFunc(GetLog(ctx)),
 		"imap_server",
-		fmt.Sprintf("%s:%s:%d:%s", c.username, c.host, c.port, ssl),
+		fmt.Sprintf("%s:%s:%d:%s", c.Username, c.Host, c.Port, ssl),
 	)
 	c.logger = stdlog.New(log.NewStdlibAdapter(logger), "", 0)
 	c.SetLogger(c.logger)
@@ -256,6 +353,9 @@ func (c client) Peek(ctx context.Context, w io.Writer, msgID uint32, what string
 		}
 	}()
 
+	if err = ctx.Err(); err != nil {
+		return length, errors.Wrap(err, "recvLoop")
+	}
 	err = c.recvLoop(ctx, ch, cmd)
 	wg.Wait()
 	return length, err
@@ -281,7 +381,7 @@ func (c client) FetchArgs(ctx context.Context, what string, msgIDs ...uint32) (m
 	if err != nil {
 		return nil, err
 	}
-	ch := make(chan *imap.Response, 1)
+	ch := make(chan *imap.Response)
 	go func() {
 		for resp := range ch {
 			mi := resp.MessageInfo()
@@ -312,7 +412,7 @@ func (c client) recvLoop(ctx context.Context, dst chan<- *imap.Response, cmd *im
 
 	for cmd.InProgress() {
 		if err := ctx.Err(); err != nil {
-			return err
+			return errors.Wrapf(err, "recvLoop deadline=%v", deadline)
 		}
 		d := Timeout
 		var last bool
@@ -336,7 +436,11 @@ func (c client) recvLoop(ctx context.Context, dst chan<- *imap.Response, cmd *im
 				continue
 			}
 			//Log("resp", resp)
-			dst <- resp
+			select {
+			case dst <- resp:
+			case <-ctx.Done():
+				return errors.Wrap(ctx.Err(), "send resp")
+			}
 		}
 		cmd.Data = cmd.Data[:0]
 	}
@@ -643,9 +747,9 @@ func (c *client) ConnectC(ctx context.Context) error {
 		c.c = nil
 	}
 	Log := GetLog(ctx)
-	addr := c.host + ":" + strconv.Itoa(c.port)
+	addr := c.Host + ":" + strconv.Itoa(int(c.Port))
 	var err error
-	noTLS := c.tls == noTLS || c.tls == maybeTLS && c.port == 143
+	noTLS := c.TLSPolicy == NoTLS || c.TLSPolicy == MaybeTLS && c.Port == 143
 	if noTLS {
 		c.c, err = imap.Dial(addr)
 	} else {
@@ -722,9 +826,9 @@ func (c client) login(ctx context.Context) error {
 		return err
 	}
 	Log("caps", c.c.Caps)
-	Log := log.With(log.LoggerFunc(Log), "username", c.username).Log
+	Log := log.With(log.LoggerFunc(Log), "username", c.Username).Log
 	order := []string{"login", "xoauth2", "cram-md5", "plain"}
-	if len(c.password) > 40 {
+	if len(c.Password) > 40 {
 		order[0], order[1] = order[1], order[0]
 	}
 
@@ -733,7 +837,7 @@ func (c client) login(ctx context.Context) error {
 		switch method {
 		case "login":
 			Log("msg", "Login")
-			cmd, loginErr := c.c.Login(c.username, c.password)
+			cmd, loginErr := c.c.Login(c.Username, c.Password)
 			if loginErr != nil {
 				err = loginErr
 			} else {
@@ -744,11 +848,11 @@ func (c client) login(ctx context.Context) error {
 			}
 
 		case "xoauth2":
-			Log("user", c.username, "passw", c.password)
+			Log("user", c.Username, "passw", c.Password)
 			// https://msdn.microsoft.com/en-us/library/dn440163.aspx
 			if c.c.Caps["AUTH=XOAUTH2"] {
 				c.c.SetLogMask(imap.LogAll)
-				_, err = c.c.Auth(XOAuth2Auth(c.username, c.password))
+				_, err = c.c.Auth(XOAuth2Auth(c.Username, c.Password))
 				c.SetLogMaskC(ctx, c.logMask)
 				if err == nil {
 					return nil
@@ -759,7 +863,7 @@ func (c client) login(ctx context.Context) error {
 		case "cram-md5":
 			if c.c.Caps["AUTH=CRAM-MD5"] {
 				Log("msg", "Login CramAuth", "capabilities", c.c.Caps, "error", err)
-				if _, err = c.c.Auth(CramAuth(c.username, c.password)); err == nil {
+				if _, err = c.c.Auth(CramAuth(c.Username, c.Password)); err == nil {
 					return nil
 				}
 				Log("msg", "Authenticate", "error", err)
@@ -767,13 +871,13 @@ func (c client) login(ctx context.Context) error {
 
 		case "plain":
 			if c.c.Caps["AUTH=PLAIN"] {
-				username, identity := c.username, ""
+				username, identity := c.Username, ""
 				if i := strings.IndexByte(username, '\\'); i >= 0 {
 					identity, username = strings.TrimPrefix(username[i+1:], "\\"), username[:i]
 				}
 
 				Log("msg", "PlainAuth", "username", username, "identity", identity)
-				if _, err = c.c.Auth(imap.PlainAuth(username, c.password, identity)); err == nil {
+				if _, err = c.c.Auth(imap.PlainAuth(username, c.Password, identity)); err == nil {
 					return nil
 				}
 				Log("msg", "PlainAuth", "username", username, "identity", identity, "error", err)

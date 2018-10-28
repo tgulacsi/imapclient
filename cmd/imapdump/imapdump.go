@@ -108,6 +108,10 @@ func Main() error {
 	loadMbox := loadCmd.Arg("mbox", "mailbox to push to").String()
 	loadFiles := loadCmd.Arg("files", "files to load (or a .tar)").Strings()
 
+	syncCmd := app.Command("sync", "synchronize (push missing message)")
+	syncSrc := syncCmd.Arg("source", "source mailbox in 'imaps://host:port/mbox?user=a@b&passw=xxx' format").String()
+	syncDst := syncCmd.Arg("dest", "destination mailbox in 'imaps://host:port/mbox?user=a@b&passw=xxx' format").String()
+
 	rootCtx := imapclient.CtxWithLogFunc(context.Background(), logger.Log)
 
 	todo, err := app.Parse(os.Args[1:])
@@ -119,22 +123,24 @@ func Main() error {
 	}
 
 	var c imapclient.Client
-	if clientID != "" && clientSecret != "" {
-		c = o365.NewIMAPClient(o365.NewClient(
-			clientID, clientSecret, "http://localhost:8123",
-			o365.Impersonate(impersonate),
-		))
-	} else {
-		c = imapclient.NewClient(host, port, username, password)
-		c.SetLoggerC(rootCtx)
-		if verbose {
-			c.SetLogMask(imap.LogAll)
+	if todo != syncCmd.FullCommand() {
+		if clientID != "" && clientSecret != "" {
+			c = o365.NewIMAPClient(o365.NewClient(
+				clientID, clientSecret, "http://localhost:8123",
+				o365.Impersonate(impersonate),
+			))
+		} else {
+			c = imapclient.NewClient(host, port, username, password)
+			c.SetLoggerC(rootCtx)
+			if verbose {
+				c.SetLogMask(imap.LogAll)
+			}
 		}
+		if err = c.Connect(); err != nil {
+			return err
+		}
+		defer c.Close(false)
 	}
-	if err = c.Connect(); err != nil {
-		return err
-	}
-	defer c.Close(false)
 
 	Log := logger.Log
 
@@ -310,7 +316,7 @@ func Main() error {
 					inpFh.Close()
 					return err
 				}
-				ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
+				ctx, cancel := context.WithTimeout(rootCtx, 30*time.Second)
 				err = c.WriteTo(ctx, *loadMbox, b, date)
 				cancel()
 				if err != nil {
@@ -357,6 +363,87 @@ func Main() error {
 			}
 		}
 
+	case syncCmd.FullCommand():
+		srcM, err := imapclient.ParseMailbox(*syncSrc)
+		if err != nil {
+			return err
+		}
+		ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
+		src, err := srcM.Connect(ctx)
+		cancel()
+		if err != nil {
+			return err
+		}
+		if verbose {
+			src.SetLogMask(imap.LogAll)
+		}
+		dstM, err := imapclient.ParseMailbox(*syncDst)
+		if err != nil {
+			return err
+		}
+		ctx, cancel = context.WithTimeout(rootCtx, 10*time.Second)
+		dst, err := dstM.Connect(ctx)
+		cancel()
+		if err != nil {
+			return err
+		}
+		if verbose {
+			dst.SetLogMask(imap.LogAll)
+		}
+
+		var wg sync.WaitGroup
+		var destMails []Mail
+		var destListErr error
+		go func() {
+			ctx, cancel := context.WithTimeout(rootCtx, 30*time.Second)
+			destMails, destListErr = listMbox(ctx, dst, dstM.Mailbox, true)
+			cancel()
+		}()
+
+		ctx, cancel = context.WithTimeout(rootCtx, 30*time.Second)
+		sourceMails, err := listMbox(ctx, src, srcM.Mailbox, true)
+		cancel()
+		if err != nil {
+			return err
+		}
+		wg.Wait()
+		if destListErr != nil {
+			return destListErr
+		}
+		there := make(map[string]*Mail, len(destMails))
+		for i, m := range destMails {
+			there[m.MessageID] = &destMails[i]
+		}
+
+		var buf bytes.Buffer
+		for _, m := range sourceMails {
+			if _, ok := there[m.MessageID]; ok {
+				continue
+			}
+			fmt.Printf("%s\t\t%q\n", m.MessageID, m.Subject)
+			if err = rootCtx.Err(); err != nil {
+				return err
+			}
+			buf.Reset()
+			ctx, cancel = context.WithTimeout(rootCtx, 30*time.Second)
+			_, err = src.ReadToC(ctx, &buf, m.UID)
+			cancel()
+			if err != nil {
+				return errors.Wrap(err, m.Subject)
+			}
+			if err = rootCtx.Err(); err != nil {
+				return err
+			}
+			ctx, cancel = context.WithTimeout(rootCtx, 30*time.Second)
+			err = dst.WriteTo(ctx, dstM.Mailbox, buf.Bytes(), m.Date)
+			cancel()
+			if err != nil {
+				return err
+			}
+		}
+		//fmt.Println("have: ", there)
+
+		return nil
 	}
 	return nil
 }
@@ -370,17 +457,17 @@ func dumpMails(rootCtx context.Context, tw *syncTW, c imapclient.Client, mbox st
 	Log := imapclient.GetLog(ctx)
 	if err != nil {
 		Log("msg", "SELECT", "box", mbox, "error", err)
-		os.Exit(1)
+		return err
 	}
 
 	if len(uids) == 0 {
-		ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
 		var err error
+		ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
 		uids, err = c.ListC(ctx, mbox, "", true)
 		cancel()
 		if err != nil {
 			Log("msg", "list", "box", mbox, "error", err)
-			os.Exit(1)
+			return err
 		}
 	}
 
@@ -480,9 +567,11 @@ func HeadDecode(head string) string {
 }
 
 type Mail struct {
-	UID     uint32
-	Subject string
-	Size    uint32
+	UID       uint32
+	MessageID string
+	Subject   string
+	Size      uint32
+	Date      time.Time
 }
 
 func listMbox(rootCtx context.Context, c imapclient.Client, mbox string, all bool) ([]Mail, error) {
@@ -500,19 +589,22 @@ func listMbox(rootCtx context.Context, c imapclient.Client, mbox string, all boo
 
 	result := make([]Mail, 0, len(uids))
 	for len(uids) > 0 {
+		if err = rootCtx.Err(); err != nil {
+			return nil, errors.Wrap(err, "listMbox")
+		}
 		n := len(uids)
 		if n > fetchBatchLen {
 			n = fetchBatchLen
 			Log("msg", "Fetching.", "n", n, "of", len(uids))
 		}
-		ctx, cancel = context.WithTimeout(rootCtx, 10*time.Second)
+		ctx, cancel = context.WithTimeout(rootCtx, 30*time.Second)
 		attrs, err := c.FetchArgs(ctx, "RFC822.SIZE RFC822.HEADER", uids[:n]...)
-		uids = uids[n:]
 		cancel()
 		if err != nil {
 			Log("msg", "FetchArgs", "uids", uids, "error", err)
-			return nil, err
+			return nil, errors.Wrapf(err, "FetchArgs %v", uids)
 		}
+		uids = uids[n:]
 		for uid, a := range attrs {
 			m := Mail{UID: uid}
 			result = append(result, m)
@@ -522,6 +614,13 @@ func listMbox(rootCtx context.Context, c imapclient.Client, mbox string, all boo
 				continue
 			}
 			m.Subject = HeadDecode(hdr.Get("Subject"))
+			m.MessageID = HeadDecode(hdr.Get("Message-ID"))
+			s := HeadDecode(hdr.Get("Date"))
+			for _, pat := range []string{time.RFC1123Z, time.RFC1123, time.RFC822Z, time.RFC822, time.RFC850} {
+				if m.Date, err = time.Parse(pat, s); err == nil {
+					break
+				}
+			}
 			if s, err := strconv.ParseUint(a["RFC822.SIZE"][0], 10, 32); err != nil {
 				Log("msg", "size of", "uid", uid, "text", a["RFC822.SIZE"], "error", err)
 				continue

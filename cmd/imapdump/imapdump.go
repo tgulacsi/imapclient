@@ -196,7 +196,8 @@ func Main() error {
 			cancel()
 			if err != nil {
 				Log("msg", "List mailboxes under", "box", mbox, "error", err)
-				return err
+				//return err
+				mailboxes = []string{mbox}
 			}
 		}
 

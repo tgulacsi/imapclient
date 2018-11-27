@@ -21,19 +21,19 @@ import (
 	"crypto/md5" //nolint:gas
 	"encoding/hex"
 
-	"github.com/mxk/go-imap/imap"
+	"github.com/emersion/go-sasl"
 )
 
 type cramAuth struct {
 	username, password string
 }
 
-// CramAuth returns an imap.SASL usable for CRAM-MD5 authentication.
-func CramAuth(username, password string) imap.SASL {
+// CramAuth returns an sasl.Client usable for CRAM-MD5 authentication.
+func CramAuth(username, password string) sasl.Client {
 	return cramAuth{username: username, password: password}
 }
 
-func (a cramAuth) Start(s *imap.ServerInfo) (mech string, ir []byte, err error) {
+func (a cramAuth) Start() (mech string, ir []byte, err error) {
 	return "CRAM-MD5", ir, nil
 }
 

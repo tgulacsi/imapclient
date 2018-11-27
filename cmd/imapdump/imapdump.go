@@ -39,7 +39,6 @@ import (
 	"golang.org/x/text/encoding/htmlindex"
 	"golang.org/x/text/transform"
 
-	"github.com/emersion/go-imap/client"
 	"github.com/go-kit/kit/log"
 	"github.com/pkg/errors"
 	"github.com/tgulacsi/go/loghlp/kitloghlp"

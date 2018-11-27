@@ -9,7 +9,6 @@ import (
 
 	"golang.org/x/net/context"
 
-	"github.com/mxk/go-imap/imap"
 	"github.com/pkg/errors"
 	"github.com/tgulacsi/imapclient"
 )
@@ -142,8 +141,8 @@ func (c *oClient) uidToStr(msgID uint32) (string, error) {
 	}
 	return s, nil
 }
-func (c *oClient) SetLogMask(mask imap.LogMask) imap.LogMask { return 0 }
-func (c *oClient) SetLoggerC(ctx context.Context)            {}
+func (c *oClient) SetLogMask(mask imapclient.LogMask) imapclient.LogMask { return false }
+func (c *oClient) SetLoggerC(ctx context.Context)                        {}
 func (c *oClient) Select(ctx context.Context, mbox string) error {
 	c.mu.Lock()
 	c.selected = mbox

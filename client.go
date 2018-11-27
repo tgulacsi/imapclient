@@ -450,6 +450,26 @@ func (c client) recvLoop(ctx context.Context, dst chan<- *imap.Response, cmd *im
 	return errors.Wrap(err, cmd.String())
 }
 
+func fieldsAsStrings(fields []imap.Field) []string { //nolint:deadcode
+	result := make([]string, len(fields))
+	for i, f := range fields {
+		if f == nil {
+			continue
+		}
+		switch x := f.(type) {
+		case string:
+			result[i] = x
+		case fmt.Stringer:
+			result[i] = x.String()
+		case uint32:
+			result[i] = fmt.Sprintf("%d", x)
+		default:
+			result[i] = imap.AsString(f)
+		}
+	}
+	return result
+}
+
 // ReadTo reads the message identified by the given msgID, into the io.Writer.
 func (c client) ReadTo(w io.Writer, msgID uint32) (int64, error) {
 	return c.ReadToC(context.Background(), w, msgID)

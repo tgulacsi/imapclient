@@ -46,7 +46,7 @@ var (
 	Timeout = 30 * time.Second
 
 	// TLSConfig is the client's config for DialTLS.
-	TLSConfig = tls.Config{InsecureSkipVerify: true}
+	TLSConfig = tls.Config{InsecureSkipVerify: true} //nolint:gas
 )
 
 // Client interface declares the needed methods for listing messages,
@@ -448,26 +448,6 @@ func (c client) recvLoop(ctx context.Context, dst chan<- *imap.Response, cmd *im
 	// Check command completion status.
 	_, err := cmd.Result(imap.OK)
 	return errors.Wrap(err, cmd.String())
-}
-
-func fieldsAsStrings(fields []imap.Field) []string {
-	result := make([]string, len(fields))
-	for i, f := range fields {
-		if f == nil {
-			continue
-		}
-		switch x := f.(type) {
-		case string:
-			result[i] = x
-		case fmt.Stringer:
-			result[i] = x.String()
-		case uint32:
-			result[i] = fmt.Sprintf("%d", x)
-		default:
-			result[i] = imap.AsString(f)
-		}
-	}
-	return result
 }
 
 // ReadTo reads the message identified by the given msgID, into the io.Writer.

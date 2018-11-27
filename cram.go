@@ -18,7 +18,7 @@ package imapclient
 
 import (
 	"crypto/hmac"
-	"crypto/md5"
+	"crypto/md5" //nolint:gas
 	"encoding/hex"
 
 	"github.com/mxk/go-imap/imap"

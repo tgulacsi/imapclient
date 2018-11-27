@@ -39,8 +39,8 @@ import (
 	"golang.org/x/text/encoding/htmlindex"
 	"golang.org/x/text/transform"
 
+	"github.com/emersion/go-imap/client"
 	"github.com/go-kit/kit/log"
-	"github.com/mxk/go-imap/imap"
 	"github.com/pkg/errors"
 	"github.com/tgulacsi/go/loghlp/kitloghlp"
 	"github.com/tgulacsi/imapclient"
@@ -133,7 +133,7 @@ func Main() error {
 			c = imapclient.NewClient(host, port, username, password)
 			c.SetLoggerC(rootCtx)
 			if verbose {
-				c.SetLogMask(imap.LogAll)
+				c.SetLogMask(imapclient.LogAll)
 			}
 		}
 		if err = c.Connect(); err != nil {
@@ -376,7 +376,7 @@ func Main() error {
 			return err
 		}
 		if verbose {
-			src.SetLogMask(imap.LogAll)
+			src.SetLogMask(imapclient.LogAll)
 		}
 		dstM, err := imapclient.ParseMailbox(*syncDst)
 		if err != nil {
@@ -389,7 +389,7 @@ func Main() error {
 			return err
 		}
 		if verbose {
-			dst.SetLogMask(imap.LogAll)
+			dst.SetLogMask(imapclient.LogAll)
 		}
 
 		var wg sync.WaitGroup

@@ -6,6 +6,8 @@ require (
 	github.com/alecthomas/units v0.0.0-20151022065526-2efee857e7cf // indirect
 	github.com/aws/aws-sdk-go v1.15.83 // indirect
 	github.com/codingsince1985/geo-golang v0.0.0-20181114125033-bf44e3bdfe9e // indirect
+	github.com/emersion/go-imap v1.0.0-beta.1
+	github.com/emersion/go-sasl v0.0.0-20161116183048-7e096a0a6197 // indirect
 	github.com/go-kit/kit v0.8.0
 	github.com/hashicorp/go-retryablehttp v0.5.0 // indirect
 	github.com/mailgun/mailgun-go v2.0.0+incompatible // indirect

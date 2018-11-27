@@ -28,15 +28,20 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"golang.org/x/net/context"
 
 	"github.com/go-kit/kit/log"
-	"github.com/mxk/go-imap/imap"
 	"github.com/pkg/errors"
+
+	"github.com/emersion/go-imap"
+	"github.com/emersion/go-imap/client"
 )
+
+type LogMask bool
+
+const LogAll = LogMask(true)
 
 var (
 	// Log uses DiscardHandler (produces no output) by default.
@@ -72,7 +77,7 @@ type MinClient interface {
 	Mark(msgID uint32, seen bool) error
 	Delete(msgID uint32) error
 	Move(msgID uint32, mbox string) error
-	SetLogMask(mask imap.LogMask) imap.LogMask
+	SetLogMask(mask LogMask) LogMask
 	SetLoggerC(ctx context.Context)
 	Select(ctx context.Context, mbox string) error
 	Watch(ctx context.Context) ([]uint32, error)
@@ -112,21 +117,15 @@ const (
 	ForceTLS = tlsPolicy(1)
 )
 
-type client struct {
+type imapClient struct {
 	ServerAddress
 	PathSep string
 	noUTF8  bool
-	c       *imap.Client
+	c       *client.Client
 	created []string
-	logMask imap.LogMask
+	logMask LogMask
+	status  *imap.MailboxStatus
 	logger  *stdlog.Logger
-}
-
-func init() {
-	imap.BufferSize = 1 << 20
-	imap.DefaultLogger = stdlog.New(
-		log.NewStdlibAdapter(log.LoggerFunc(Log)),
-		"", 0)
 }
 
 // NewClient returns a new (not connected) Client, using TLS iff port == 143.
@@ -145,7 +144,7 @@ func NewClientTLS(host string, port int, username, password string) Client {
 	if port == 0 {
 		port = 143
 	}
-	return &client{ServerAddress: ServerAddress{Host: host, Port: uint32(port), Username: username, Password: password, TLSPolicy: ForceTLS}}
+	return &imapClient{ServerAddress: ServerAddress{Host: host, Port: uint32(port), Username: username, Password: password, TLSPolicy: ForceTLS}}
 }
 
 // NewClientNoTLS returns a new (not connected) Client, without TLS.
@@ -153,7 +152,7 @@ func NewClientNoTLS(host string, port int, username, password string) Client {
 	if port == 0 {
 		port = 143
 	}
-	return &client{ServerAddress: ServerAddress{Host: host, Port: uint32(port), Username: username, Password: password, TLSPolicy: NoTLS}}
+	return &imapClient{ServerAddress: ServerAddress{Host: host, Port: uint32(port), Username: username, Password: password, TLSPolicy: NoTLS}}
 }
 
 // ServerAddress represents the server's address.
@@ -232,7 +231,7 @@ func ParseMailbox(s string) (Mailbox, error) {
 }
 
 func (m Mailbox) Connect(ctx context.Context) (Client, error) {
-	c := NewClient(m.Host, int(m.Port), m.Username, m.Password).(*client)
+	c := NewClient(m.Host, int(m.Port), m.Username, m.Password).(*imapClient)
 	if err := c.ConnectC(ctx); err != nil {
 		c.Close(false)
 		return nil, err
@@ -240,11 +239,7 @@ func (m Mailbox) Connect(ctx context.Context) (Client, error) {
 	if err := c.Select(ctx, m.Mailbox); err == nil {
 		return c, nil
 	}
-	cmd, err := c.c.Create(m.Mailbox)
-	if err == nil {
-		_, err = c.WaitC(ctx, cmd)
-	}
-	if err != nil {
+	if err := c.c.Create(m.Mailbox); err != nil {
 		c.Close(false)
 		return nil, err
 	}
@@ -252,43 +247,43 @@ func (m Mailbox) Connect(ctx context.Context) (Client, error) {
 }
 
 // String returns the connection parameters.
-func (c client) String() string {
+func (c imapClient) String() string {
 	return c.ServerAddress.String()
 }
 
 // SetLogMaskC allows setting the underlying imap.LogMask,
 // and also sets the standard logger's destination to the ctx's logger.
-func (c client) SetLogMaskC(ctx context.Context, mask imap.LogMask) imap.LogMask {
-	// Remove timestamp and other decorations of the std logger
-	stdlog.SetFlags(0)
-
-	Log := GetLog(ctx)
-	stdlog.SetOutput(log.NewStdlibAdapter(log.LoggerFunc(Log)))
+func (c imapClient) SetLogMaskC(ctx context.Context, mask LogMask) LogMask {
 
 	c.logMask = mask
-	if c.c == nil {
-		imap.DefaultLogMask = c.logMask
-	} else {
-		return c.c.SetLogMask(c.logMask)
+	if c.c != nil {
+		var w io.Writer
+		if c.logMask {
+			// Remove timestamp and other decorations of the std logger
+			stdlog.SetFlags(0)
+
+			Log := GetLog(ctx)
+			w := log.NewStdlibAdapter(log.LoggerFunc(Log))
+			stdlog.SetOutput(w)
+		}
+		c.c.SetDebug(nil)
 	}
 	return mask
 }
 
 // SetLogMask allows setting the underlying imap.LogMask.
-func (c client) SetLogMask(mask imap.LogMask) imap.LogMask {
+func (c imapClient) SetLogMask(mask LogMask) LogMask {
 	return c.SetLogMaskC(context.Background(), mask)
 }
 
-func (c client) SetLogger(logger *stdlog.Logger) {
+func (c imapClient) SetLogger(logger *stdlog.Logger) {
 	c.logger = logger
-	if c.c == nil {
-		imap.DefaultLogger = c.logger
-	} else {
-		c.c.SetLogger(c.logger)
+	if c.c != nil {
+		c.c.SetDebug(stdlogWriter{c.logger})
 	}
 }
 
-func (c client) SetLoggerC(ctx context.Context) {
+func (c imapClient) SetLoggerC(ctx context.Context) {
 	var ssl string
 	if c.TLSPolicy == ForceTLS {
 		ssl = "SSL"
@@ -304,65 +299,50 @@ func (c client) SetLoggerC(ctx context.Context) {
 
 // Select selects the mailbox to use - it is needed before ReadTo
 // (List includes this).
-func (c client) Select(ctx context.Context, mbox string) error {
+func (c imapClient) Select(ctx context.Context, mbox string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	cmd, err := c.c.Select(mbox, false)
+	var err error
+	c.status, err = c.c.Select(mbox, false)
 	if err != nil {
-		return errors.Wrapf(err, "SELECT %q", mbox)
+		return errors.Wrapf(err, "SELECT %1", mbox)
 	}
-	_, err = c.WaitC(ctx, cmd)
-	return err
+	return nil
 }
 
 // ReadToC reads the message identified by the given msgID, into the io.Writer,
 // within the given context (deadline).
-func (c client) ReadToC(ctx context.Context, w io.Writer, msgID uint32) (int64, error) {
+func (c imapClient) ReadToC(ctx context.Context, w io.Writer, msgID uint32) (int64, error) {
 	if err := ctx.Err(); err != nil {
 		return 0, err
 	}
 	return c.Peek(ctx, w, msgID, "")
 }
 
-// Peek into the message. Possible what: HEADER, TEXT, or empty (both).
-func (c client) Peek(ctx context.Context, w io.Writer, msgID uint32, what string) (int64, error) {
+// Peek into the message. Possible what: HEADER, TEXT, or empty (both) -
+// see http://tools.ietf.org/html/rfc3501#section-6.4.5
+func (c imapClient) Peek(ctx context.Context, w io.Writer, msgID uint32, what string) (int64, error) {
+	ss := strings.Fields(what)
+	section := &imap.BodySectionName{BodyPartName: imap.BodyPartName{Specifier: imap.PartSpecifier(what)}, Peek: true}
 	var length int64
 	set := &imap.SeqSet{}
 	set.AddNum(msgID)
-	//Log := GetLogger(ctx)
-	what = "BODY.PEEK[" + what + "]"
-	//Log("msg","FETCH", "set", set, "what",what)
-	cmd, err := c.c.UIDFetch(set, what)
-	if err != nil {
-		return length, errors.Wrapf(err, "UIDFetch %v %v", set, what)
+	ch := make(chan *imap.Message, 1)
+	done := make(chan error, 1)
+	go func() { done <- c.c.UidFetch(set, []imap.FetchItem{section.FetchItem()}, ch) }()
+	select {
+	case <-ctx.Done():
+		return 0, ctx.Err()
+	case err := <-done:
+		return 0, err
+	case msg := <-ch:
+		return io.Copy(w, msg.GetBody(section))
 	}
-	var writeErr error
-	ch := make(chan *imap.Response)
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for resp := range ch {
-			//Log("resp", resp)
-			n, wErr := w.Write(imap.AsBytes(resp.MessageInfo().Attrs["BODY[]"]))
-			if wErr != nil && writeErr == nil {
-				writeErr = wErr
-			}
-			length += int64(n)
-		}
-	}()
-
-	if err = ctx.Err(); err != nil {
-		return length, errors.Wrap(err, "recvLoop")
-	}
-	err = c.recvLoop(ctx, ch, cmd)
-	wg.Wait()
-	return length, err
 }
 
 // Fetch the message. Possible what: RFC3551 6.5.4 (RFC822.SIZE, ENVELOPE, ...). The default is "RFC822.SIZE ENVELOPE".
-func (c client) FetchArgs(ctx context.Context, what string, msgIDs ...uint32) (map[uint32]map[string][]string, error) {
+func (c imapClient) FetchArgs(ctx context.Context, what string, msgIDs ...uint32) (map[uint32]map[string][]string, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -403,7 +383,7 @@ func (c client) FetchArgs(ctx context.Context, what string, msgIDs ...uint32) (m
 	return result, err
 }
 
-func (c client) recvLoop(ctx context.Context, dst chan<- *imap.Response, cmd *imap.Command) error {
+func (c imapClient) recvLoop(ctx context.Context, dst chan<- *imap.Response, cmd *imap.Command) error {
 	defer close(dst)
 	deadline, ok := ctx.Deadline()
 	if !ok {
@@ -471,17 +451,17 @@ func fieldsAsStrings(fields []imap.Field) []string { //nolint:deadcode
 }
 
 // ReadTo reads the message identified by the given msgID, into the io.Writer.
-func (c client) ReadTo(w io.Writer, msgID uint32) (int64, error) {
+func (c imapClient) ReadTo(w io.Writer, msgID uint32) (int64, error) {
 	return c.ReadToC(context.Background(), w, msgID)
 }
 
 // Move the msgID to the given mbox.
-func (c *client) Move(msgID uint32, mbox string) error {
+func (c *imapClient) Move(msgID uint32, mbox string) error {
 	return c.MoveC(context.Background(), msgID, mbox)
 }
 
 // MoveC moves the msgid to the given mbox, within deadline.
-func (c *client) MoveC(ctx context.Context, msgID uint32, mbox string) error {
+func (c *imapClient) MoveC(ctx context.Context, msgID uint32, mbox string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -525,7 +505,7 @@ func (c *client) MoveC(ctx context.Context, msgID uint32, mbox string) error {
 // ListC the messages from the given mbox, matching the pattern.
 // Lists only new (UNSEEN) messages iff all is false,
 // withing the given context (deadline).
-func (c *client) ListC(ctx context.Context, mbox, pattern string, all bool) ([]uint32, error) {
+func (c *imapClient) ListC(ctx context.Context, mbox, pattern string, all bool) ([]uint32, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -584,12 +564,12 @@ func (c *client) ListC(ctx context.Context, mbox, pattern string, all bool) ([]u
 }
 
 // List the mailbox, where subject meets the pattern, and only unseen (when all is false).
-func (c *client) List(mbox, pattern string, all bool) ([]uint32, error) {
+func (c *imapClient) List(mbox, pattern string, all bool) ([]uint32, error) {
 	return c.ListC(context.Background(), mbox, pattern, all)
 }
 
 // Mailboxes returns the list of mailboxes under root
-func (c *client) Mailboxes(ctx context.Context, root string) ([]string, error) {
+func (c *imapClient) Mailboxes(ctx context.Context, root string) ([]string, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -608,7 +588,7 @@ func (c *client) Mailboxes(ctx context.Context, root string) ([]string, error) {
 }
 
 // Close closes the currently selected mailbox, then logs out.
-func (c *client) CloseC(ctx context.Context, expunge bool) error {
+func (c *imapClient) CloseC(ctx context.Context, expunge bool) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -629,17 +609,17 @@ func (c *client) CloseC(ctx context.Context, expunge bool) error {
 }
 
 // Close closes the currently selected mailbox, then logs out.
-func (c *client) Close(expunge bool) error {
+func (c *imapClient) Close(expunge bool) error {
 	return c.CloseC(context.Background(), expunge)
 }
 
 // Mark the message seen/unseed
-func (c *client) Mark(msgID uint32, seen bool) error {
+func (c *imapClient) Mark(msgID uint32, seen bool) error {
 	return c.MarkC(context.Background(), msgID, seen)
 }
 
 // MarkC marks the message seen/unseen, within the given context (deadline).
-func (c *client) MarkC(ctx context.Context, msgID uint32, seen bool) error {
+func (c *imapClient) MarkC(ctx context.Context, msgID uint32, seen bool) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -659,12 +639,12 @@ func (c *client) MarkC(ctx context.Context, msgID uint32, seen bool) error {
 }
 
 // Delete the message
-func (c *client) Delete(msgID uint32) error {
+func (c *imapClient) Delete(msgID uint32) error {
 	return c.DeleteC(context.Background(), msgID)
 }
 
 // DeleteC deletes the message, within the given context (deadline).
-func (c *client) DeleteC(ctx context.Context, msgID uint32) error {
+func (c *imapClient) DeleteC(ctx context.Context, msgID uint32) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -681,7 +661,7 @@ func (c *client) DeleteC(ctx context.Context, msgID uint32) error {
 
 // Watch the current mailbox for changes.
 // Return on the first server notification.
-func (c *client) Watch(ctx context.Context) ([]uint32, error) {
+func (c *imapClient) Watch(ctx context.Context) ([]uint32, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -719,7 +699,7 @@ func (c *client) Watch(ctx context.Context) ([]uint32, error) {
 }
 
 // WriteTo appends the message the given mailbox.
-func (c *client) WriteTo(ctx context.Context, mbox string, msg []byte, date time.Time) error {
+func (c *imapClient) WriteTo(ctx context.Context, mbox string, msg []byte, date time.Time) error {
 	var dt *time.Time
 	if !date.IsZero() {
 		dt = &date
@@ -733,12 +713,12 @@ func (c *client) WriteTo(ctx context.Context, mbox string, msg []byte, date time
 }
 
 // Connect to the server.
-func (c *client) Connect() error {
+func (c *imapClient) Connect() error {
 	return c.ConnectC(context.Background())
 }
 
 // ConnectC connects to the server, within the given context (deadline).
-func (c *client) ConnectC(ctx context.Context) error {
+func (c *imapClient) ConnectC(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -821,7 +801,7 @@ func (c *client) ConnectC(ctx context.Context) error {
 	return nil
 }
 
-func (c client) login(ctx context.Context) error {
+func (c imapClient) login(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -903,7 +883,7 @@ func getTimeout(ctx context.Context) time.Duration {
 }
 
 // WaitC waits to the response for the command, within context (deadline).
-func (c client) WaitC(ctx context.Context, cmd *imap.Command) (*imap.Command, error) {
+func (c imapClient) WaitC(ctx context.Context, cmd *imap.Command) (*imap.Command, error) {
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -954,4 +934,14 @@ func (a xoauth2Auth) Start(s *imap.ServerInfo) (mech string, ir []byte, err erro
 
 func (a xoauth2Auth) Next(challenge []byte) (response []byte, err error) {
 	return nil, errors.Errorf("unexpected challenge: %s", challenge)
+}
+
+var _ = io.Writer(stdlogWriter{})
+
+type stdlogWriter struct {
+	*stdlog.Logger
+}
+
+func (lg stdlogWriter) Write(p []byte) (int, error) {
+	return len(p), lg.Logger.Output(4, string(p))
 }

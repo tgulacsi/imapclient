@@ -1,5 +1,5 @@
 /*
-Copyright 2016 Tamás Gulácsi
+Copyright 2019 Tamás Gulácsi
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -86,6 +86,8 @@ func Main() error {
 	app.Flag("client-id", "Office 365 CLIENT_ID").Default(os.Getenv("CLIENT_ID")).StringVar(&clientID)
 	app.Flag("client-secret", "Office 365 CLIENT_SECRET").Default(os.Getenv("CLIENT_SECRET")).StringVar(&clientSecret)
 	app.Flag("impersonate", "Office 365 impersonate").StringVar(&impersonate)
+	flagForceTLS := app.Flag("force-tls", "force use of TLS").Default("false").Bool()
+	flagForbidTLS := app.Flag("forbid-tls", "forbid (force no TLS)").Default("false").Bool()
 
 	//dumpCmd := app.Command("dump", "dump mail").Default()
 
@@ -129,7 +131,23 @@ func Main() error {
 				o365.Impersonate(impersonate),
 			))
 		} else {
-			c = imapclient.NewClient(host, port, username, password)
+			if port == 0 {
+				port = 143
+				if *flagForceTLS {
+					port = 993
+				}
+			}
+			sa := imapclient.ServerAddress{
+				Host: host, Port: uint32(port),
+				Username: username, Password: password,
+				TLSPolicy: imapclient.MaybeTLS,
+			}
+			if *flagForceTLS {
+				sa.TLSPolicy = imapclient.ForceTLS
+			} else if *flagForbidTLS {
+				sa.TLSPolicy = imapclient.NoTLS
+			}
+			c = imapclient.FromServerAddress(sa)
 			c.SetLoggerC(rootCtx)
 			if verbose {
 				c.SetLogMask(imapclient.LogAll)
@@ -506,7 +524,7 @@ func dumpMails(rootCtx context.Context, tw *syncTW, c imapclient.Client, mbox st
 		}
 		t := now
 		if err != nil {
-			Log("msg", "parse", "uid", uid, "error", err)
+			Log("msg", "parse", "uid", uid, "error", err, "bytes", buf.Bytes())
 		} else {
 			var ok bool
 			if t, ok = HeadDate(hdr.Get("Date")); !ok {
@@ -608,9 +626,12 @@ func listMbox(rootCtx context.Context, c imapclient.Client, mbox string, all boo
 		for uid, a := range attrs {
 			m := Mail{UID: uid}
 			result = append(result, m)
+			if h := a["RFC822.HEADER"]; len(h) == 0 || h[0] == "" || h[0] == "<nil>" {
+				continue
+			}
 			hdr, err := textproto.NewReader(bufio.NewReader(strings.NewReader(a["RFC822.HEADER"][0]))).ReadMIMEHeader()
 			if err != nil {
-				Log("msg", "parse", "uid", uid, "error", err)
+				Log("msg", "parse", "uid", uid, "error", err, "bytes", a["RFC822.HEADER"])
 				continue
 			}
 			m.Subject = HeadDecode(hdr.Get("Subject"))

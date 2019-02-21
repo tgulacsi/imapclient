@@ -120,7 +120,6 @@ const (
 
 type imapClient struct {
 	ServerAddress
-	noUTF8  bool
 	c       *client.Client
 	created []string
 	logMask LogMask
@@ -139,12 +138,21 @@ func NewClient(host string, port int, username, password string) Client {
 	return NewClientTLS(host, port, username, password)
 }
 
+// FromServerAddress returns a new (not connected) Client, using the ServerAddress.
+func FromServerAddress(sa ServerAddress) Client {
+	return &imapClient{ServerAddress: sa}
+}
+
 // NewClientTLS returns a new (not connected) Client, using TLS.
 func NewClientTLS(host string, port int, username, password string) Client {
 	if port == 0 {
 		port = 143
 	}
-	return &imapClient{ServerAddress: ServerAddress{Host: host, Port: uint32(port), Username: username, Password: password, TLSPolicy: ForceTLS}}
+	return FromServerAddress(ServerAddress{
+		Host: host, Port: uint32(port),
+		Username: username, Password: password,
+		TLSPolicy: ForceTLS,
+	})
 }
 
 // NewClientNoTLS returns a new (not connected) Client, without TLS.
@@ -152,7 +160,11 @@ func NewClientNoTLS(host string, port int, username, password string) Client {
 	if port == 0 {
 		port = 143
 	}
-	return &imapClient{ServerAddress: ServerAddress{Host: host, Port: uint32(port), Username: username, Password: password, TLSPolicy: NoTLS}}
+	return FromServerAddress(ServerAddress{
+		Host: host, Port: uint32(port),
+		Username: username, Password: password,
+		TLSPolicy: NoTLS,
+	})
 }
 
 // ServerAddress represents the server's address.
@@ -219,6 +231,11 @@ func ParseMailbox(s string) (Mailbox, error) {
 	} else {
 		m.Port = uint32(port)
 	}
+	if u.Scheme == "imaps" {
+		m.TLSPolicy = ForceTLS
+	} else if u.Scheme == "imap" {
+		m.TLSPolicy = NoTLS
+	}
 	if u.User != nil {
 		m.Username = u.User.Username()
 		m.Password, _ = u.User.Password()
@@ -231,7 +248,7 @@ func ParseMailbox(s string) (Mailbox, error) {
 }
 
 func (m Mailbox) Connect(ctx context.Context) (Client, error) {
-	c := NewClient(m.Host, int(m.Port), m.Username, m.Password).(*imapClient)
+	c := FromServerAddress(m.ServerAddress).(*imapClient)
 	if err := c.ConnectC(ctx); err != nil {
 		c.Close(false)
 		return nil, err
@@ -328,15 +345,21 @@ func (c imapClient) Peek(ctx context.Context, w io.Writer, msgID uint32, what st
 	ch := make(chan *imap.Message, 1)
 	done := make(chan error, 1)
 	c.setTimeout(ctx)
-	go func() { defer close(ch); done <- c.c.UidFetch(set, []imap.FetchItem{section.FetchItem()}, ch) }()
+	go func() { done <- c.c.UidFetch(set, []imap.FetchItem{section.FetchItem()}, ch) }()
 	select {
 	case <-ctx.Done():
 		return 0, ctx.Err()
 	case err := <-done:
 		return 0, err
-	case msg := <-ch:
-		return io.Copy(w, msg.GetBody(section))
+	case msg, ok := <-ch:
+		if !ok {
+			break
+		}
+		if msg != nil {
+			return io.Copy(w, msg.GetBody(section))
+		}
 	}
+	return 0, nil
 }
 
 // Fetch the message. Possible what: RFC3551 6.5.4 (RFC822.SIZE, ENVELOPE, ...). The default is "RFC822.SIZE ENVELOPE".
@@ -501,7 +524,7 @@ func (c *imapClient) Mailboxes(ctx context.Context, root string) ([]string, erro
 	}
 	ch := make(chan *imap.MailboxInfo, 1)
 	done := make(chan error, 1)
-	go func() { defer close(ch); done <- c.c.List(root, "*", ch) }()
+	go func() { done <- c.c.List(root, "*", ch) }()
 	var names []string
 	select {
 	case <-ctx.Done():
@@ -509,7 +532,9 @@ func (c *imapClient) Mailboxes(ctx context.Context, root string) ([]string, erro
 	case err := <-done:
 		return names, err
 	case mi := <-ch:
-		names = append(names, mi.Name)
+		if mi != nil {
+			names = append(names, mi.Name)
+		}
 	}
 	return names, nil
 }
@@ -662,7 +687,7 @@ func (c imapClient) login(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	Log := log.With(log.LoggerFunc(Log), "username", c.Username).Log
+	logger := log.With(log.LoggerFunc(Log), "username", c.Username)
 	order := []string{"login", "xoauth2", "cram-md5", "plain"}
 	if len(c.Password) > 40 {
 		order[0], order[1] = order[1], order[0]
@@ -670,17 +695,16 @@ func (c imapClient) login(ctx context.Context) error {
 
 	var err error
 	for _, method := range order {
+		Log := log.With(logger, "method", method).Log
+		Log("msg", "try")
 		switch method {
 		case "login":
 			Log("msg", "Login")
-			loginErr := c.c.Login(c.Username, c.Password)
-			if loginErr != nil {
-				err = loginErr
-				Log("msg", "Login", "error", err)
+			if err = c.c.Login(c.Username, c.Password); err == nil {
+				return nil
 			}
 
 		case "xoauth2":
-			Log("user", c.Username, "passw", c.Password)
 			// https://msdn.microsoft.com/en-us/library/dn440163.aspx
 			if ok, _ := c.c.SupportAuth("XOAUTH2"); ok {
 				c.SetLogMaskC(ctx, LogAll)
@@ -689,7 +713,6 @@ func (c imapClient) login(ctx context.Context) error {
 				if err == nil {
 					return nil
 				}
-				Log("msg", "XOAuth2", "error", err)
 			}
 
 		case "cram-md5":
@@ -698,7 +721,6 @@ func (c imapClient) login(ctx context.Context) error {
 				if err = c.c.Authenticate(CramAuth(c.Username, c.Password)); err == nil {
 					return nil
 				}
-				Log("msg", "Authenticate", "error", err)
 			}
 
 		case "plain":
@@ -707,31 +729,19 @@ func (c imapClient) login(ctx context.Context) error {
 				if i := strings.IndexByte(username, '\\'); i >= 0 {
 					identity, username = strings.TrimPrefix(username[i+1:], "\\"), username[:i]
 				}
+				Log = log.With(logger, "method", method, "identity", identity).Log
 
-				Log("msg", "PlainAuth", "username", username, "identity", identity)
 				if err = c.c.Authenticate(sasl.NewPlainClient(identity, username, c.Password)); err == nil {
 					return nil
 				}
-				Log("msg", "PlainAuth", "username", username, "identity", identity, "error", err)
 			}
+			Log("msg", "try", "error", err)
 		}
 	}
 	if err != nil {
 		return err
 	}
 	return errors.New("could not log in")
-}
-
-func getTimeout(ctx context.Context) time.Duration {
-	deadline, ok := ctx.Deadline()
-	if !ok {
-		return Timeout
-	}
-	now := time.Now()
-	if deadline.After(now.Add(Timeout)) {
-		return Timeout
-	}
-	return deadline.Sub(now)
 }
 
 func (c imapClient) setTimeout(ctx context.Context) {

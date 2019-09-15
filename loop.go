@@ -25,8 +25,8 @@ import (
 	"golang.org/x/net/context"
 
 	"github.com/go-kit/kit/log"
-	"github.com/pkg/errors"
 	"github.com/tgulacsi/go/temp"
+	errors "golang.org/x/xerrors"
 )
 
 var (
@@ -93,14 +93,14 @@ type DeliverFunc func(r io.ReadSeeker, uid uint32, sha1 []byte) error
 func one(c Client, inbox, pattern string, deliver DeliverFunc, outbox, errbox string) (int, error) {
 	if err := c.Connect(); err != nil {
 		Log("msg", "Connecting", "to", c, "error", err)
-		return 0, errors.Wrapf(err, "connect to %v", c)
+		return 0, errors.Errorf("connect to %v: %w", c, err)
 	}
 	defer c.Close(true)
 
 	uids, err := c.List(inbox, pattern, outbox != "" && errbox != "")
 	if err != nil {
 		Log("msg", "List", "at", c, "mbox", inbox, "error", err)
-		return 0, errors.Wrapf(err, "list %v/%v", c, inbox)
+		return 0, errors.Errorf("list %v/%v: %w", c, inbox, err)
 	}
 
 	var n int

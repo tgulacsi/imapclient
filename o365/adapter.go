@@ -9,8 +9,8 @@ import (
 
 	"golang.org/x/net/context"
 
-	"github.com/pkg/errors"
 	"github.com/tgulacsi/imapclient"
+	errors "golang.org/x/xerrors"
 )
 
 var _ = imapclient.MinClient((*oClient)(nil))
@@ -150,7 +150,7 @@ func (c *oClient) Select(ctx context.Context, mbox string) error {
 	return nil
 }
 func (c *oClient) FetchArgs(ctx context.Context, what string, msgIDs ...uint32) (map[uint32]map[string][]string, error) {
-	return nil, errors.New("not implemented")
+	return nil, ErrNotImplemented
 }
 func (c *oClient) Mark(msgID uint32, seen bool) error {
 	s, err := c.uidToStr(msgID)

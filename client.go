@@ -33,7 +33,7 @@ import (
 	"golang.org/x/net/context"
 
 	"github.com/go-kit/kit/log"
-	"github.com/pkg/errors"
+	errors "golang.org/x/xerrors"
 
 	"github.com/emersion/go-imap"
 	"github.com/emersion/go-imap/client"
@@ -322,7 +322,7 @@ func (c imapClient) Select(ctx context.Context, mbox string) error {
 	var err error
 	c.status, err = c.c.Select(mbox, false)
 	if err != nil {
-		return errors.Wrapf(err, "SELECT %q", mbox)
+		return errors.Errorf("SELECT %q: %w", mbox, err)
 	}
 	return nil
 }
@@ -482,7 +482,7 @@ func (c *imapClient) MoveC(ctx context.Context, msgID uint32, mbox string) error
 	set := &imap.SeqSet{}
 	set.AddNum(msgID)
 	if err := c.c.UidCopy(set, mbox); err != nil {
-		return errors.Wrap(err, "copy "+mbox)
+		return errors.Errorf("copy %s: %w", mbox, err)
 	}
 	return c.DeleteC(ctx, msgID)
 }
@@ -497,7 +497,7 @@ func (c *imapClient) ListC(ctx context.Context, mbox, pattern string, all bool) 
 	//Log := GetLogger(ctx)
 	//Log("msg","List", "box",mbox, "pattern",pattern)
 	if err := c.Select(ctx, mbox); err != nil {
-		return nil, errors.Wrapf(err, "SELECT %q", mbox)
+		return nil, errors.Errorf("SELECT %q: %w", mbox, err)
 	}
 
 	crit := imap.NewSearchCriteria()
@@ -654,7 +654,9 @@ func (c *imapClient) ConnectC(ctx context.Context) error {
 	} else {
 		c.c, err = client.DialTLS(addr, &TLSConfig)
 	}
-	err = errors.Wrap(err, addr)
+	if err != nil {
+		err = errors.Errorf("%s: %w", addr, err)
+	}
 	if err != nil {
 		Log("msg", "Connect", "addr", addr, "error", err)
 		return err

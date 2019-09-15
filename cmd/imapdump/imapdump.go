@@ -40,10 +40,10 @@ import (
 	"golang.org/x/text/transform"
 
 	"github.com/go-kit/kit/log"
-	"github.com/pkg/errors"
 	"github.com/tgulacsi/go/loghlp/kitloghlp"
 	"github.com/tgulacsi/imapclient"
 	"github.com/tgulacsi/imapclient/o365"
+	errors "golang.org/x/xerrors"
 	"gopkg.in/alecthomas/kingpin.v2"
 )
 
@@ -319,7 +319,7 @@ func Main() error {
 				date = time.Now()
 			} else {
 				if fh, err := os.Open(inpFn); err != nil {
-					return errors.Wrap(err, inpFn)
+					return errors.Errorf("%s: %w", inpFn, err)
 				} else if fi, err := fh.Stat(); err != nil {
 					fh.Close()
 					return err
@@ -347,13 +347,13 @@ func Main() error {
 			b, err := br.Peek(8)
 			if err != nil {
 				inpFh.Close()
-				return errors.Wrap(err, inpFn)
+				return errors.Errorf("%s: %w", inpFn, err)
 			}
 			if bytes.Equal(b[:2], []byte{0x1F, 0x8B}) { // GZIP
 				gr, err := gzip.NewReader(br)
 				if err != nil {
 					inpFh.Close()
-					return errors.Wrap(err, inpFn)
+					return errors.Errorf("%s: %w", inpFn, err)
 				}
 				br = bufio.NewReader(gr)
 			}
@@ -447,7 +447,7 @@ func Main() error {
 			_, err = src.ReadToC(ctx, &buf, m.UID)
 			cancel()
 			if err != nil {
-				return errors.Wrap(err, m.Subject)
+				return errors.Errorf("%s: %w", m.Subject, err)
 			}
 			if err = rootCtx.Err(); err != nil {
 				return err
@@ -502,7 +502,7 @@ func dumpMails(rootCtx context.Context, tw *syncTW, c imapclient.Client, mbox st
 		_, err = c.ReadToC(ctx, buf, uint32(uid))
 		cancel()
 		if err != nil {
-			Log("error", errors.Wrapf(err, "read(%d)", uid))
+			Log("msg", "read", "uid", uid, "error", err)
 		}
 		hsh := sha1.New()
 		hsh.Write(buf.Bytes())
@@ -541,16 +541,16 @@ func dumpMails(rootCtx context.Context, tw *syncTW, c imapclient.Client, mbox st
 			Uid:      osUID, Gid: osGID,
 		}); err != nil {
 			tw.Unlock()
-			return errors.Wrapf(err, "WriteHeader")
+			return errors.Errorf("WriteHeader: %w", err)
 		}
 		if _, err := tw.Write(buf.Bytes()); err != nil {
 			tw.Unlock()
-			return errors.Wrapf(err, "write tar")
+			return errors.Errorf("write tar: %w", err)
 		}
 
 		if err := tw.Flush(); err != nil {
 			tw.Unlock()
-			return errors.Wrapf(err, "flush tar")
+			return errors.Errorf("flush tar: %w", err)
 		}
 		tw.Unlock()
 	}
@@ -597,7 +597,7 @@ func listMbox(rootCtx context.Context, c imapclient.Client, mbox string, all boo
 	uids, err := c.ListC(ctx, mbox, "", all)
 	cancel()
 	if err != nil {
-		return nil, errors.Wrapf(err, "LIST %q", mbox)
+		return nil, errors.Errorf("LIST %q: %w", mbox, err)
 	}
 	Log := imapclient.GetLog(rootCtx)
 	if len(uids) == 0 {
@@ -608,7 +608,7 @@ func listMbox(rootCtx context.Context, c imapclient.Client, mbox string, all boo
 	result := make([]Mail, 0, len(uids))
 	for len(uids) > 0 {
 		if err = rootCtx.Err(); err != nil {
-			return nil, errors.Wrap(err, "listMbox")
+			return nil, errors.Errorf("%s: %w", "listMbox", err)
 		}
 		n := len(uids)
 		if n > fetchBatchLen {
@@ -620,7 +620,7 @@ func listMbox(rootCtx context.Context, c imapclient.Client, mbox string, all boo
 		cancel()
 		if err != nil {
 			Log("msg", "FetchArgs", "uids", uids, "error", err)
-			return nil, errors.Wrapf(err, "FetchArgs %v", uids)
+			return nil, errors.Errorf("FetchArgs %v: %w", uids, err)
 		}
 		uids = uids[n:]
 		for uid, a := range attrs {

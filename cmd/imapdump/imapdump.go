@@ -259,7 +259,7 @@ func Main() error {
 				}
 			}
 
-			if 1 == len(uids) {
+			if len(uids) == 1 {
 				ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
 				_, err = c.ReadToC(ctx, dest, uids[0])
 				cancel()

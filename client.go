@@ -395,13 +395,13 @@ func (c imapClient) FetchArgs(ctx context.Context, what string, msgIDs ...uint32
 		result[msg.Uid] = m
 
 		if msg.Size != 0 {
-			m[imap.FetchRFC822Size] = []string{fmt.Sprintf("%d", msg.Size)}
+			m[string(imap.FetchRFC822Size)] = []string{fmt.Sprintf("%d", msg.Size)}
 		}
 		if msg.Uid != 0 {
-			m[imap.FetchUid] = []string{fmt.Sprintf("%d", msg.Uid)}
+			m[string(imap.FetchUid)] = []string{fmt.Sprintf("%d", msg.Uid)}
 		}
 		if !msg.InternalDate.IsZero() {
-			m[imap.FetchInternalDate] = []string{msg.InternalDate.Format(time.RFC3339)}
+			m[string(imap.FetchInternalDate)] = []string{msg.InternalDate.Format(time.RFC3339)}
 		}
 		for k, v := range msg.Items {
 			m[string(k)] = []string{fmt.Sprintf("%v", v)}
@@ -620,7 +620,6 @@ func (c *imapClient) Watch(ctx context.Context) ([]uint32, error) {
 		switch x := upd.(type) {
 		case *client.MessageUpdate:
 			uids = append(uids, x.Message.Uid)
-			break
 		}
 	}
 	c.c.Updates = nil

@@ -353,7 +353,7 @@ func (c imapClient) Peek(ctx context.Context, w io.Writer, msgID uint32, what st
 		return 0, err
 	case msg, ok := <-ch:
 		if !ok {
-			break
+			return 0, io.EOF
 		}
 		if msg != nil {
 			return io.Copy(w, msg.GetBody(section))
@@ -508,8 +508,8 @@ func (c *imapClient) ListC(ctx context.Context, mbox, pattern string, all bool) 
 	if pattern != "" {
 		crit.Header.Set("Subject", pattern)
 	}
-	uids, err := c.c.Search(crit)
-	return uids, err
+	// The response contains a list of message sequence IDs 
+	return c.c.UidSearch(crit)
 }
 
 // List the mailbox, where subject meets the pattern, and only unseen (when all is false).

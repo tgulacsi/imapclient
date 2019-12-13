@@ -16,7 +16,6 @@ require (
 	golang.org/x/text v0.3.2
 	golang.org/x/xerrors v0.0.0-20191011141410-1b5146add898
 	gopkg.in/alecthomas/kingpin.v2 v2.2.6
-	gopkg.in/goracle.v2 v2.19.0 // indirect
 	honnef.co/go/js/dom v0.0.0-20160310112645-24aa052bc5c6 // indirect
 	myitcv.io v0.0.0-20180717150903-bf2c84553c78 // indirect
 )

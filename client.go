@@ -60,6 +60,8 @@ var (
 type Client interface {
 	MinClient
 	Connect() error
+	MoveC(ctx context.Context, msgID uint32, mbox string) error
+	MarkC(ctx context.Context, msgID uint32, seen bool) error
 	List(mbox, pattern string, all bool) ([]uint32, error)
 	ReadTo(w io.Writer, msgID uint32) (int64, error)
 	SetLogger(*stdlog.Logger)
@@ -108,6 +110,12 @@ func (c MaxClient) ReadTo(w io.Writer, msgID uint32) (int64, error) {
 }
 func (c MaxClient) SetLogger(logger *stdlog.Logger) {
 	c.SetLoggerC(CtxWithLogFunc(context.Background(), Log))
+}
+func (c MaxClient) MoveC(ctx context.Context, msgID uint32, mbox string) error {
+	return c.Move(msgID, mbox)
+}
+func (c MaxClient) MarkC(ctx context.Context, msgID uint32, seen bool) error {
+	return c.Mark(msgID, seen)
 }
 
 type tlsPolicy int8
@@ -508,7 +516,7 @@ func (c *imapClient) ListC(ctx context.Context, mbox, pattern string, all bool) 
 	if pattern != "" {
 		crit.Header.Set("Subject", pattern)
 	}
-	// The response contains a list of message sequence IDs 
+	// The response contains a list of message sequence IDs
 	return c.c.UidSearch(crit)
 }
 
@@ -763,6 +771,14 @@ type literal struct {
 }
 
 func (lit literal) Len() int { return lit.length }
+
+type ctxKey string
+
+const logCtxKey = ctxKey("Log")
+
+func CtxWithLogFunc(ctx context.Context, Log func(...interface{}) error) context.Context {
+	return context.WithValue(ctx, logCtxKey, Log)
+}
 
 func GetLog(ctx context.Context) func(...interface{}) error {
 	if Log, _ := ctx.Value(logCtxKey).(func(...interface{}) error); Log != nil {

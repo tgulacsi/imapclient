@@ -6,11 +6,14 @@ require (
 	github.com/emersion/go-sasl v0.0.0-20191210011802-430746ea8b9b
 	github.com/go-kit/kit v0.10.0
 	github.com/go-logfmt/logfmt v0.5.0 // indirect
+	github.com/godror/godror v0.17.4 // indirect
 	github.com/gopherjs/jsbuiltin v0.0.0-20170427220125-67703bfb044e // indirect
 	github.com/inconshreveable/mousetrap v1.0.0 // indirect
 	github.com/kardianos/osext v0.0.0-20151222153229-29ae4ffbc9a6 // indirect
 	github.com/peterbourgon/ff v1.6.0
 	github.com/pkg/browser v0.0.0-20180916011732-0a3d74bf9ce4 // indirect
+	github.com/robfig/config v0.0.0-20141207224736-0f78529c8c7e // indirect
+	github.com/stvp/go-toml-config v0.0.0-20170523163211-314328849d78 // indirect
 	github.com/tgulacsi/go v0.12.2
 	github.com/tgulacsi/go/dbcsv v0.0.0-20190510155420-94be4d588fb9 // indirect
 	github.com/tgulacsi/go/dbcsv/csvload v0.0.0-20190201131341-e440493e22f6 // indirect

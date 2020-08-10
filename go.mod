@@ -6,7 +6,7 @@ require (
 	github.com/emersion/go-sasl v0.0.0-20191210011802-430746ea8b9b
 	github.com/go-kit/kit v0.10.0
 	github.com/go-logfmt/logfmt v0.5.0 // indirect
-	github.com/godror/godror v0.17.4 // indirect
+	github.com/godror/godror v0.19.1 // indirect
 	github.com/gopherjs/jsbuiltin v0.0.0-20170427220125-67703bfb044e // indirect
 	github.com/inconshreveable/mousetrap v1.0.0 // indirect
 	github.com/kardianos/osext v0.0.0-20151222153229-29ae4ffbc9a6 // indirect
@@ -18,6 +18,7 @@ require (
 	github.com/tgulacsi/go/dbcsv v0.0.0-20190510155420-94be4d588fb9 // indirect
 	github.com/tgulacsi/go/dbcsv/csvload v0.0.0-20190201131341-e440493e22f6 // indirect
 	github.com/tgulacsi/oauth2client v0.0.1
+	go4.org v0.0.0-20200411211856-f5505b9728dd // indirect
 	golang.org/x/build v0.0.0-20190111050920-041ab4dc3f9d // indirect
 	golang.org/x/net v0.0.0-20200501053045-e0ff5e5a1de5
 	golang.org/x/oauth2 v0.0.0-20200107190931-bf48bf16ab8d

@@ -1,6 +1,7 @@
 package o365
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -10,7 +11,6 @@ import (
 	"golang.org/x/net/context"
 
 	"github.com/tgulacsi/imapclient"
-	errors "golang.org/x/xerrors"
 )
 
 var _ = imapclient.MinClient((*oClient)(nil))
@@ -137,7 +137,7 @@ func (c *oClient) uidToStr(msgID uint32) (string, error) {
 	s := c.u2s[msgID]
 	c.mu.Unlock()
 	if s == "" {
-		return "", errors.Errorf("unknown msgID %d", msgID)
+		return "", fmt.Errorf("unknown msgID %d", msgID)
 	}
 	return s, nil
 }

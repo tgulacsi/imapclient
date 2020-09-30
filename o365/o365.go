@@ -4,6 +4,7 @@ package o365
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
@@ -18,7 +19,6 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/tgulacsi/oauth2client"
-	errors "golang.org/x/xerrors"
 )
 
 var Log = func(keyvals ...interface{}) error {
@@ -290,7 +290,7 @@ func (c *client) Send(ctx context.Context, msg Message) error {
 	if err := json.NewEncoder(&buf).Encode(struct {
 		Message Message
 	}{Message: msg}); err != nil {
-		return errors.Errorf("encode %#v: %w", msg, err)
+		return fmt.Errorf("encode %#v: %w", msg, err)
 	}
 	path := "/sendmail"
 	return c.post(ctx, path, bytes.NewReader(buf.Bytes()))
@@ -311,18 +311,18 @@ func (c *client) p(ctx context.Context, method, path string, body io.Reader) (io
 	req, err := http.NewRequest(method, c.URLFor(path), io.TeeReader(body, &buf))
 	req.Header.Set("Content-Type", "application/json")
 	if err != nil {
-		return nil, errors.Errorf("%s: %w", path, err)
+		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	resp, err := oauth2.NewClient(ctx, c.TokenSource).Do(req)
 	if err != nil {
-		return nil, errors.Errorf("%s: %w", buf.String(), err)
+		return nil, fmt.Errorf("%s: %w", buf.String(), err)
 	}
 	if resp.StatusCode > 299 {
 		defer resp.Body.Close()
 		io.Copy(&buf, body)
 		io.WriteString(&buf, "\n\n")
 		io.Copy(&buf, resp.Body)
-		return nil, errors.Errorf("POST %q: %s\n%s", path, resp.Status, buf.Bytes())
+		return nil, fmt.Errorf("POST %q: %s\n%s", path, resp.Status, buf.Bytes())
 	}
 	return resp.Body, nil
 }
@@ -341,14 +341,14 @@ func (c *client) Copy(ctx context.Context, msgID, destinationID string) error {
 func (c *client) Update(ctx context.Context, msgID string, upd map[string]interface{}) error {
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(upd); err != nil {
-		return errors.Errorf("%#v: %w", upd, err)
+		return fmt.Errorf("%#v: %w", upd, err)
 	}
 	body, err := c.p(ctx, "PATCH", "/messages/"+msgID, bytes.NewReader(buf.Bytes()))
 	if body != nil {
 		body.Close()
 	}
 	if err != nil {
-		return errors.Errorf("%#v: %w", upd, err)
+		return fmt.Errorf("%#v: %w", upd, err)
 	}
 	return nil
 }
@@ -411,7 +411,7 @@ func (c *client) get(ctx context.Context, path string) (io.ReadCloser, error) {
 	resp, err := oauth2.NewClient(ctx, c.TokenSource).Get(URL)
 	Log("resp", resp, "error", err)
 	if err != nil {
-		return nil, errors.Errorf("%s: %w", path, err)
+		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	return resp.Body, nil
 }
@@ -419,14 +419,14 @@ func (c *client) get(ctx context.Context, path string) (io.ReadCloser, error) {
 func (c *client) delete(ctx context.Context, path string) error {
 	req, err := http.NewRequest("DELETE", c.URLFor(path), nil)
 	if err != nil {
-		return errors.Errorf("%s: %w", path, err)
+		return fmt.Errorf("%s: %w", path, err)
 	}
 	resp, err := oauth2.NewClient(ctx, c.TokenSource).Do(req)
 	if err != nil {
-		return errors.Errorf("%s: %w", req.URL.String(), err)
+		return fmt.Errorf("%s: %w", req.URL.String(), err)
 	}
 	if resp.StatusCode > 299 {
-		return errors.Errorf("DELETE %q: %s", path, resp.Status)
+		return fmt.Errorf("DELETE %q: %s", path, resp.Status)
 	}
 	return nil
 }

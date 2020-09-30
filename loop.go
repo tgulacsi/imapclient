@@ -18,6 +18,7 @@ package imapclient
 
 import (
 	"crypto/sha1"
+	"fmt"
 	"io"
 	"strconv"
 	"time"
@@ -26,7 +27,6 @@ import (
 
 	"github.com/go-kit/kit/log"
 	"github.com/tgulacsi/go/temp"
-	errors "golang.org/x/xerrors"
 )
 
 var (
@@ -127,14 +127,14 @@ type DeliverFuncC func(ctx context.Context, r io.ReadSeeker, uid uint32, sha1 []
 func one(ctx context.Context, c Client, inbox, pattern string, deliver DeliverFuncC, outbox, errbox string) (int, error) {
 	if err := c.ConnectC(ctx); err != nil {
 		Log("msg", "Connecting", "to", c, "error", err)
-		return 0, errors.Errorf("connect to %v: %w", c, err)
+		return 0, fmt.Errorf("connect to %v: %w", c, err)
 	}
 	defer c.Close(true)
 
 	uids, err := c.ListC(ctx, inbox, pattern, outbox != "" && errbox != "")
 	if err != nil {
 		Log("msg", "List", "at", c, "mbox", inbox, "error", err)
-		return 0, errors.Errorf("list %v/%v: %w", c, inbox, err)
+		return 0, fmt.Errorf("list %v/%v: %w", c, inbox, err)
 	}
 
 	var n int

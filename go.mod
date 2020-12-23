@@ -2,11 +2,12 @@ module github.com/tgulacsi/imapclient
 
 require (
 	github.com/360EntSecGroup-Skylar/excelize/v2 v2.0.1 // indirect
+	github.com/dvyukov/go-fuzz v0.0.0-20201003075337-90825f39c90b // indirect
 	github.com/emersion/go-imap v1.0.5
 	github.com/emersion/go-sasl v0.0.0-20200509203442-7bfe0ed36a21
 	github.com/go-kit/kit v0.10.0
 	github.com/go-logfmt/logfmt v0.5.0 // indirect
-	github.com/godror/godror v0.20.6 // indirect
+	github.com/godror/godror v0.22.3 // indirect
 	github.com/gopherjs/jsbuiltin v0.0.0-20170427220125-67703bfb044e // indirect
 	github.com/inconshreveable/mousetrap v1.0.0 // indirect
 	github.com/kardianos/osext v0.0.0-20151222153229-29ae4ffbc9a6 // indirect

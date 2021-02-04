@@ -1,5 +1,5 @@
 /*
-Copyright 2017 Tamás Gulácsi
+Copyright 2021 Tamás Gulácsi
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -717,7 +717,9 @@ func (c imapClient) login(ctx context.Context) error {
 			// https://msdn.microsoft.com/en-us/library/dn440163.aspx
 			if ok, _ := c.c.SupportAuth("XOAUTH2"); ok {
 				c.SetLogMaskC(ctx, LogAll)
-				err = c.c.Authenticate(sasl.NewXoauth2Client(c.Username, c.Password))
+				err = c.c.Authenticate(sasl.NewOAuthBearerClient(&sasl.OAuthBearerOptions{
+					Username: c.Username, Token: c.Password,
+				}))
 				c.SetLogMaskC(ctx, c.logMask)
 				if err == nil {
 					return nil

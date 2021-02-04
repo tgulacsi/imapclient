@@ -4,7 +4,7 @@ require (
 	github.com/360EntSecGroup-Skylar/excelize/v2 v2.0.1 // indirect
 	github.com/dvyukov/go-fuzz v0.0.0-20201003075337-90825f39c90b // indirect
 	github.com/emersion/go-imap v1.0.6
-	github.com/emersion/go-sasl v0.0.0-20200509203442-7bfe0ed36a21
+	github.com/emersion/go-sasl v0.0.0-20200509202850-4132e15e133d
 	github.com/go-kit/kit v0.10.0
 	github.com/go-logfmt/logfmt v0.5.0 // indirect
 	github.com/godror/godror v0.22.3 // indirect
@@ -31,5 +31,7 @@ require (
 	honnef.co/go/js/dom v0.0.0-20160310112645-24aa052bc5c6 // indirect
 	myitcv.io v0.0.0-20180717150903-bf2c84553c78 // indirect
 )
+
+// The last version supporting Xoauth2: github.com/emersion/go-sasl v0.0.0-20200509202850-4132e15e133d
 
 go 1.13

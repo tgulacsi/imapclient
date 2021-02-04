@@ -713,9 +713,19 @@ func (c imapClient) login(ctx context.Context) error {
 				return nil
 			}
 
-		case "oauthbearer", "xoauth2":
+		case "xoauth2":
 			// https://msdn.microsoft.com/en-us/library/dn440163.aspx
 			if ok, _ := c.c.SupportAuth("XOAUTH2"); ok {
+				c.SetLogMaskC(ctx, LogAll)
+				err = c.c.Authenticate(sasl.NewXoauth2Client(c.Username, c.Password))
+				c.SetLogMaskC(ctx, c.logMask)
+				if err == nil {
+					return nil
+				}
+			}
+
+		case "oauthbearer":
+			if ok, _ := c.c.SupportAuth("OAUTHBEARER"); ok {
 				c.SetLogMaskC(ctx, LogAll)
 				err = c.c.Authenticate(sasl.NewOAuthBearerClient(&sasl.OAuthBearerOptions{
 					Username: c.Username, Token: c.Password,

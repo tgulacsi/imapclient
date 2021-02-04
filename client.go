@@ -713,7 +713,7 @@ func (c imapClient) login(ctx context.Context) error {
 				return nil
 			}
 
-		case "xoauth2":
+		case "oauthbearer", "xoauth2":
 			// https://msdn.microsoft.com/en-us/library/dn440163.aspx
 			if ok, _ := c.c.SupportAuth("XOAUTH2"); ok {
 				c.SetLogMaskC(ctx, LogAll)

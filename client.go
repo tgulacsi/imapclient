@@ -692,56 +692,44 @@ func (c *imapClient) ConnectC(ctx context.Context) error {
 	return c.login(ctx)
 }
 
-func (c imapClient) login(ctx context.Context) error {
-	if err := ctx.Err(); err != nil {
+var errNotLoggedIn = errors.New("not logged in")
+
+func (c imapClient) login(ctx context.Context) (err error) {
+	if err = ctx.Err(); err != nil {
 		return err
 	}
 	logger := log.With(log.LoggerFunc(Log), "username", c.Username)
-	order := []string{"login", "xoauth2", "cram-md5", "plain"}
+	order := []string{"login", "oauthbearer", "xoauth2", "cram-md5", "plain"}
 	if len(c.Password) > 40 {
-		order[0], order[1] = order[1], order[0]
+		order[0], order[1], order[2] = order[1], order[2], order[0]
 	}
 
-	var err error
 	for _, method := range order {
 		Log := log.With(logger, "method", method).Log
-		Log("msg", "try")
+		Log("msg", "try logging in")
+		c.SetLogMaskC(ctx, LogAll)
+		err = errNotLoggedIn
+
 		switch method {
 		case "login":
-			Log("msg", "Login")
-			if err = c.c.Login(c.Username, c.Password); err == nil {
-				return nil
-			}
+			err = c.c.Login(c.Username, c.Password)
 
 		case "xoauth2":
 			// https://msdn.microsoft.com/en-us/library/dn440163.aspx
 			if ok, _ := c.c.SupportAuth("XOAUTH2"); ok {
-				c.SetLogMaskC(ctx, LogAll)
 				err = c.c.Authenticate(sasl.NewXoauth2Client(c.Username, c.Password))
-				c.SetLogMaskC(ctx, c.logMask)
-				if err == nil {
-					return nil
-				}
 			}
 
 		case "oauthbearer":
 			if ok, _ := c.c.SupportAuth("OAUTHBEARER"); ok {
-				c.SetLogMaskC(ctx, LogAll)
 				err = c.c.Authenticate(sasl.NewOAuthBearerClient(&sasl.OAuthBearerOptions{
 					Username: c.Username, Token: c.Password,
 				}))
-				c.SetLogMaskC(ctx, c.logMask)
-				if err == nil {
-					return nil
-				}
 			}
 
 		case "cram-md5":
 			if ok, _ := c.c.SupportAuth("CRAM-MD5"); ok {
-				Log("msg", "Login CramAuth", "error", err)
-				if err = c.c.Authenticate(CramAuth(c.Username, c.Password)); err == nil {
-					return nil
-				}
+				err = c.c.Authenticate(CramAuth(c.Username, c.Password))
 			}
 
 		case "plain":
@@ -752,17 +740,21 @@ func (c imapClient) login(ctx context.Context) error {
 				}
 				Log = log.With(logger, "method", method, "identity", identity).Log
 
-				if err = c.c.Authenticate(sasl.NewPlainClient(identity, username, c.Password)); err == nil {
-					return nil
-				}
+				err = c.c.Authenticate(sasl.NewPlainClient(identity, username, c.Password))
 			}
-			Log("msg", "try", "error", err)
 		}
+
+		c.SetLogMaskC(ctx, c.logMask)
+		if err == nil || strings.Contains(err.Error(), "Already logged in") {
+			Log("msg", "logged in", "method", method, "error", err)
+			return nil
+		}
+		Log("msg", "login failed", "method", method, "error", err)
 	}
 	if err != nil {
 		return err
 	}
-	return errors.New("could not log in")
+	return errNotLoggedIn
 }
 
 func (c imapClient) setTimeout(ctx context.Context) {

@@ -41,7 +41,7 @@ import (
 	"golang.org/x/text/transform"
 
 	"github.com/go-kit/kit/log"
-	"github.com/peterbourgon/ff/ffcli"
+	"github.com/peterbourgon/ff/v3/ffcli"
 	"github.com/tgulacsi/go/loghlp/kitloghlp"
 	"github.com/tgulacsi/imapclient"
 	"github.com/tgulacsi/imapclient/o365"
@@ -138,7 +138,7 @@ func Main() error {
 	FS = flag.NewFlagSet("list", flag.ContinueOnError)
 	FS.BoolVar(&all, "false, all", false, "list all, not just UNSEEN")
 	listCmd := ffcli.Command{Name: "list", ShortHelp: "list mailbox", FlagSet: FS,
-		Exec: func(args []string) error {
+		Exec: func(rootCtx context.Context, args []string) error {
 			c, err := prepare()
 			if err != nil {
 				return err
@@ -161,8 +161,8 @@ func Main() error {
 	FS = flag.NewFlagSet("tree", flag.ContinueOnError)
 	FS.BoolVar(&du, "du", false, "print dir sizes, too")
 	treeCmd := ffcli.Command{Name: "tree", ShortHelp: "print the tree of mailboxes", FlagSet: FS,
-		Usage: "tree [opts] <root - INBOX by default",
-		Exec: func(args []string) error {
+		ShortUsage: "tree [opts] <root - INBOX by default",
+		Exec: func(rootCtx context.Context, args []string) error {
 			mbox := "INBOX"
 			if len(args) != 0 {
 				mbox = args[0]
@@ -208,8 +208,8 @@ func Main() error {
 	saveMbox := FS.String("mbox", "INBOX", "mailbox to save from")
 	FS.BoolVar(&recursive, "recursive", recursive, "dump recursively (all subfolders)")
 	saveCmd := ffcli.Command{Name: "save", ShortHelp: "save the mails", FlagSet: FS,
-		Usage: "save [opts] [uids to save - empty for all]",
-		Exec: func(args []string) error {
+		ShortUsage: "save [opts] [uids to save - empty for all]",
+		Exec: func(rootCtx context.Context, args []string) error {
 			uids := make([]uint32, 0, len(args))
 			for _, s := range args {
 				u, err := strconv.ParseUint(s, 10, 32)
@@ -322,7 +322,7 @@ func Main() error {
 	app.Subcommands = append(app.Subcommands, &saveCmd)
 
 	loadCmd := ffcli.Command{Name: "load", ShortHelp: "load the mails",
-		Exec: func(args []string) error {
+		Exec: func(rootCtx context.Context, args []string) error {
 			mbox := args[0]
 			files := args[1:]
 			c, err := prepare()
@@ -411,8 +411,8 @@ func Main() error {
 	app.Subcommands = append(app.Subcommands, &loadCmd)
 
 	syncCmd := ffcli.Command{Name: "sync", ShortHelp: "synchronize (push missing message)",
-		Usage: "sync <source mailbox in 'imaps://host:port/mbox?user=a@b&passw=xxx' format> <destination mailbox in 'imaps://host:port/mbox?user=a@b&passw=xxx' format>",
-		Exec: func(args []string) error {
+		ShortUsage: "sync <source mailbox in 'imaps://host:port/mbox?user=a@b&passw=xxx' format> <destination mailbox in 'imaps://host:port/mbox?user=a@b&passw=xxx' format>",
+		Exec: func(rootCtx context.Context, args []string) error {
 			syncSrc, syncDst := args[0], args[1]
 			prepareLog()
 			srcM, err := imapclient.ParseMailbox(syncSrc)
@@ -495,12 +495,11 @@ func Main() error {
 			//fmt.Println("have: ", there)
 
 			return nil
-			return nil
 		},
 	}
 	app.Subcommands = append(app.Subcommands, &syncCmd)
 
-	return app.Run(os.Args[1:])
+	return app.ParseAndRun(rootCtx, os.Args[1:])
 }
 
 var bufPool = sync.Pool{New: func() interface{} { return bytes.NewBuffer(make([]byte, 0, 1<<20)) }}

@@ -65,6 +65,7 @@ type Client interface {
 	List(mbox, pattern string, all bool) ([]uint32, error)
 	ReadTo(w io.Writer, msgID uint32) (int64, error)
 	SetLogger(*stdlog.Logger)
+	SetLogMaskC(context.Context, LogMask) LogMask
 }
 
 // MinClient is the minimal required methods for a client.
@@ -96,26 +97,29 @@ type MaxClient struct {
 func (c MaxClient) Connect() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
 	defer cancel()
-	return c.ConnectC(ctx)
+	return c.MinClient.ConnectC(ctx)
 }
 func (c MaxClient) List(mbox, pattern string, all bool) ([]uint32, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
 	defer cancel()
-	return c.ListC(ctx, mbox, pattern, all)
+	return c.MinClient.ListC(ctx, mbox, pattern, all)
 }
 func (c MaxClient) ReadTo(w io.Writer, msgID uint32) (int64, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
 	defer cancel()
-	return c.ReadToC(ctx, w, msgID)
+	return c.MinClient.ReadToC(ctx, w, msgID)
 }
 func (c MaxClient) SetLogger(logger *stdlog.Logger) {
-	c.SetLoggerC(CtxWithLogFunc(context.Background(), Log))
+	c.MinClient.SetLoggerC(CtxWithLogFunc(context.Background(), Log))
+}
+func (c MaxClient) SetLogMaskC(ctx context.Context, mask LogMask) LogMask {
+	return c.MinClient.SetLogMask(mask)
 }
 func (c MaxClient) MoveC(ctx context.Context, msgID uint32, mbox string) error {
-	return c.Move(msgID, mbox)
+	return c.MinClient.Move(msgID, mbox)
 }
 func (c MaxClient) MarkC(ctx context.Context, msgID uint32, seen bool) error {
-	return c.Mark(msgID, seen)
+	return c.MinClient.Mark(msgID, seen)
 }
 
 type tlsPolicy int8
@@ -272,52 +276,51 @@ func (m Mailbox) Connect(ctx context.Context) (Client, error) {
 }
 
 // String returns the connection parameters.
-func (c imapClient) String() string {
+func (c *imapClient) String() string {
 	return c.ServerAddress.String()
 }
 
 // SetLogMaskC allows setting the underlying imap.LogMask,
 // and also sets the standard logger's destination to the ctx's logger.
-func (c imapClient) SetLogMaskC(ctx context.Context, mask LogMask) LogMask {
+func (c *imapClient) SetLogMaskC(ctx context.Context, mask LogMask) LogMask {
 	c.logMask = mask
+	c.SetLoggerC(ctx)
 	if c.c != nil {
-		c.c.SetDebug(nil)
 		if c.logMask {
-			c.SetLoggerC(ctx)
+			c.c.SetDebug(stdlogWriter{c.logger})
+		} else {
+			c.c.SetDebug(nil)
 		}
 	}
 	return mask
 }
 
 // SetLogMask allows setting the underlying imap.LogMask.
-func (c imapClient) SetLogMask(mask LogMask) LogMask {
+func (c *imapClient) SetLogMask(mask LogMask) LogMask {
 	return c.SetLogMaskC(context.Background(), mask)
 }
 
-func (c imapClient) SetLogger(logger *stdlog.Logger) {
+func (c *imapClient) SetLogger(logger *stdlog.Logger) {
 	c.logger = logger
 	if c.c != nil {
 		c.c.ErrorLog = c.logger
-		c.c.SetDebug(stdlogWriter{c.logger})
 	}
 }
 
-func (c imapClient) SetLoggerC(ctx context.Context) {
+func (c *imapClient) SetLoggerC(ctx context.Context) {
 	var ssl string
 	if c.TLSPolicy == ForceTLS {
 		ssl = "SSL"
 	}
-	logger := log.With(
-		log.LoggerFunc(GetLog(ctx)),
-		"imap_server",
-		fmt.Sprintf("%s:%s:%d:%s", c.Username, c.Host, c.Port, ssl),
+	logger := log.With(GetLogger(ctx),
+		"imap_server", fmt.Sprintf("%s:%s:%d:%s", c.Username, c.Host, c.Port, ssl),
 	)
 	c.SetLogger(stdlog.New(log.NewStdlibAdapter(logger), "", 0))
 }
 
 // Select selects the mailbox to use - it is needed before ReadTo
 // (List includes this).
-func (c imapClient) Select(ctx context.Context, mbox string) error {
+func (c *imapClient) Select(ctx context.Context, mbox string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -331,7 +334,7 @@ func (c imapClient) Select(ctx context.Context, mbox string) error {
 
 // ReadToC reads the message identified by the given msgID, into the io.Writer,
 // within the given context (deadline).
-func (c imapClient) ReadToC(ctx context.Context, w io.Writer, msgID uint32) (int64, error) {
+func (c *imapClient) ReadToC(ctx context.Context, w io.Writer, msgID uint32) (int64, error) {
 	if err := ctx.Err(); err != nil {
 		return 0, err
 	}
@@ -340,7 +343,7 @@ func (c imapClient) ReadToC(ctx context.Context, w io.Writer, msgID uint32) (int
 
 // Peek into the message. Possible what: HEADER, TEXT, or empty (both) -
 // see http://tools.ietf.org/html/rfc3501#section-6.4.5
-func (c imapClient) Peek(ctx context.Context, w io.Writer, msgID uint32, what string) (int64, error) {
+func (c *imapClient) Peek(ctx context.Context, w io.Writer, msgID uint32, what string) (int64, error) {
 	section := &imap.BodySectionName{BodyPartName: imap.BodyPartName{Specifier: imap.PartSpecifier(what)}, Peek: true}
 	set := &imap.SeqSet{}
 	set.AddNum(msgID)
@@ -365,7 +368,7 @@ func (c imapClient) Peek(ctx context.Context, w io.Writer, msgID uint32, what st
 }
 
 // Fetch the message. Possible what: RFC3551 6.5.4 (RFC822.SIZE, ENVELOPE, ...). The default is "RFC822.SIZE ENVELOPE".
-func (c imapClient) FetchArgs(ctx context.Context, what string, msgIDs ...uint32) (map[uint32]map[string][]string, error) {
+func (c *imapClient) FetchArgs(ctx context.Context, what string, msgIDs ...uint32) (map[uint32]map[string][]string, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -452,7 +455,7 @@ func formatAddress(addr *imap.Address) string {
 }
 
 // ReadTo reads the message identified by the given msgID, into the io.Writer.
-func (c imapClient) ReadTo(w io.Writer, msgID uint32) (int64, error) {
+func (c *imapClient) ReadTo(w io.Writer, msgID uint32) (int64, error) {
 	return c.ReadToC(context.Background(), w, msgID)
 }
 
@@ -647,7 +650,7 @@ func (c *imapClient) ConnectC(ctx context.Context) error {
 		c.c.Logout()
 		c.c = nil
 	}
-	Log := GetLog(ctx)
+	Log := GetLogger(ctx).Log
 	addr := c.Host + ":" + strconv.Itoa(int(c.Port))
 	var err error
 	noTLS := c.TLSPolicy == NoTLS || c.TLSPolicy == MaybeTLS && c.Port == 143
@@ -668,16 +671,8 @@ func (c *imapClient) ConnectC(ctx context.Context) error {
 		return ctx.Err()
 	default:
 	}
-	if c.logMask {
-		c.SetLogMaskC(ctx, c.logMask)
-	}
-	if c.logger != nil {
-		c.SetLogger(c.logger)
-	}
+	c.SetLogMaskC(ctx, c.logMask)
 	c.c.Timeout = time.Minute
-	c.c.ErrorLog = stdLog
-	// Print server greeting (first response in the unilateral server data queue)
-	//Log("msg", "server", "capabilities", c.c.Caps)
 	// Enable encryption, if supported by the server
 	if ok, _ := c.c.SupportStartTLS(); ok {
 		Log("msg", "Starting TLS")
@@ -690,7 +685,7 @@ func (c *imapClient) ConnectC(ctx context.Context) error {
 
 var errNotLoggedIn = errors.New("not logged in")
 
-func (c imapClient) login(ctx context.Context) (err error) {
+func (c *imapClient) login(ctx context.Context) (err error) {
 	if err = ctx.Err(); err != nil {
 		return err
 	}
@@ -700,10 +695,13 @@ func (c imapClient) login(ctx context.Context) (err error) {
 		order[0], order[1], order[2] = order[1], order[2], order[0]
 	}
 
+	oLogMask := c.logMask
+	defer func() { c.SetLogMaskC(ctx, oLogMask) }()
+	c.SetLogMaskC(ctx, LogAll)
+
 	for _, method := range order {
 		Log := log.With(logger, "method", method).Log
 		Log("msg", "try logging in")
-		c.SetLogMaskC(ctx, LogAll)
 		err = errNotLoggedIn
 
 		switch method {
@@ -740,7 +738,6 @@ func (c imapClient) login(ctx context.Context) (err error) {
 			}
 		}
 
-		c.SetLogMaskC(ctx, c.logMask)
 		if err == nil || strings.Contains(err.Error(), "Already logged in") {
 			Log("msg", "logged in", "method", method, "error", err)
 			return nil
@@ -753,7 +750,7 @@ func (c imapClient) login(ctx context.Context) (err error) {
 	return errNotLoggedIn
 }
 
-func (c imapClient) setTimeout(ctx context.Context) {
+func (c *imapClient) setTimeout(ctx context.Context) {
 	d, ok := ctx.Deadline()
 	if !ok {
 		return
@@ -772,17 +769,24 @@ type literal struct {
 
 func (lit literal) Len() int { return lit.length }
 
+type loggerCtxKey struct{}
 type logCtxKey struct{}
 
+func CtxWithLogger(ctx context.Context, logger log.Logger) context.Context {
+	return context.WithValue(ctx, loggerCtxKey{}, logger)
+}
 func CtxWithLogFunc(ctx context.Context, Log func(...interface{}) error) context.Context {
 	return context.WithValue(ctx, logCtxKey{}, Log)
 }
 
-func GetLog(ctx context.Context) func(...interface{}) error {
-	if Log, _ := ctx.Value(logCtxKey{}).(func(...interface{}) error); Log != nil {
-		return Log
+func GetLogger(ctx context.Context) log.Logger {
+	if logger, _ := ctx.Value(loggerCtxKey{}).(log.Logger); logger != nil {
+		return logger
 	}
-	return Log
+	if Log, _ := ctx.Value(logCtxKey{}).(func(...interface{}) error); Log != nil {
+		return log.LoggerFunc(Log)
+	}
+	return log.LoggerFunc(Log)
 }
 
 var _ = io.Writer(stdlogWriter{})
@@ -794,10 +798,3 @@ type stdlogWriter struct {
 func (lg stdlogWriter) Write(p []byte) (int, error) {
 	return len(p), lg.Logger.Output(4, string(p))
 }
-
-var stdLog = imap.Logger(stdlogLogger{})
-
-type stdlogLogger struct{}
-
-func (sl stdlogLogger) Printf(format string, v ...interface{}) { stdlog.Printf(format, v...) }
-func (sl stdlogLogger) Println(v ...interface{})               { stdlog.Println(v...) }

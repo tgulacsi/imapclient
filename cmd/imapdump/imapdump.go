@@ -509,7 +509,7 @@ func dumpMails(rootCtx context.Context, tw *syncTW, c imapclient.Client, mbox st
 	ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
 	err := c.Select(ctx, mbox)
 	cancel()
-	Log := imapclient.GetLog(ctx)
+	Log := imapclient.GetLogger(ctx).Log
 	if err != nil {
 		Log("msg", "SELECT", "box", mbox, "error", err)
 		return err
@@ -636,7 +636,7 @@ func listMbox(rootCtx context.Context, c imapclient.Client, mbox string, all boo
 	if err != nil {
 		return nil, fmt.Errorf("LIST %q: %w", mbox, err)
 	}
-	Log := imapclient.GetLog(rootCtx)
+	Log := imapclient.GetLogger(rootCtx).Log
 	if len(uids) == 0 {
 		Log("msg", "empty", "mbox", mbox)
 		return nil, nil

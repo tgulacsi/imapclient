@@ -125,7 +125,7 @@ type DeliverFunc func(r io.ReadSeeker, uid uint32, sha1 []byte) error
 type DeliverFuncC func(ctx context.Context, r io.ReadSeeker, uid uint32, sha1 []byte) error
 
 func one(ctx context.Context, c Client, inbox, pattern string, deliver DeliverFuncC, outbox, errbox string) (int, error) {
-	logger := log.With(log.LoggerFunc(GetLog(ctx)), "c", c, "inbox", inbox)
+	logger := log.With(GetLogger(ctx), "c", c, "inbox", inbox)
 	if err := c.ConnectC(ctx); err != nil {
 		Log("msg", "Connecting", "error", err)
 		return 0, fmt.Errorf("connect to %v: %w", c, err)

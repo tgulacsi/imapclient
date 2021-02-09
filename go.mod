@@ -2,6 +2,7 @@ module github.com/tgulacsi/imapclient
 
 require (
 	github.com/360EntSecGroup-Skylar/excelize/v2 v2.0.1 // indirect
+	github.com/UNO-SOFT/ulog v1.2.0 // indirect
 	github.com/dvyukov/go-fuzz v0.0.0-20201003075337-90825f39c90b // indirect
 	github.com/emersion/go-imap v1.0.6
 	github.com/emersion/go-sasl v0.0.0-20200509202850-4132e15e133d
@@ -12,6 +13,7 @@ require (
 	github.com/inconshreveable/mousetrap v1.0.0 // indirect
 	github.com/kardianos/osext v0.0.0-20151222153229-29ae4ffbc9a6 // indirect
 	github.com/peterbourgon/ff v1.6.0
+	github.com/peterbourgon/ff/v3 v3.0.0 // indirect
 	github.com/pkg/browser v0.0.0-20180916011732-0a3d74bf9ce4 // indirect
 	github.com/robfig/config v0.0.0-20141207224736-0f78529c8c7e // indirect
 	github.com/stvp/go-toml-config v0.0.0-20170523163211-314328849d78 // indirect

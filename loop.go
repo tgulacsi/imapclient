@@ -125,15 +125,16 @@ type DeliverFunc func(r io.ReadSeeker, uid uint32, sha1 []byte) error
 type DeliverFuncC func(ctx context.Context, r io.ReadSeeker, uid uint32, sha1 []byte) error
 
 func one(ctx context.Context, c Client, inbox, pattern string, deliver DeliverFuncC, outbox, errbox string) (int, error) {
+	logger := log.With(log.LoggerFunc(GetLog(ctx)), "c", c, "inbox", inbox)
 	if err := c.ConnectC(ctx); err != nil {
-		Log("msg", "Connecting", "to", c, "error", err)
+		Log("msg", "Connecting", "error", err)
 		return 0, fmt.Errorf("connect to %v: %w", c, err)
 	}
 	defer c.Close(true)
 
 	uids, err := c.ListC(ctx, inbox, pattern, outbox != "" && errbox != "")
+	Log("msg", "List", "uids", uids, "error", err)
 	if err != nil {
-		Log("msg", "List", "at", c, "mbox", inbox, "error", err)
 		return 0, fmt.Errorf("list %v/%v: %w", c, inbox, err)
 	}
 
@@ -143,7 +144,7 @@ func one(ctx context.Context, c Client, inbox, pattern string, deliver DeliverFu
 		if err = ctx.Err(); err != nil {
 			return n, err
 		}
-		Log := log.With(log.LoggerFunc(GetLog(ctx)), "uid", uid).Log
+		Log := log.With(logger, "uid", uid).Log
 		ctx := CtxWithLogFunc(context.Background(), Log)
 		hsh.Reset()
 		body := temp.NewMemorySlurper(strconv.FormatUint(uint64(uid), 10))

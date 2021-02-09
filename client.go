@@ -279,18 +279,12 @@ func (c imapClient) String() string {
 // SetLogMaskC allows setting the underlying imap.LogMask,
 // and also sets the standard logger's destination to the ctx's logger.
 func (c imapClient) SetLogMaskC(ctx context.Context, mask LogMask) LogMask {
-
 	c.logMask = mask
 	if c.c != nil {
-		if c.logMask {
-			// Remove timestamp and other decorations of the std logger
-			stdlog.SetFlags(0)
-
-			Log := GetLog(ctx)
-			w := log.NewStdlibAdapter(log.LoggerFunc(Log))
-			stdlog.SetOutput(w)
-		}
 		c.c.SetDebug(nil)
+		if c.logMask {
+			c.SetLoggerC(ctx)
+		}
 	}
 	return mask
 }
@@ -303,6 +297,7 @@ func (c imapClient) SetLogMask(mask LogMask) LogMask {
 func (c imapClient) SetLogger(logger *stdlog.Logger) {
 	c.logger = logger
 	if c.c != nil {
+		c.c.ErrorLog = c.logger
 		c.c.SetDebug(stdlogWriter{c.logger})
 	}
 }
@@ -317,8 +312,7 @@ func (c imapClient) SetLoggerC(ctx context.Context) {
 		"imap_server",
 		fmt.Sprintf("%s:%s:%d:%s", c.Username, c.Host, c.Port, ssl),
 	)
-	c.logger = stdlog.New(log.NewStdlibAdapter(logger), "", 0)
-	c.SetLogger(c.logger)
+	c.SetLogger(stdlog.New(log.NewStdlibAdapter(logger), "", 0))
 }
 
 // Select selects the mailbox to use - it is needed before ReadTo
@@ -680,6 +674,8 @@ func (c *imapClient) ConnectC(ctx context.Context) error {
 	if c.logger != nil {
 		c.SetLogger(c.logger)
 	}
+	c.c.Timeout = time.Minute
+	c.c.ErrorLog = stdLog
 	// Print server greeting (first response in the unilateral server data queue)
 	//Log("msg", "server", "capabilities", c.c.Caps)
 	// Enable encryption, if supported by the server
@@ -776,16 +772,14 @@ type literal struct {
 
 func (lit literal) Len() int { return lit.length }
 
-type ctxKey string
-
-const logCtxKey = ctxKey("Log")
+type logCtxKey struct{}
 
 func CtxWithLogFunc(ctx context.Context, Log func(...interface{}) error) context.Context {
-	return context.WithValue(ctx, logCtxKey, Log)
+	return context.WithValue(ctx, logCtxKey{}, Log)
 }
 
 func GetLog(ctx context.Context) func(...interface{}) error {
-	if Log, _ := ctx.Value(logCtxKey).(func(...interface{}) error); Log != nil {
+	if Log, _ := ctx.Value(logCtxKey{}).(func(...interface{}) error); Log != nil {
 		return Log
 	}
 	return Log
@@ -800,3 +794,10 @@ type stdlogWriter struct {
 func (lg stdlogWriter) Write(p []byte) (int, error) {
 	return len(p), lg.Logger.Output(4, string(p))
 }
+
+var stdLog = imap.Logger(stdlogLogger{})
+
+type stdlogLogger struct{}
+
+func (sl stdlogLogger) Printf(format string, v ...interface{}) { stdlog.Printf(format, v...) }
+func (sl stdlogLogger) Println(v ...interface{})               { stdlog.Println(v...) }

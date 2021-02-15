@@ -35,10 +35,10 @@ type client struct {
 }
 
 type clientOptions struct {
-	ReadOnly                bool
 	TokensFile              string
 	TLSCertFile, TLSKeyFile string
 	Impersonate             string
+	ReadOnly                bool
 }
 type ClientOption func(*clientOptions)
 
@@ -94,16 +94,16 @@ func NewClient(clientID, clientSecret, redirectURL string, options ...ClientOpti
 }
 
 type Attachment struct {
-	// The MIME type of the attachment.
-	ContentType string `json:",omitempty"`
-	// true if the attachment is an inline attachment; otherwise, false.
-	IsInline bool `json:",omitempty"`
 	// The date and time when the attachment was last modified. The date and time use ISO 8601 format and is always in UTC time. For example, midnight UTC on Jan 1, 2014 would look like this: '2014-01-01T00:00:00Z'
 	LastModifiedDateTime time.Time `json:",omitempty"`
+	// The MIME type of the attachment.
+	ContentType string `json:",omitempty"`
 	// The display name of the attachment. This does not need to be the actual file name.
 	Name string `json:",omitempty"`
 	// The length of the attachment in bytes.
 	Size int32 `json:",omitempty"`
+	// true if the attachment is an inline attachment; otherwise, false.
+	IsInline bool `json:",omitempty"`
 }
 
 type Recipient struct {
@@ -124,66 +124,110 @@ type ItemBody struct {
 type Importance string
 type InferenceClassificationType string
 type SingleValueLegacyExtendedProperty struct {
+	// The property ID. This is used to identify the property.
+	PropertyID string `json:"PropertyId,omitempty"`
 	// A property values.
 	Value string `json:",omitempty"`
-	// The property ID. This is used to identify the property.
-	PropertyID string `json:"PropertyId,omitempty"`
 }
 type MultiValueLegacyExtendedProperty struct {
-	// A collection of property values.
-	Value []string `json:",omitempty"`
 	// The property ID. This is used to identify the property.
 	PropertyID string `json:"PropertyId,omitempty"`
+	// A collection of property values.
+	Value []string `json:",omitempty"`
 }
 
 // https://msdn.microsoft.com/en-us/office/office365/api/complex-types-for-mail-contacts-calendar#MessageResource
 // The fields last word designates the Writable/Filterable/Searchable property of the field.
 type Message struct {
-	// The FileAttachment and ItemAttachment attachments for the message. Navigation property.
-	// W-S
-	Attachments []Attachment `json:",omitempty"`
-	// The Bcc recipients for the message.
-	// W-S
-	Bcc []Recipient `json:"BccRecipients,omitempty"`
+	// The date and time the message was created.
+	// -F-
+	Created *time.Time `json:"CreatedDateTime,omitempty"`
+	// The date and time the message was last changed.
+	// -F-
+	LastModified *time.Time `json:"LastModifiedDateTime,omitempty"`
+	// The date and time the message was sent.
+	// -F-
+	Sent *time.Time `json:"SentDateTime,omitempty"`
+	// The date and time the message was received.
+	// -FS
+	Received *time.Time `json:"ReceivedDateTime,omitempty"`
+	// A collection of multi-value extended properties of type MultiValueLegacyExtendedProperty. This is a navigation property. Find more information about extended properties.
+	// WF-
+	MultiValueExtendedProperties *MultiValueLegacyExtendedProperty `json:",omitempty"`
+	// A collection of single-value extended properties of type SingleValueLegacyExtendedProperty. This is a navigation property. Find more information about extended properties.
+	// WF-
+	SingleValueExtendedProperties *SingleValueLegacyExtendedProperty `json:",omitempty"`
+	// The mailbox owner and sender of the message.
+	// WFS
+	From *Recipient `json:",omitempty"`
+	// The account that is actually used to generate the message.
+	// WF-
+	Sender *Recipient `json:",omitempty"`
+	// The body of the message that is unique to the conversation.
+	// ---
+	UniqueBody *ItemBody `json:",omitempty"`
 	// The body of the message.
 	// W--
 	Body ItemBody `json:",omitempty"`
-	// The first 255 characters of the message body content.
-	// --S
-	BodyPreview string `json:",omitempty"`
-	// The categories associated with the message.
+	// The importance of the message: Low = 0, Normal = 1, High = 2.
 	// WFS
-	Categories []string `json:",omitempty"`
-	// The Cc recipients for the message.
-	// W-S
-	Cc []Recipient `json:"CcRecipients,omitempty"`
+	Importance Importance `json:",omitempty"`
+
+	// The classification of this message for the user, based on inferred relevance or importance, or on an explicit override.
+	// WFS
+	InferenceClassification InferenceClassificationType `json:",omitempty"`
 	// The version of the message.
 	// ---
 	ChangeKey string `json:",omitempty"`
 	// The ID of the conversation the email belongs to.
 	// -F-
 	ConversationID string `json:"ConversationId,omitempty"`
-	// The date and time the message was created.
-	// -F-
-	Created *time.Time `json:"CreatedDateTime,omitempty"`
-	// The collection of open type data extensions defined for the message. Navigation property.
-	// -F-
-	Extensions []string `json:",omitempty"`
-	// The mailbox owner and sender of the message.
-	// WFS
-	From *Recipient `json:",omitempty"`
-	// Indicates whether the message has attachments.
-	// -FS
-	HasAttachments bool `json:",omitempty"`
 	// The unique identifier of the message.
 	// ---
 	ID string `json:"Id,omitempty"`
-	// The importance of the message: Low = 0, Normal = 1, High = 2.
+	// The unique identifier for the message's parent folder.
+	// ---
+	ParentFolderID string `json:"ParentFolderId,omitempty"`
+	// The subject of the message.
+	// WF-
+	Subject string `json:",omitempty"`
+	// The URL to open the message in Outlook Web App.
+	// You can append an ispopout argument to the end of the URL to change how the message is displayed. If ispopout is not present or if it is set to 1, then the message is shown in a popout window. If ispopout is set to 0, then the browser will show the message in the Outlook Web App review pane.
+	// The message will open in the browser if you are logged in to your mailbox via Outlook Web App. You will be prompted to login if you are not already logged in with the browser.
+	// This URL can be accessed from within an iFrame.
+	// -F-
+	WebLink string `json:",omitempty"`
+	// The first 255 characters of the message body content.
+	// --S
+	BodyPreview string `json:",omitempty"`
+
+	// The Bcc recipients for the message.
+	// W-S
+	Bcc []Recipient `json:"BccRecipients,omitempty"`
+	// The email addresses to use when replying.
+	// ---
+	ReplyTo []Recipient `json:",omitempty"`
+	// The To recipients for the message.
+	// W-S
+	To []Recipient `json:"ToRecipients,omitempty"`
+	// The Cc recipients for the message.
+	// W-S
+	Cc []Recipient `json:"CcRecipients,omitempty"`
+
+	// The FileAttachment and ItemAttachment attachments for the message. Navigation property.
+	// W-S
+	Attachments []Attachment `json:",omitempty"`
+
+	// The categories associated with the message.
 	// WFS
-	Importance Importance `json:",omitempty"`
-	// The classification of this message for the user, based on inferred relevance or importance, or on an explicit override.
-	// WFS
-	InferenceClassification InferenceClassificationType `json:",omitempty"`
+	Categories []string `json:",omitempty"`
+	// The collection of open type data extensions defined for the message. Navigation property.
+	// -F-
+	Extensions []string `json:",omitempty"`
+
+	// Indicates whether the message has attachments.
+	// -FS
+	HasAttachments bool `json:",omitempty"`
 	// Indicates whether a read receipt is requested for the message.
 	// WF-
 	IsDeliveryReceiptRequested bool `json:",omitempty"`
@@ -196,45 +240,6 @@ type Message struct {
 	// Indicates whether a read receipt is requested for the message.
 	// WF-
 	IsReadReceiptRequested bool `json:",omitempty"`
-	// The date and time the message was last changed.
-	// -F-
-	LastModified *time.Time `json:"LastModifiedDateTime,omitempty"`
-	// A collection of multi-value extended properties of type MultiValueLegacyExtendedProperty. This is a navigation property. Find more information about extended properties.
-	// WF-
-	MultiValueExtendedProperties *MultiValueLegacyExtendedProperty `json:",omitempty"`
-	// The unique identifier for the message's parent folder.
-	// ---
-	ParentFolderID string `json:"ParentFolderId,omitempty"`
-	// The date and time the message was received.
-	// -FS
-	Received *time.Time `json:"ReceivedDateTime,omitempty"`
-	// The email addresses to use when replying.
-	// ---
-	ReplyTo []Recipient `json:",omitempty"`
-	// The account that is actually used to generate the message.
-	// WF-
-	Sender *Recipient `json:",omitempty"`
-	// A collection of single-value extended properties of type SingleValueLegacyExtendedProperty. This is a navigation property. Find more information about extended properties.
-	// WF-
-	SingleValueExtendedProperties *SingleValueLegacyExtendedProperty `json:",omitempty"`
-	// The date and time the message was sent.
-	// -F-
-	Sent *time.Time `json:"SentDateTime,omitempty"`
-	// The subject of the message.
-	// WF-
-	Subject string `json:",omitempty"`
-	// The To recipients for the message.
-	// W-S
-	To []Recipient `json:"ToRecipients,omitempty"`
-	// The body of the message that is unique to the conversation.
-	// ---
-	UniqueBody *ItemBody `json:",omitempty"`
-	// The URL to open the message in Outlook Web App.
-	// You can append an ispopout argument to the end of the URL to change how the message is displayed. If ispopout is not present or if it is set to 1, then the message is shown in a popout window. If ispopout is set to 0, then the browser will show the message in the Outlook Web App review pane.
-	// The message will open in the browser if you are logged in to your mailbox via Outlook Web App. You will be prompted to login if you are not already logged in with the browser.
-	// This URL can be accessed from within an iFrame.
-	// -F-
-	WebLink string `json:",omitempty"`
 }
 
 func (c *client) List(ctx context.Context, mbox, pattern string, all bool) ([]Message, error) {

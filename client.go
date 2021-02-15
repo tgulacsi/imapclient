@@ -131,12 +131,12 @@ const (
 )
 
 type imapClient struct {
+	c      *client.Client
+	status *imap.MailboxStatus
+	logger *stdlog.Logger
 	ServerAddress
-	c       *client.Client
 	created []string
 	logMask LogMask
-	status  *imap.MailboxStatus
-	logger  *stdlog.Logger
 }
 
 // NewClient returns a new (not connected) Client, using TLS iff port == 143.
@@ -182,9 +182,9 @@ func NewClientNoTLS(host string, port int, username, password string) Client {
 // ServerAddress represents the server's address.
 type ServerAddress struct {
 	Host                   string
-	Port                   uint32
 	Username, Password     string
 	ClientID, ClientSecret string
+	Port                   uint32
 	TLSPolicy              tlsPolicy
 }
 
@@ -214,8 +214,8 @@ func (m ServerAddress) String() string {
 
 // Mailbox is the ServerAddress with Mailbox info appended.
 type Mailbox struct {
-	ServerAddress
 	Mailbox string
+	ServerAddress
 }
 
 func (m Mailbox) String() string {

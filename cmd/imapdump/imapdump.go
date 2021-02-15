@@ -621,11 +621,11 @@ func HeadDecode(head string) string {
 }
 
 type Mail struct {
-	UID       uint32
+	Date      time.Time
 	MessageID string
 	Subject   string
 	Size      uint32
-	Date      time.Time
+	UID       uint32
 }
 
 func listMbox(rootCtx context.Context, c imapclient.Client, mbox string, all bool) ([]Mail, error) {

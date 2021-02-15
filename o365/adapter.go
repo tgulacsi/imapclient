@@ -17,10 +17,10 @@ var _ = imapclient.MinClient((*oClient)(nil))
 
 type oClient struct {
 	*client
-	mu       sync.Mutex
-	selected string
 	u2s      map[uint32]string
 	s2u      map[string]uint32
+	selected string
+	mu       sync.Mutex
 }
 
 func NewIMAPClient(c *client) imapclient.Client {

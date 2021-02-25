@@ -18,6 +18,7 @@ package imapclient
 
 import (
 	"crypto/sha1"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -34,6 +35,9 @@ var (
 	ShortSleep = 1 * time.Second
 	// LongSleep is the duration which used for sleep between errors and if the inbox is empty.
 	LongSleep = 5 * time.Minute
+
+	// ErrSkip from DeliverFunc means leave the message as is.
+	ErrSkip = errors.New("skip move")
 )
 
 // DeliveryLoop periodically checks the inbox for mails with the specified pattern
@@ -42,6 +46,7 @@ var (
 //
 // If deliver did not returned error, the message is marked as Seen, and if outbox
 // is not empty, then moved to outbox.
+// Except when the error is ErrSkip - then the message is left there as is.
 //
 // deliver is called with the message, UID and sha1.
 func DeliveryLoop(c Client, inbox, pattern string, deliver DeliverFunc, outbox, errbox string, closeCh <-chan struct{}) {
@@ -59,6 +64,7 @@ func DeliveryLoop(c Client, inbox, pattern string, deliver DeliverFunc, outbox, 
 //
 // If deliver did not returned error, the message is marked as Seen, and if outbox
 // is not empty, then moved to outbox.
+// Except when the error is ErrSkip - then the message is left there as is.
 //
 // deliver is called with the message, UID and sha1.
 func DeliveryLoopC(ctx context.Context, c Client, inbox, pattern string, deliver DeliverFuncC, outbox, errbox string) error {
@@ -78,16 +84,16 @@ func DeliveryLoopC(ctx context.Context, c Client, inbox, pattern string, deliver
 		default:
 		}
 
-		if err != nil {
-			time.Sleep(LongSleep)
-			continue
+		dur := ShortSleep
+		if n == 0 || err != nil {
+			dur = LongSleep
 		}
-		if n > 0 {
-			time.Sleep(ShortSleep)
-		} else {
-			time.Sleep(LongSleep)
+
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(dur):
 		}
-		continue
 	}
 }
 
@@ -158,7 +164,7 @@ func one(ctx context.Context, c Client, inbox, pattern string, deliver DeliverFu
 		body.Close()
 		if err != nil {
 			Log("msg", "deliver", "error", err)
-			if errbox != "" {
+			if errbox != "" && !errors.Is(err, ErrSkip) {
 				if err = c.MoveC(ctx, uid, errbox); err != nil {
 					Log("msg", "move to", "errbox", errbox, "error", err)
 				}

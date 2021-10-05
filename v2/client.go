@@ -96,7 +96,7 @@ func NewClientTLS(host string, port int, username, password string) Client {
 	}
 	return FromServerAddress(ServerAddress{
 		Host: host, Port: uint32(port),
-		Username: username, Password: password,
+		Username: username, password: password,
 		TLSPolicy: ForceTLS,
 	})
 }
@@ -108,7 +108,7 @@ func NewClientNoTLS(host string, port int, username, password string) Client {
 	}
 	return FromServerAddress(ServerAddress{
 		Host: host, Port: uint32(port),
-		Username: username, Password: password,
+		Username: username, password: password,
 		TLSPolicy: NoTLS,
 	})
 }
@@ -116,19 +116,29 @@ func NewClientNoTLS(host string, port int, username, password string) Client {
 // ServerAddress represents the server's address.
 type ServerAddress struct {
 	Host                   string
-	Username, Password     string
+	Username, password     string
 	ClientID, ClientSecret string
 	Port                   uint32
 	TLSPolicy              tlsPolicy
 }
 
+func (m ServerAddress) WithPassword(password string) ServerAddress {
+	m.password = password
+	return m
+}
+func (m ServerAddress) Password() string {
+	return m.password
+}
+
 // URL representation of the server address.
+//
+// The password is masked is withPassword is false!
 func (m ServerAddress) URL() *url.URL {
 	if m.Port == 0 {
 		m.Port = 993
 	}
 	u := url.URL{
-		User: url.UserPassword(m.Username, m.Password),
+		User: url.UserPassword(m.Username, m.password),
 		Host: fmt.Sprintf("%s:%d", m.Host, m.Port),
 	}
 	if m.Port == 143 {
@@ -184,7 +194,7 @@ func ParseMailbox(s string) (Mailbox, error) {
 	}
 	if u.User != nil {
 		m.Username = u.User.Username()
-		m.Password, _ = u.User.Password()
+		m.password, _ = u.User.Password()
 	}
 	m.Mailbox = strings.TrimLeft(u.Path, "/")
 	q := u.Query()
@@ -494,12 +504,12 @@ func (c *imapClient) Close(ctx context.Context, expunge bool) error {
 	defer cancel()
 	var err error
 	if expunge {
-		err = c.c.Expunge(nil)
+		err = c.withTimeout(ctx, func() error { return c.c.Expunge(nil) })
 	}
-	if closeErr := c.c.Close(); closeErr != nil && err == nil {
+	if closeErr := c.withTimeout(ctx, func() error { return c.c.Close() }); closeErr != nil && err == nil {
 		err = closeErr
 	}
-	if logoutErr := c.c.Logout(); logoutErr != nil && err == nil {
+	if logoutErr := c.withTimeout(ctx, func() error { return c.c.Logout() }); logoutErr != nil && err == nil {
 		err = logoutErr
 	}
 	c.c = nil
@@ -620,7 +630,7 @@ func (c *imapClient) login(ctx context.Context) (err error) {
 	}
 	logger := log.With(c.logger, "username", c.Username)
 	order := []string{"login", "oauthbearer", "xoauth2", "cram-md5", "plain"}
-	if len(c.Password) > 40 {
+	if len(c.password) > 40 {
 		order[0], order[1], order[2] = order[1], order[2], order[0]
 	}
 
@@ -635,24 +645,24 @@ func (c *imapClient) login(ctx context.Context) (err error) {
 
 		switch method {
 		case "login":
-			err = c.c.Login(c.Username, c.Password)
+			err = c.c.Login(c.Username, c.password)
 
 		case "xoauth2":
 			// https://msdn.microsoft.com/en-us/library/dn440163.aspx
 			if ok, _ := c.c.SupportAuth("XOAUTH2"); ok {
-				err = c.c.Authenticate(sasl.NewXoauth2Client(c.Username, c.Password))
+				err = c.c.Authenticate(sasl.NewXoauth2Client(c.Username, c.password))
 			}
 
 		case "oauthbearer":
 			if ok, _ := c.c.SupportAuth("OAUTHBEARER"); ok {
 				err = c.c.Authenticate(sasl.NewOAuthBearerClient(&sasl.OAuthBearerOptions{
-					Username: c.Username, Token: c.Password,
+					Username: c.Username, Token: c.password,
 				}))
 			}
 
 		case "cram-md5":
 			if ok, _ := c.c.SupportAuth("CRAM-MD5"); ok {
-				err = c.c.Authenticate(CramAuth(c.Username, c.Password))
+				err = c.c.Authenticate(CramAuth(c.Username, c.password))
 			}
 
 		case "plain":
@@ -663,7 +673,7 @@ func (c *imapClient) login(ctx context.Context) (err error) {
 				}
 				logger = log.With(logger, "method", method, "identity", identity)
 
-				err = c.c.Authenticate(sasl.NewPlainClient(identity, username, c.Password))
+				err = c.c.Authenticate(sasl.NewPlainClient(identity, username, c.password))
 			}
 		}
 

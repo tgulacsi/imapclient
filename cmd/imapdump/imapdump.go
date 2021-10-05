@@ -31,7 +31,7 @@ import (
 	"golang.org/x/text/transform"
 
 	"github.com/UNO-SOFT/ulog"
-	"github.com/go-kit/kit/log"
+	"github.com/go-kit/log"
 	"github.com/peterbourgon/ff/v3/ffcli"
 	"github.com/tgulacsi/imapclient/v2"
 	"github.com/tgulacsi/imapclient/v2/o365"
@@ -96,9 +96,9 @@ func Main() error {
 			}
 			sa := imapclient.ServerAddress{
 				Host: host, Port: uint32(port),
-				Username: username, Password: password,
+				Username:  username,
 				TLSPolicy: imapclient.MaybeTLS,
-			}
+			}.WithPassword(password)
 			if *flagForceTLS {
 				sa.TLSPolicy = imapclient.ForceTLS
 			} else if *flagForbidTLS {

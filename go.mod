@@ -1,6 +1,7 @@
 module github.com/tgulacsi/imapclient
 
 require (
+	github.com/UNO-SOFT/ulog v1.3.1 // indirect
 	github.com/emersion/go-imap v1.0.7-0.20210430212657-5518512a1468
 	github.com/emersion/go-sasl v0.0.0-20200509202850-4132e15e133d
 	github.com/go-kit/kit v0.12.0

@@ -19,28 +19,28 @@ import (
 	_ "net/http/pprof"
 	"net/textproto"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"golang.org/x/net/context"
 	"golang.org/x/text/encoding/htmlindex"
 	"golang.org/x/text/transform"
 
+	"github.com/UNO-SOFT/ulog"
 	"github.com/go-kit/kit/log"
 	"github.com/peterbourgon/ff/v3/ffcli"
-	"github.com/tgulacsi/go/loghlp/kitloghlp"
-	"github.com/tgulacsi/imapclient"
-	"github.com/tgulacsi/imapclient/o365"
+	"github.com/tgulacsi/imapclient/v2"
+	"github.com/tgulacsi/imapclient/v2/o365"
 )
 
 const fetchBatchLen = 1024
 
 // Log is the logger.
-var logger = log.With(
-	kitloghlp.Stringify{Logger: log.NewLogfmtLogger(os.Stderr)},
-	"ts", log.DefaultTimestamp)
+var logger = log.Logger(ulog.New())
 
 func main() {
 	if err := Main(); err != nil {
@@ -77,15 +77,10 @@ func Main() error {
 	app := ffcli.Command{Name: "imapdump", ShortHelp: "dump/load mail through IMAP", FlagSet: FS}
 
 	Log := logger.Log
-	rootCtx := imapclient.CtxWithLogFunc(context.Background(), logger.Log)
-	prepareLog := func() {
-		if verbose {
-			imapclient.Log = log.With(logger, "lib", "imapclient").Log
-		}
-	}
-	prepare := func() (imapclient.Client, error) {
-		prepareLog()
+	rootCtx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
 
+	prepare := func(ctx context.Context) (imapclient.Client, error) {
 		var c imapclient.Client
 		if clientID != "" && clientSecret != "" {
 			c = o365.NewIMAPClient(o365.NewClient(
@@ -110,15 +105,21 @@ func Main() error {
 				sa.TLSPolicy = imapclient.NoTLS
 			}
 			c = imapclient.FromServerAddress(sa)
-			c.SetLoggerC(rootCtx)
 			if verbose {
+				c.SetLogger(logger)
 				c.SetLogMask(imapclient.LogAll)
 			}
 		}
-		if err := c.Connect(); err != nil {
+		if err := c.Connect(ctx); err != nil {
 			return nil, err
 		}
 		return c, nil
+	}
+
+	cClose := func(c imapclient.Client) {
+		ctx, cancel := context.WithTimeout(rootCtx, 3*time.Second)
+		defer cancel()
+		c.Close(ctx, false)
 	}
 
 	//dumpCmd := app.Command("dump", "dump mail").Default()
@@ -127,11 +128,11 @@ func Main() error {
 	FS.BoolVar(&all, "false, all", false, "list all, not just UNSEEN")
 	listCmd := ffcli.Command{Name: "list", ShortHelp: "list mailbox", FlagSet: FS,
 		Exec: func(rootCtx context.Context, args []string) error {
-			c, err := prepare()
+			c, err := prepare(rootCtx)
 			if err != nil {
 				return err
 			}
-			defer c.Close(false)
+			defer cClose(c)
 			for _, mbox := range args {
 				mails, err := listMbox(rootCtx, c, mbox, all)
 				if err != nil {
@@ -155,28 +156,34 @@ func Main() error {
 			if len(args) != 0 {
 				mbox = args[0]
 			}
-			c, err := prepare()
+			c, err := prepare(rootCtx)
 			if err != nil {
 				return err
 			}
-			defer c.Close(false)
+			defer cClose(c)
 			ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
+			logger.Log("msg", "start Mailboxes")
 			boxes, err := c.Mailboxes(ctx, mbox)
 			cancel()
+			logger.Log("msg", "end Mailboxes", "boxes", boxes, "du", du, "error", err)
 			if err != nil {
 				Log("msg", "LIST", "error", err)
 				return err
 			}
 			if !du {
 				for _, m := range boxes {
+					logger.Log("m", m)
 					fmt.Fprintln(os.Stdout, m)
 				}
 				return nil
 			}
+			logger.Log("msg", "boxes")
 			for _, m := range boxes {
 				ctx, cancel := context.WithTimeout(rootCtx, 5*time.Minute)
+				logger.Log("msg", "start listMbox", "mbox", m)
 				mails, err := listMbox(ctx, c, m, true)
 				cancel()
+				logger.Log("msg", "end listMbox", "error", err)
 				if err != nil {
 					Log("msg", "list", "box", m, "error", err)
 				}
@@ -206,11 +213,11 @@ func Main() error {
 				}
 				uids = append(uids, uint32(u))
 			}
-			c, err := prepare()
+			c, err := prepare(rootCtx)
 			if err != nil {
 				return err
 			}
-			defer c.Close(false)
+			defer cClose(c)
 			mbox := *saveMbox
 			mailboxes := []string{mbox}
 			if recursive {
@@ -252,7 +259,7 @@ func Main() error {
 				if len(uids) == 0 {
 					ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
 					var err error
-					uids, err = c.ListC(ctx, mbox, "", true)
+					uids, err = c.List(ctx, mbox, "", true)
 					cancel()
 					if err != nil {
 						Log("msg", "list", "box", mbox, "error", err)
@@ -262,7 +269,7 @@ func Main() error {
 
 				if len(uids) == 1 {
 					ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
-					_, err = c.ReadToC(ctx, dest, uids[0])
+					_, err = c.ReadTo(ctx, dest, uids[0])
 					cancel()
 					if err != nil {
 						Log("msg", "Read", "uid", uids[0], "error", err)
@@ -290,7 +297,7 @@ func Main() error {
 
 			for _, mbox := range mailboxes {
 				ctx, cancel := context.WithTimeout(rootCtx, 10*time.Minute)
-				uids, err := c.ListC(ctx, mbox, "", true)
+				uids, err := c.List(ctx, mbox, "", true)
 				cancel()
 				if err != nil {
 					Log("msg", "list", "box", mbox, "error", err)
@@ -313,11 +320,11 @@ func Main() error {
 		Exec: func(rootCtx context.Context, args []string) error {
 			mbox := args[0]
 			files := args[1:]
-			c, err := prepare()
+			c, err := prepare(rootCtx)
 			if err != nil {
 				return err
 			}
-			defer c.Close(false)
+			defer cClose(c)
 			ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
 			err = c.Select(ctx, mbox)
 			cancel()
@@ -402,7 +409,6 @@ func Main() error {
 		ShortUsage: "sync <source mailbox in 'imaps://host:port/mbox?user=a@b&passw=xxx' format> <destination mailbox in 'imaps://host:port/mbox?user=a@b&passw=xxx' format>",
 		Exec: func(rootCtx context.Context, args []string) error {
 			syncSrc, syncDst := args[0], args[1]
-			prepareLog()
 			srcM, err := imapclient.ParseMailbox(syncSrc)
 			if err != nil {
 				return err
@@ -414,6 +420,7 @@ func Main() error {
 				return err
 			}
 			if verbose {
+				src.SetLogger(logger)
 				src.SetLogMask(imapclient.LogAll)
 			}
 			dstM, err := imapclient.ParseMailbox(syncDst)
@@ -465,7 +472,7 @@ func Main() error {
 				}
 				buf.Reset()
 				ctx, cancel = context.WithTimeout(rootCtx, 30*time.Second)
-				_, err = src.ReadToC(ctx, &buf, m.UID)
+				_, err = src.ReadTo(ctx, &buf, m.UID)
 				cancel()
 				if err != nil {
 					return fmt.Errorf("%s: %w", m.Subject, err)
@@ -496,7 +503,7 @@ func dumpMails(rootCtx context.Context, tw *syncTW, c imapclient.Client, mbox st
 	ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
 	err := c.Select(ctx, mbox)
 	cancel()
-	Log := imapclient.GetLogger(ctx).Log
+	Log := logger.Log
 	if err != nil {
 		Log("msg", "SELECT", "box", mbox, "error", err)
 		return err
@@ -505,7 +512,7 @@ func dumpMails(rootCtx context.Context, tw *syncTW, c imapclient.Client, mbox st
 	if len(uids) == 0 {
 		var err error
 		ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
-		uids, err = c.ListC(ctx, mbox, "", true)
+		uids, err = c.List(ctx, mbox, "", true)
 		cancel()
 		if err != nil {
 			Log("msg", "list", "box", mbox, "error", err)
@@ -523,7 +530,7 @@ func dumpMails(rootCtx context.Context, tw *syncTW, c imapclient.Client, mbox st
 	for _, uid := range uids {
 		buf.Reset()
 		ctx, cancel := context.WithTimeout(rootCtx, 10*time.Minute)
-		_, err = c.ReadToC(ctx, buf, uint32(uid))
+		_, err = c.ReadTo(ctx, buf, uint32(uid))
 		cancel()
 		if err != nil {
 			Log("msg", "read", "uid", uid, "error", err)
@@ -534,7 +541,7 @@ func dumpMails(rootCtx context.Context, tw *syncTW, c imapclient.Client, mbox st
 		hshS := base64.URLEncoding.EncodeToString(hshB)
 		if _, ok := seen[hshS]; ok {
 			Log("msg", "Deleting already seen.", "box", mbox, "uid", uid)
-			if err := c.Delete(uid); err != nil {
+			if err := c.Delete(ctx, uid); err != nil {
 				Log("msg", "Delete", "box", mbox, "uid", uid, "error", err)
 			}
 			continue
@@ -618,12 +625,12 @@ type Mail struct {
 
 func listMbox(rootCtx context.Context, c imapclient.Client, mbox string, all bool) ([]Mail, error) {
 	ctx, cancel := context.WithTimeout(rootCtx, 30*time.Second)
-	uids, err := c.ListC(ctx, mbox, "", all)
+	uids, err := c.List(ctx, mbox, "", all)
 	cancel()
 	if err != nil {
 		return nil, fmt.Errorf("LIST %q: %w", mbox, err)
 	}
-	Log := imapclient.GetLogger(rootCtx).Log
+	Log := logger.Log
 	if len(uids) == 0 {
 		Log("msg", "empty", "mbox", mbox)
 		return nil, nil

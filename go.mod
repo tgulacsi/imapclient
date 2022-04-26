@@ -3,7 +3,6 @@ module github.com/tgulacsi/imapclient
 require (
 	github.com/emersion/go-imap v1.0.7-0.20210430212657-5518512a1468
 	github.com/emersion/go-sasl v0.0.0-20200509202850-4132e15e133d
-	github.com/go-kit/log v0.2.0
 	github.com/go-logr/logr v1.2.3
 	github.com/go-logr/zerologr v1.2.1
 	github.com/google/go-cmp v0.5.6 // indirect

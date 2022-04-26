@@ -1,4 +1,4 @@
-// Copyright 2021 Tamás Gulácsi. All rights reserved.
+// Copyright 2021, 2022 Tamás Gulácsi. All rights reserved.
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -21,7 +21,7 @@ import (
 
 	"golang.org/x/net/context"
 
-	"github.com/go-kit/log"
+	"github.com/go-logr/logr"
 
 	"github.com/emersion/go-imap"
 	"github.com/emersion/go-imap/client"
@@ -51,7 +51,7 @@ type Client interface {
 	Mark(ctx context.Context, msgID uint32, seen bool) error
 	List(ctx context.Context, mbox, pattern string, all bool) ([]uint32, error)
 	ReadTo(ctx context.Context, w io.Writer, msgID uint32) (int64, error)
-	SetLogger(log.Logger)
+	SetLogger(logr.Logger)
 	SetLogMask(LogMask) LogMask
 }
 
@@ -67,7 +67,7 @@ type imapClient struct {
 	ServerAddress
 	//mu      sync.Mutex
 	c       *client.Client
-	logger  *log.SwapLogger
+	logger  logr.Logger
 	status  *imap.MailboxStatus
 	created []string
 	logMask LogMask
@@ -86,7 +86,7 @@ func NewClient(host string, port int, username, password string) Client {
 
 // FromServerAddress returns a new (not connected) Client, using the ServerAddress.
 func FromServerAddress(sa ServerAddress) Client {
-	return &imapClient{ServerAddress: sa, logger: &log.SwapLogger{}}
+	return &imapClient{ServerAddress: sa, logger: logr.Discard()}
 }
 
 // NewClientTLS returns a new (not connected) Client, using TLS.
@@ -236,7 +236,7 @@ func (c *imapClient) setLogMask(mask LogMask) LogMask {
 	c.logMask = mask
 	if c.c != nil {
 		if c.logMask {
-			c.c.SetDebug(log.NewStdlibAdapter(c.logger))
+			c.c.SetDebug(loggerWriter{c.logger})
 		} else {
 			c.c.SetDebug(nil)
 		}
@@ -244,11 +244,11 @@ func (c *imapClient) setLogMask(mask LogMask) LogMask {
 	return mask
 }
 
-func (c *imapClient) SetLogger(lgr log.Logger) {
-	c.logger.Swap(lgr)
+func (c *imapClient) SetLogger(lgr logr.Logger) {
+	c.logger = lgr
 	//c.mu.Lock()
 	if c.c != nil {
-		c.c.ErrorLog = stdlog.New(log.NewStdlibAdapter(c.logger), "", 0)
+		c.c.ErrorLog = stdlog.New(loggerWriter{c.logger}, "", 0)
 	}
 	//c.mu.Unlock()
 }
@@ -415,13 +415,13 @@ func (c *imapClient) Move(ctx context.Context, msgID uint32, mbox string) error 
 		}
 	}
 	if !created {
-		c.logger.Log("msg", "Create", "box", mbox)
+		c.logger.Info("Create", "box", mbox)
 		c.created = append(c.created, mbox)
 		//c.mu.Lock()
 		err := c.c.Create(mbox)
 		//c.mu.Unlock()
-		if err == nil {
-			c.logger.Log("msg", "Create", "box", mbox, "error", err)
+		if err != nil {
+			c.logger.Error(err, "Create", "box", mbox)
 		}
 	}
 
@@ -600,7 +600,7 @@ func (c *imapClient) Connect(ctx context.Context) error {
 		err = fmt.Errorf("%s: %w", addr, err)
 	}
 	if err != nil {
-		c.logger.Log("msg", "Connect", "addr", addr, "error", err)
+		c.logger.Error(err, "Connect", "addr", addr)
 		return err
 	}
 	select {
@@ -614,7 +614,7 @@ func (c *imapClient) Connect(ctx context.Context) error {
 	c.c.Timeout = 0
 	// Enable encryption, if supported by the server
 	if ok, _ := c.c.SupportStartTLS(); ok {
-		c.logger.Log("msg", "Starting TLS")
+		c.logger.Info("Starting TLS")
 		c.c.StartTLS(&TLSConfig)
 	}
 
@@ -628,7 +628,7 @@ func (c *imapClient) login(ctx context.Context) (err error) {
 	if err = ctx.Err(); err != nil {
 		return err
 	}
-	logger := log.With(c.logger, "username", c.Username)
+	logger := c.logger.WithValues("username", c.Username)
 	order := []string{"login", "oauthbearer", "xoauth2", "cram-md5", "plain"}
 	if len(c.password) > 40 {
 		order[0], order[1], order[2] = order[1], order[2], order[0]
@@ -639,8 +639,8 @@ func (c *imapClient) login(ctx context.Context) (err error) {
 	c.setLogMask(LogAll)
 
 	for _, method := range order {
-		logger := log.With(logger, "method", method)
-		logger.Log("msg", "try logging in")
+		logger := logger.WithValues("method", method)
+		logger.Info("try logging in")
 		err = errNotLoggedIn
 
 		switch method {
@@ -671,17 +671,17 @@ func (c *imapClient) login(ctx context.Context) (err error) {
 				if i := strings.IndexByte(username, '\\'); i >= 0 {
 					identity, username = strings.TrimPrefix(username[i+1:], "\\"), username[:i]
 				}
-				logger = log.With(logger, "method", method, "identity", identity)
+				logger = logger.WithValues("method", method, "identity", identity)
 
 				err = c.c.Authenticate(sasl.NewPlainClient(identity, username, c.password))
 			}
 		}
 
 		if err == nil || strings.Contains(err.Error(), "Already logged in") {
-			logger.Log("msg", "logged in", "method", method, "error", err)
+			logger.Info("logged in", "method", method, "error", err)
 			return nil
 		}
-		logger.Log("msg", "login failed", "method", method, "error", err)
+		logger.Info("login failed", "method", method, "error", err)
 	}
 	if err != nil {
 		return err
@@ -697,7 +697,7 @@ func (c *imapClient) withTimeout(ctx context.Context, f func() error) error {
 	d, ok := ctx.Deadline()
 	if ok {
 		c.c.Timeout = time.Until(d)
-		c.logger.Log("msg", "setTimeout", "deadline", d.UTC(), "timeout", c.c.Timeout.String())
+		c.logger.Info("setTimeout", "deadline", d.UTC(), "timeout", c.c.Timeout.String())
 		defer func() { c.c.Timeout = 0 }()
 	}
 	return f()
@@ -713,3 +713,14 @@ type literal struct {
 }
 
 func (lit literal) Len() int { return lit.length }
+
+var _ = io.Writer(loggerWriter{})
+
+type loggerWriter struct {
+	logr.Logger
+}
+
+func (lg loggerWriter) Write(p []byte) (int, error) {
+	lg.Logger.Info(string(p))
+	return len(p), nil
+}

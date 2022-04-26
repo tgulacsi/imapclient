@@ -14,7 +14,7 @@ import (
 
 	"golang.org/x/net/context"
 
-	"github.com/go-kit/log"
+	"github.com/go-logr/logr"
 	"github.com/tgulacsi/go/temp"
 )
 
@@ -62,9 +62,9 @@ func DeliveryLoopC(ctx context.Context, c Client, inbox, pattern string, deliver
 	for {
 		n, err := one(ctx, c, inbox, pattern, deliver, outbox, errbox)
 		if err != nil {
-			Log("msg", "DeliveryLoop one round", "count", n, "error", err)
+			logger.Error(err, "DeliveryLoop one round", "count", n)
 		} else {
-			Log("msg", "DeliveryLoop one round", "count", n)
+			logger.Info("DeliveryLoop one round", "count", n)
 		}
 		select {
 		case <-ctx.Done():
@@ -119,15 +119,15 @@ type DeliverFunc func(r io.ReadSeeker, uid uint32, sha1 []byte) error
 type DeliverFuncC func(ctx context.Context, r io.ReadSeeker, uid uint32, sha1 []byte) error
 
 func one(ctx context.Context, c Client, inbox, pattern string, deliver DeliverFuncC, outbox, errbox string) (int, error) {
-	logger := log.With(GetLogger(ctx), "c", c, "inbox", inbox)
+	logger := GetLogger(ctx).WithValues("c", c, "inbox", inbox)
 	if err := c.ConnectC(ctx); err != nil {
-		Log("msg", "Connecting", "error", err)
+		logger.Error(err, "Connecting")
 		return 0, fmt.Errorf("connect to %v: %w", c, err)
 	}
 	defer c.Close(true)
 
 	uids, err := c.ListC(ctx, inbox, pattern, outbox != "" && errbox != "")
-	Log("msg", "List", "uids", uids, "error", err)
+	logger.Info("List", "uids", uids, "error", err)
 	if err != nil {
 		return 0, fmt.Errorf("list %v/%v: %w", c, inbox, err)
 	}
@@ -138,23 +138,23 @@ func one(ctx context.Context, c Client, inbox, pattern string, deliver DeliverFu
 		if err = ctx.Err(); err != nil {
 			return n, err
 		}
-		Log := log.With(logger, "uid", uid).Log
-		ctx := CtxWithLogFunc(context.Background(), Log)
+		logger := logger.WithValues("uid", uid)
+		ctx := logr.NewContext(ctx, logger)
 		hsh.Reset()
 		body := temp.NewMemorySlurper(strconv.FormatUint(uint64(uid), 10))
 		if _, err = c.ReadToC(ctx, io.MultiWriter(body, hsh), uid); err != nil {
 			body.Close()
-			Log("msg", "Read", "error", err)
+			logger.Error(err, "Read")
 			continue
 		}
 
 		err = deliver(ctx, body, uid, hsh.Sum(nil))
 		body.Close()
 		if err != nil {
-			Log("msg", "deliver", "error", err)
+			logger.Error(err, "deliver")
 			if errbox != "" && !errors.Is(err, ErrSkip) {
 				if err = c.MoveC(ctx, uid, errbox); err != nil {
-					Log("msg", "move to", "errbox", errbox, "error", err)
+					logger.Error(err, "move to", "errbox", errbox)
 				}
 			}
 			continue
@@ -162,12 +162,12 @@ func one(ctx context.Context, c Client, inbox, pattern string, deliver DeliverFu
 		n++
 
 		if err = c.MarkC(ctx, uid, true); err != nil {
-			Log("msg", "mark seen", "error", err)
+			logger.Error(err, "mark seen")
 		}
 
 		if outbox != "" {
 			if err = c.MoveC(ctx, uid, outbox); err != nil {
-				Log("msg", "move to", "outbox", outbox, "error", err)
+				logger.Error(err, "move to", "outbox", outbox)
 				continue
 			}
 		}

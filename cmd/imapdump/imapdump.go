@@ -30,8 +30,9 @@ import (
 	"golang.org/x/text/encoding/htmlindex"
 	"golang.org/x/text/transform"
 
-	"github.com/UNO-SOFT/ulog"
-	"github.com/go-kit/log"
+	"github.com/go-logr/zerologr"
+	"github.com/rs/zerolog"
+
 	"github.com/peterbourgon/ff/v3/ffcli"
 	"github.com/tgulacsi/imapclient/v2"
 	"github.com/tgulacsi/imapclient/v2/o365"
@@ -39,8 +40,8 @@ import (
 
 const fetchBatchLen = 1024
 
-// Log is the logger.
-var logger = log.Logger(ulog.New())
+var zl = zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr}).With().Timestamp().Logger().Level(zerolog.InfoLevel)
+var logger = zerologr.New(&zl)
 
 func main() {
 	if err := Main(); err != nil {
@@ -76,7 +77,6 @@ func Main() error {
 
 	app := ffcli.Command{Name: "imapdump", ShortHelp: "dump/load mail through IMAP", FlagSet: FS}
 
-	Log := logger.Log
 	rootCtx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
@@ -136,7 +136,7 @@ func Main() error {
 			for _, mbox := range args {
 				mails, err := listMbox(rootCtx, c, mbox, all)
 				if err != nil {
-					Log("msg", "Listing", "box", mbox, "error", err)
+					logger.Error(err, "Listing", "box", mbox)
 				}
 				for _, m := range mails {
 					fmt.Fprintf(os.Stdout, "%d\t%d\t%s\n", m.UID, m.Size, m.Subject)
@@ -162,30 +162,29 @@ func Main() error {
 			}
 			defer cClose(c)
 			ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
-			logger.Log("msg", "start Mailboxes")
+			logger.Info("start Mailboxes")
 			boxes, err := c.Mailboxes(ctx, mbox)
 			cancel()
-			logger.Log("msg", "end Mailboxes", "boxes", boxes, "du", du, "error", err)
+			logger.Info("end Mailboxes", "boxes", boxes, "du", du, "error", err)
 			if err != nil {
-				Log("msg", "LIST", "error", err)
+				logger.Error(err, "LIST")
 				return err
 			}
 			if !du {
 				for _, m := range boxes {
-					logger.Log("m", m)
+					logger.Info("tree", "m", m)
 					fmt.Fprintln(os.Stdout, m)
 				}
 				return nil
 			}
-			logger.Log("msg", "boxes")
+			logger.Info("boxes")
 			for _, m := range boxes {
 				ctx, cancel := context.WithTimeout(rootCtx, 5*time.Minute)
-				logger.Log("msg", "start listMbox", "mbox", m)
+				logger.Info("start listMbox", "mbox", m)
 				mails, err := listMbox(ctx, c, m, true)
 				cancel()
-				logger.Log("msg", "end listMbox", "error", err)
 				if err != nil {
-					Log("msg", "list", "box", m, "error", err)
+					logger.Error(err, "list", "box", m)
 				}
 				var s uint64
 				for _, m := range mails {
@@ -226,7 +225,7 @@ func Main() error {
 				mailboxes, err = c.Mailboxes(ctx, mbox)
 				cancel()
 				if err != nil {
-					Log("msg", "List mailboxes under", "box", mbox, "error", err)
+					logger.Error(err, "List mailboxes under", "box", mbox)
 					//return err
 					mailboxes = []string{mbox}
 				}
@@ -237,13 +236,13 @@ func Main() error {
 				var err error
 				dest, err = os.Create(*saveOut)
 				if err != nil {
-					Log("msg", "create", "output", *saveOut, "error", err)
+					logger.Error(err, "create", "output", *saveOut)
 					return err
 				}
 			}
 			defer func() {
 				if err := dest.Close(); err != nil {
-					Log("msg", "close output", "error", err)
+					logger.Error(err, "close output")
 				}
 			}()
 
@@ -252,7 +251,7 @@ func Main() error {
 				err := c.Select(ctx, mbox)
 				cancel()
 				if err != nil {
-					Log("msg", "SELECT", "box", mbox, "error", err)
+					logger.Error(err, "SELECT", "box", mbox)
 					return err
 				}
 
@@ -262,7 +261,7 @@ func Main() error {
 					uids, err = c.List(ctx, mbox, "", true)
 					cancel()
 					if err != nil {
-						Log("msg", "list", "box", mbox, "error", err)
+						logger.Error(err, "list", "box", mbox)
 						return err
 					}
 				}
@@ -272,7 +271,7 @@ func Main() error {
 					_, err = c.ReadTo(ctx, dest, uids[0])
 					cancel()
 					if err != nil {
-						Log("msg", "Read", "uid", uids[0], "error", err)
+						logger.Error(err, "Read", "uid", uids[0])
 						return err
 					}
 				}
@@ -282,7 +281,7 @@ func Main() error {
 					err = closeErr
 				}
 				if err != nil {
-					Log("error", err)
+					logger.Error(err, "dumpMails")
 				}
 				return err
 			}
@@ -290,7 +289,7 @@ func Main() error {
 			tw := &syncTW{Writer: tar.NewWriter(dest)}
 			defer func() {
 				if err := tw.Close(); err != nil {
-					Log("msg", "Close tar", "error", err)
+					logger.Error(err, "Close tar")
 					os.Exit(1)
 				}
 			}()
@@ -300,7 +299,7 @@ func Main() error {
 				uids, err := c.List(ctx, mbox, "", true)
 				cancel()
 				if err != nil {
-					Log("msg", "list", "box", mbox, "error", err)
+					logger.Error(err, "list", "box", mbox)
 					return err
 				}
 				if len(uids) == 0 {
@@ -503,9 +502,8 @@ func dumpMails(rootCtx context.Context, tw *syncTW, c imapclient.Client, mbox st
 	ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
 	err := c.Select(ctx, mbox)
 	cancel()
-	Log := logger.Log
 	if err != nil {
-		Log("msg", "SELECT", "box", mbox, "error", err)
+		logger.Error(err, "SELECT", "box", mbox)
 		return err
 	}
 
@@ -515,14 +513,14 @@ func dumpMails(rootCtx context.Context, tw *syncTW, c imapclient.Client, mbox st
 		uids, err = c.List(ctx, mbox, "", true)
 		cancel()
 		if err != nil {
-			Log("msg", "list", "box", mbox, "error", err)
+			logger.Error(err, "list", "box", mbox)
 			return err
 		}
 	}
 
 	now := time.Now()
 	osUID, osGID := os.Getuid(), os.Getgid()
-	Log("msg", "Saving messages", "count", len(uids), "box", mbox)
+	logger.Info("Saving messages", "count", len(uids), "box", mbox)
 	buf := bufPool.Get().(*bytes.Buffer)
 	defer bufPool.Put(buf)
 	seen := make(map[string]struct{}, 1024)
@@ -533,16 +531,16 @@ func dumpMails(rootCtx context.Context, tw *syncTW, c imapclient.Client, mbox st
 		_, err = c.ReadTo(ctx, buf, uint32(uid))
 		cancel()
 		if err != nil {
-			Log("msg", "read", "uid", uid, "error", err)
+			logger.Error(err, "read", "uid", uid)
 		}
 		hsh := sha1.New()
 		hsh.Write(buf.Bytes())
 		hshB = hsh.Sum(hshB[:0])
 		hshS := base64.URLEncoding.EncodeToString(hshB)
 		if _, ok := seen[hshS]; ok {
-			Log("msg", "Deleting already seen.", "box", mbox, "uid", uid)
+			logger.Info("Deleting already seen.", "box", mbox, "uid", uid)
 			if err := c.Delete(ctx, uid); err != nil {
-				Log("msg", "Delete", "box", mbox, "uid", uid, "error", err)
+				logger.Error(err, "Delete", "box", mbox, "uid", uid)
 			}
 			continue
 		}
@@ -555,7 +553,7 @@ func dumpMails(rootCtx context.Context, tw *syncTW, c imapclient.Client, mbox st
 		}
 		t := now
 		if err != nil {
-			Log("msg", "parse", "uid", uid, "error", err, "bytes", buf.Bytes())
+			logger.Error(err, "parse", "uid", uid, "bytes", buf.Bytes())
 		} else {
 			var ok bool
 			if t, ok = HeadDate(hdr.Get("Date")); !ok {
@@ -610,7 +608,7 @@ func HeadDecode(head string) string {
 		return res
 	}
 	if err != nil {
-		logger.Log("msg", "decode", "head", head, "error", err)
+		logger.Error(err, "decode", "head", head)
 	}
 	return head
 }
@@ -630,9 +628,8 @@ func listMbox(rootCtx context.Context, c imapclient.Client, mbox string, all boo
 	if err != nil {
 		return nil, fmt.Errorf("LIST %q: %w", mbox, err)
 	}
-	Log := logger.Log
 	if len(uids) == 0 {
-		Log("msg", "empty", "mbox", mbox)
+		logger.Info("empty", "mbox", mbox)
 		return nil, nil
 	}
 
@@ -644,13 +641,13 @@ func listMbox(rootCtx context.Context, c imapclient.Client, mbox string, all boo
 		n := len(uids)
 		if n > fetchBatchLen {
 			n = fetchBatchLen
-			Log("msg", "Fetching.", "n", n, "of", len(uids))
+			logger.Info("Fetching.", "n", n, "of", len(uids))
 		}
 		ctx, cancel = context.WithTimeout(rootCtx, 30*time.Second)
 		attrs, err := c.FetchArgs(ctx, "RFC822.SIZE RFC822.HEADER", uids[:n]...)
 		cancel()
 		if err != nil {
-			Log("msg", "FetchArgs", "uids", uids, "error", err)
+			logger.Error(err, "FetchArgs", "uids", uids)
 			return nil, fmt.Errorf("FetchArgs %v: %w", uids, err)
 		}
 		uids = uids[n:]
@@ -662,7 +659,7 @@ func listMbox(rootCtx context.Context, c imapclient.Client, mbox string, all boo
 			}
 			hdr, err := textproto.NewReader(bufio.NewReader(strings.NewReader(a["RFC822.HEADER"][0]))).ReadMIMEHeader()
 			if err != nil {
-				Log("msg", "parse", "uid", uid, "error", err, "bytes", a["RFC822.HEADER"])
+				logger.Error(err, "parse", "uid", uid, "bytes", a["RFC822.HEADER"])
 				continue
 			}
 			m.Subject = HeadDecode(hdr.Get("Subject"))
@@ -674,7 +671,7 @@ func listMbox(rootCtx context.Context, c imapclient.Client, mbox string, all boo
 				}
 			}
 			if s, err := strconv.ParseUint(a["RFC822.SIZE"][0], 10, 32); err != nil {
-				Log("msg", "size of", "uid", uid, "text", a["RFC822.SIZE"], "error", err)
+				logger.Error(err, "size of", "uid", uid, "text", a["RFC822.SIZE"])
 				continue
 			} else {
 				m.Size = uint32(s)

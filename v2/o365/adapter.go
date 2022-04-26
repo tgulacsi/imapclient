@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-kit/log"
+	"github.com/go-logr/logr"
 	"github.com/tgulacsi/imapclient/v2"
 )
 
@@ -146,7 +146,7 @@ func (c *oClient) uidToStr(msgID uint32) (string, error) {
 	return s, nil
 }
 func (c *oClient) SetLogMask(mask imapclient.LogMask) imapclient.LogMask { return false }
-func (c *oClient) SetLogger(lgr log.Logger)                              {}
+func (c *oClient) SetLogger(lgr logr.Logger)                             {}
 func (c *oClient) Select(ctx context.Context, mbox string) error {
 	c.mu.Lock()
 	c.selected = mbox

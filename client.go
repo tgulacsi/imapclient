@@ -697,12 +697,6 @@ func (c *imapClient) login(ctx context.Context) (err error) {
 		case "login":
 			err = c.c.Login(c.Username, c.Password)
 
-		case "xoauth2":
-			// https://msdn.microsoft.com/en-us/library/dn440163.aspx
-			if ok, _ := c.c.SupportAuth("XOAUTH2"); ok {
-				err = c.c.Authenticate(sasl.NewXoauth2Client(c.Username, c.Password))
-			}
-
 		case "oauthbearer":
 			if ok, _ := c.c.SupportAuth("OAUTHBEARER"); ok {
 				err = c.c.Authenticate(sasl.NewOAuthBearerClient(&sasl.OAuthBearerOptions{

@@ -1,19 +1,25 @@
 module github.com/tgulacsi/imapclient
 
 require (
-	github.com/emersion/go-imap v1.0.7-0.20210430212657-5518512a1468
-	github.com/emersion/go-sasl v0.0.0-20200509202850-4132e15e133d
+	github.com/dgraph-io/badger/v3 v3.2103.1 // indirect
+	github.com/emersion/go-imap v1.2.1
+	github.com/emersion/go-sasl v0.0.0-20211008083017-0b9dcfb154ac
 	github.com/go-logr/logr v1.2.3
 	github.com/go-logr/zerologr v1.2.1
 	github.com/google/go-cmp v0.5.6 // indirect
-	github.com/peterbourgon/ff/v3 v3.0.0
-	github.com/pkg/browser v0.0.0-20180916011732-0a3d74bf9ce4 // indirect
-	github.com/rs/zerolog v1.25.0
-	github.com/tgulacsi/go v0.19.1
+	github.com/klauspost/pgzip v1.2.1 // indirect
+	github.com/martinlindhe/base36 v1.0.0 // indirect
+	github.com/peterbourgon/ff/v3 v3.1.2
+	github.com/pkg/browser v0.0.0-20210911075715-681adbf594b8 // indirect
+	github.com/rs/zerolog v1.26.1
+	github.com/tgulacsi/go v0.20.2
 	github.com/tgulacsi/oauth2client v0.0.1
-	golang.org/x/net v0.0.0-20210917221730-978cfadd31cf
-	golang.org/x/oauth2 v0.0.0-20210514164344-f6687ab2804c
+	golang.org/x/net v0.0.0-20220524220425-1d687d428aca
+	golang.org/x/oauth2 v0.0.0-20220524215830-622c5d57e401
+	golang.org/x/sys v0.0.0-20220520151302-bc2c85ada10a // indirect
 	golang.org/x/text v0.3.7
+	google.golang.org/appengine v1.6.7 // indirect
+	google.golang.org/protobuf v1.28.0 // indirect
 )
 
 // The last version supporting Xoauth2: github.com/emersion/go-sasl v0.0.0-20200509202850-4132e15e133d

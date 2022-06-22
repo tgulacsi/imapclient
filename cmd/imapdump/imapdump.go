@@ -1,4 +1,4 @@
-// Copyright 2019, 2021 Tamás Gulácsi. All rights reserved.
+// Copyright 2019, 2022 Tamás Gulácsi. All rights reserved.
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -125,7 +125,7 @@ func Main() error {
 	//dumpCmd := app.Command("dump", "dump mail").Default()
 
 	FS = flag.NewFlagSet("list", flag.ContinueOnError)
-	FS.BoolVar(&all, "false, all", false, "list all, not just UNSEEN")
+	FS.BoolVar(&all, "all", false, "list all, not just UNSEEN")
 	listCmd := ffcli.Command{Name: "list", ShortHelp: "list mailbox", FlagSet: FS,
 		Exec: func(rootCtx context.Context, args []string) error {
 			c, err := prepare(rootCtx)

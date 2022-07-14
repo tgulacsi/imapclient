@@ -22,6 +22,7 @@ import (
 	"golang.org/x/net/context"
 
 	"github.com/go-logr/logr"
+	"github.com/tgulacsi/imapclient/xoauth2"
 
 	"github.com/emersion/go-imap"
 	"github.com/emersion/go-imap/client"
@@ -668,6 +669,14 @@ func (c *imapClient) login(ctx context.Context) (err error) {
 				logger = logger.WithValues("method", method, "identity", identity)
 
 				err = c.c.Authenticate(sasl.NewPlainClient(identity, username, c.password))
+			}
+
+		case "xoauth2":
+			if ok, _ := c.c.SupportAuth("XOAUTH2"); ok {
+				username, refreshToken := c.Username, c.password
+				err = c.c.Authenticate(xoauth2.NewXOAuth2Client(&xoauth2.XOAuth2Options{
+					Username: username, RefreshToken: refreshToken,
+				}))
 			}
 		}
 

@@ -14,7 +14,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"mime"
 	_ "net/http/pprof"
 	"net/textproto"
@@ -348,7 +347,7 @@ func Main() error {
 					}
 				}
 				L := func(r io.Reader, date time.Time) error {
-					b, err := ioutil.ReadAll(r)
+					b, err := io.ReadAll(r)
 					if err != nil {
 						inpFh.Close()
 						return err

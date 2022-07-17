@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
@@ -267,7 +266,7 @@ func (c *client) List(ctx context.Context, mbox, pattern string, all bool) ([]Me
 		return nil, err
 	}
 	defer func() {
-		io.Copy(ioutil.Discard, body)
+		io.Copy(io.Discard, body)
 		body.Close()
 	}()
 
@@ -287,7 +286,7 @@ func (c *client) Get(ctx context.Context, msgID string) (Message, error) {
 		return msg, err
 	}
 	defer func() {
-		io.Copy(ioutil.Discard, body)
+		io.Copy(io.Discard, body)
 		body.Close()
 	}()
 	err = json.NewDecoder(body).Decode(&msg)
@@ -379,7 +378,7 @@ func (c *client) ListFolders(ctx context.Context, parent string) ([]Folder, erro
 	body, err := c.get(ctx, path)
 	if body != nil {
 		defer func() {
-			io.Copy(ioutil.Discard, body)
+			io.Copy(io.Discard, body)
 			body.Close()
 		}()
 	}

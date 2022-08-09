@@ -77,10 +77,14 @@ func DeliveryLoopC(ctx context.Context, c Client, inbox, pattern string, deliver
 			dur = LongSleep
 		}
 
+		delay := time.NewTimer(dur)
 		select {
+		case <-delay.C:
 		case <-ctx.Done():
+			if !delay.Stop() {
+				<-delay.C
+			}
 			return nil
-		case <-time.After(dur):
 		}
 	}
 }

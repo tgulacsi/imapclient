@@ -140,7 +140,7 @@ func (m ServerAddress) URL() *url.URL {
 	}
 	u := url.URL{
 		User: url.UserPassword(m.Username, m.password),
-		Host: fmt.Sprintf("%s:%d", m.Host, m.Port),
+		Host: net.JoinHostPort(m.Host, m.Port),
 	}
 	if m.Port == 143 {
 		u.Scheme = "imap"

@@ -606,9 +606,7 @@ func HeadDecode(head string) string {
 	if err == nil {
 		return res
 	}
-	if err != nil {
-		logger.Error(err, "decode", "head", head)
-	}
+	logger.Error(err, "decode", "head", head)
 	return head
 }
 

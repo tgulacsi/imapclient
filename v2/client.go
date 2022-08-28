@@ -34,6 +34,7 @@ type LogMask bool
 const LogAll = LogMask(true)
 
 // TLSConfig is the client's config for DialTLS.
+// nosemgrep
 var TLSConfig = tls.Config{InsecureSkipVerify: true} //nolint:gas
 
 // Client interface declares the needed methods for listing messages,
@@ -140,7 +141,7 @@ func (m ServerAddress) URL() *url.URL {
 	}
 	u := url.URL{
 		User: url.UserPassword(m.Username, m.password),
-		Host: net.JoinHostPort(m.Host, m.Port),
+		Host: net.JoinHostPort(m.Host, strconv.FormatUint(uint64(m.Port), 10)),
 	}
 	if m.Port == 143 {
 		u.Scheme = "imap"
@@ -183,7 +184,7 @@ func ParseMailbox(s string) (Mailbox, error) {
 	m.Host = host
 	if portS == "" {
 		m.Port = 993
-	} else if port, err := strconv.Atoi(portS); err != nil {
+	} else if port, err := strconv.ParseUint(portS, 10, 32); err != nil {
 		return m, err
 	} else {
 		m.Port = uint32(port)
@@ -260,13 +261,13 @@ func (c *imapClient) Select(ctx context.Context, mbox string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	var err error
 	//c.mu.Lock()
-	c.status, err = c.c.Select(mbox, false)
+	status, err := c.c.Select(mbox, false)
 	//c.mu.Unlock()
 	if err != nil {
 		return fmt.Errorf("SELECT %q: %w", mbox, err)
 	}
+	c.status = status
 	return nil
 }
 
@@ -589,21 +590,20 @@ func (c *imapClient) Connect(ctx context.Context) error {
 		c.c = nil
 	}
 	addr := c.Host + ":" + strconv.Itoa(int(c.Port))
+	var cl *client.Client
 	var err error
 	noTLS := c.TLSPolicy == NoTLS || c.TLSPolicy == MaybeTLS && c.Port == 143
 	if noTLS {
-		c.c, err = client.Dial(addr)
+		cl, err = client.Dial(addr)
 	} else {
-		c.c, err = client.DialTLS(addr, &TLSConfig)
+		cl, err = client.DialTLS(addr, &TLSConfig)
 	}
 	//c.mu.Unlock()
 	if err != nil {
-		err = fmt.Errorf("%s: %w", addr, err)
-	}
-	if err != nil {
 		c.logger.Error(err, "Connect", "addr", addr)
-		return err
+		return fmt.Errorf("%s: %w", addr, err)
 	}
+	c.c = cl
 	select {
 	case <-ctx.Done():
 		return ctx.Err()

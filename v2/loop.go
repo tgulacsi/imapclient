@@ -6,7 +6,7 @@ package imapclient
 
 import (
 	"context"
-	"crypto/sha1"
+	"crypto/sha512"
 	"errors"
 	"fmt"
 	"io"
@@ -35,12 +35,13 @@ var (
 // is not empty, then moved to outbox.
 // Except when the error is ErrSkip - then the message is left there as is.
 //
-// deliver is called with the message, UID and sha1.
+// deliver is called with the message, UID and hsh.
 func DeliveryLoop(ctx context.Context, c Client, inbox, pattern string, deliver DeliverFunc, outbox, errbox string, logger logr.Logger) error {
 	if inbox == "" {
 		inbox = "INBOX"
 	}
 	for {
+		// nosemgrep: trailofbits.go.invalid-usage-of-modified-variable.invalid-usage-of-modified-variable
 		n, err := one(ctx, c, inbox, pattern, deliver, outbox, errbox, logger)
 		if err != nil {
 			logger.Error(err, "DeliveryLoop one round", "count", n)
@@ -71,8 +72,8 @@ func DeliveryLoop(ctx context.Context, c Client, inbox, pattern string, deliver 
 }
 
 func MkDeliverFunc(ctx context.Context, deliver DeliverFunc) DeliverFunc {
-	return func(ctx context.Context, r io.ReadSeeker, uid uint32, sha1 []byte) error {
-		return deliver(ctx, r, uid, sha1)
+	return func(ctx context.Context, r io.ReadSeeker, uid uint32, hsh []byte) error {
+		return deliver(ctx, r, uid, hsh)
 	}
 }
 
@@ -87,8 +88,8 @@ func DeliverOne(ctx context.Context, c Client, inbox, pattern string, deliver De
 
 // DeliverFunc is the type for message delivery.
 //
-// r is the message data, uid is the IMAP server sent message UID, sha1 is the message's sha1 hash.
-type DeliverFunc func(ctx context.Context, r io.ReadSeeker, uid uint32, sha1 []byte) error
+// r is the message data, uid is the IMAP server sent message UID, hsh is the message's hash.
+type DeliverFunc func(ctx context.Context, r io.ReadSeeker, uid uint32, hsh []byte) error
 
 func one(ctx context.Context, c Client, inbox, pattern string, deliver DeliverFunc, outbox, errbox string, logger logr.Logger) (int, error) {
 	logger = logger.WithValues("c", c, "inbox", inbox)
@@ -105,7 +106,7 @@ func one(ctx context.Context, c Client, inbox, pattern string, deliver DeliverFu
 	}
 
 	var n int
-	hsh := sha1.New()
+	hsh := sha512.New384()
 	for _, uid := range uids {
 		if err = ctx.Err(); err != nil {
 			return n, err

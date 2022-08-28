@@ -5,7 +5,7 @@
 package imapclient
 
 import (
-	"crypto/sha1"
+	"crypto/sha512"
 	"errors"
 	"fmt"
 	"io"
@@ -36,7 +36,7 @@ var (
 // is not empty, then moved to outbox.
 // Except when the error is ErrSkip - then the message is left there as is.
 //
-// deliver is called with the message, UID and sha1.
+// deliver is called with the message, UID and hsh.
 func DeliveryLoop(c Client, inbox, pattern string, deliver DeliverFunc, outbox, errbox string, closeCh <-chan struct{}) {
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
@@ -54,12 +54,13 @@ func DeliveryLoop(c Client, inbox, pattern string, deliver DeliverFunc, outbox, 
 // is not empty, then moved to outbox.
 // Except when the error is ErrSkip - then the message is left there as is.
 //
-// deliver is called with the message, UID and sha1.
+// deliver is called with the message, UID and hsh.
 func DeliveryLoopC(ctx context.Context, c Client, inbox, pattern string, deliver DeliverFuncC, outbox, errbox string) error {
 	if inbox == "" {
 		inbox = "INBOX"
 	}
 	for {
+		// nosemgrep: trailofbits.go.invalid-usage-of-modified-variable.invalid-usage-of-modified-variable
 		n, err := one(ctx, c, inbox, pattern, deliver, outbox, errbox)
 		if err != nil {
 			logger.Error(err, "DeliveryLoop one round", "count", n)
@@ -98,8 +99,8 @@ func DeliverOne(c Client, inbox, pattern string, deliver DeliverFunc, outbox, er
 }
 
 func MkDeliverFuncC(ctx context.Context, deliver DeliverFunc) DeliverFuncC {
-	return func(ctx context.Context, r io.ReadSeeker, uid uint32, sha1 []byte) error {
-		return deliver(r, uid, sha1)
+	return func(ctx context.Context, r io.ReadSeeker, uid uint32, hsh []byte) error {
+		return deliver(r, uid, hsh)
 	}
 }
 
@@ -114,13 +115,13 @@ func DeliverOneC(ctx context.Context, c Client, inbox, pattern string, deliver D
 
 // DeliverFunc is the type for message delivery.
 //
-// r is the message data, uid is the IMAP server sent message UID, sha1 is the message's sha1 hash.
-type DeliverFunc func(r io.ReadSeeker, uid uint32, sha1 []byte) error
+// r is the message data, uid is the IMAP server sent message UID, hsh is the message's hash.
+type DeliverFunc func(r io.ReadSeeker, uid uint32, hsh []byte) error
 
 // DeliverFuncC is the type for message delivery.
 //
-// r is the message data, uid is the IMAP server sent message UID, sha1 is the message's sha1 hash.
-type DeliverFuncC func(ctx context.Context, r io.ReadSeeker, uid uint32, sha1 []byte) error
+// r is the message data, uid is the IMAP server sent message UID, hsh is the message's hash.
+type DeliverFuncC func(ctx context.Context, r io.ReadSeeker, uid uint32, hsh []byte) error
 
 func one(ctx context.Context, c Client, inbox, pattern string, deliver DeliverFuncC, outbox, errbox string) (int, error) {
 	logger := GetLogger(ctx).WithValues("c", c, "inbox", inbox)
@@ -137,7 +138,7 @@ func one(ctx context.Context, c Client, inbox, pattern string, deliver DeliverFu
 	}
 
 	var n int
-	hsh := sha1.New()
+	hsh := sha512.New384()
 	for _, uid := range uids {
 		if err = ctx.Err(); err != nil {
 			return n, err

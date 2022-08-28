@@ -9,7 +9,7 @@ import (
 	"bufio"
 	"bytes"
 	"compress/gzip"
-	"crypto/sha1"
+	"crypto/sha512"
 	"encoding/base64"
 	"flag"
 	"fmt"
@@ -532,7 +532,7 @@ func dumpMails(rootCtx context.Context, tw *syncTW, c imapclient.Client, mbox st
 		if err != nil {
 			logger.Error(err, "read", "uid", uid)
 		}
-		hsh := sha1.New()
+		hsh := sha512.New384()
 		hsh.Write(buf.Bytes())
 		hshB = hsh.Sum(hshB[:0])
 		hshS := base64.URLEncoding.EncodeToString(hshB)
@@ -663,7 +663,8 @@ func listMbox(rootCtx context.Context, c imapclient.Client, mbox string, all boo
 			m.MessageID = HeadDecode(hdr.Get("Message-ID"))
 			s := HeadDecode(hdr.Get("Date"))
 			for _, pat := range []string{time.RFC1123Z, time.RFC1123, time.RFC822Z, time.RFC822, time.RFC850} {
-				if m.Date, err = time.Parse(pat, s); err == nil {
+				if d, err := time.Parse(pat, s); err == nil {
+					m.Date = d
 					break
 				}
 			}

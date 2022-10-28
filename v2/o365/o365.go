@@ -41,12 +41,14 @@ type clientOptions struct {
 	TokensFile              string
 	TLSCertFile, TLSKeyFile string
 	Impersonate             string
+	TenantID                string
 	ReadOnly                bool
 }
 type ClientOption func(*clientOptions)
 
-func ReadOnly(readOnly bool) ClientOption { return func(o *clientOptions) { o.ReadOnly = readOnly } }
-func TokensFile(file string) ClientOption { return func(o *clientOptions) { o.TokensFile = file } }
+func ReadOnly(readOnly bool) ClientOption   { return func(o *clientOptions) { o.ReadOnly = readOnly } }
+func TokensFile(file string) ClientOption   { return func(o *clientOptions) { o.TokensFile = file } }
+func TenantID(tenantID string) ClientOption { return func(o *clientOptions) { o.TenantID = tenantID } }
 func TLS(certFile, keyFile string) ClientOption {
 	return func(o *clientOptions) { o.TLSCertFile, o.TLSKeyFile = certFile, keyFile }
 }
@@ -80,6 +82,9 @@ func NewClient(clientID, clientSecret, redirectURL string, options ...ClientOpti
 			"offline_access",
 		},
 		Endpoint: oauth2client.AzureV2Endpoint,
+	}
+	if opts.TenantID != "" {
+		conf.Endpoint = oauth2client.AzureV2TenantEndpoint(opts.TenantID)
 	}
 
 	tokensFile := opts.TokensFile

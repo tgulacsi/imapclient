@@ -50,10 +50,10 @@ func main() {
 
 func Main() error {
 	var (
-		username, password          string
-		recursive, verbose, all, du bool
-		clientID, clientSecret      string
-		impersonate                 string
+		username, password               string
+		recursive, verbose, all, du      bool
+		clientID, clientSecret, tenantID string
+		impersonate                      string
 	)
 	host := os.Getenv("IMAPDUMP_HOST")
 	port := 143
@@ -70,6 +70,7 @@ func Main() error {
 	FS.IntVar(&port, "port", port, "port")
 	FS.StringVar(&clientID, "client-id", os.Getenv("CLIENT_ID"), "Office 365 CLIENT_ID")
 	FS.StringVar(&clientSecret, "client-secret", os.Getenv("CLIENT_SECRET"), "Office 365 CLIENT_SECRET")
+	FS.StringVar(&tenantID, "tenant-id", os.Getenv("TENANT_ID"), "Office 365 tenant ID")
 	FS.StringVar(&impersonate, "impersonate", "", "Office 365 impersonate")
 	flagForceTLS := FS.Bool("force-tls", false, "force use of TLS")
 	flagForbidTLS := FS.Bool("forbid-tls", false, "forbid (force no TLS)")
@@ -85,6 +86,7 @@ func Main() error {
 			c = o365.NewIMAPClient(o365.NewClient(
 				clientID, clientSecret, "http://localhost:8123",
 				o365.Impersonate(impersonate),
+				o365.TenantID(tenantID),
 			))
 		} else {
 			if port == 0 {

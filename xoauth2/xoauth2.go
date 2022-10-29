@@ -13,9 +13,7 @@
 //
 package xoauth2
 
-import (
-	"encoding/base64"
-)
+import "encoding/base64"
 
 // OAuth2String generates an unencoded XOAuth2 string of the form
 //   "user=" {User} "^Aauth=Bearer " {Access Token} "^A^A"
@@ -32,7 +30,9 @@ func OAuth2String(user, accessToken string) string {
 //
 // (Use the base64 encoding mechanism defined in RFC 4648.)
 func XOAuth2String(user, accessToken string) string {
-	return base64.StdEncoding.EncodeToString([]byte(
-		OAuth2String(user, accessToken),
-	))
+	s := OAuth2String(user, accessToken)
+	if false {
+		return base64.StdEncoding.EncodeToString([]byte(s))
+	}
+	return s
 }

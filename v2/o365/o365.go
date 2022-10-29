@@ -21,6 +21,7 @@ import (
 	"golang.org/x/net/context"
 	"golang.org/x/oauth2"
 
+	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/confidential"
 	"github.com/tgulacsi/oauth2client"
 )
 
@@ -94,10 +95,54 @@ func NewClient(clientID, clientSecret, redirectURL string, options ...ClientOpti
 	if opts.Impersonate == "" {
 		opts.Impersonate = "me"
 	}
+
 	return &client{
 		Config:      conf,
 		Me:          opts.Impersonate,
 		TokenSource: oauth2client.NewTokenSource(conf, tokensFile, opts.TLSCertFile, opts.TLSKeyFile),
+	}
+}
+
+type confidentialTokenSource struct {
+	clientID, clientSecret, tenantID string
+	confidential.Client
+	Scopes []string
+}
+
+func NewConfidentialTokenSource(conf *oauth2.Config, tenantID string) *confidentialTokenSource {
+	return &confidentialTokenSource{
+		clientID: conf.ClientID, clientSecret: conf.ClientSecret,
+		tenantID: tenantID,
+		Scopes:   conf.Scopes,
+	}
+}
+
+func (cts *confidentialTokenSource) Token() (*oauth2.Token, error) {
+	if cts.Client.UserID() == "" {
+		cred, err := confidential.NewCredFromSecret(cts.clientSecret)
+		if err != nil {
+			return nil, fmt.Errorf("could not create a cred from a secret: %w", err)
+		}
+		cts.Client, err = confidential.New(cts.clientID, cred,
+			confidential.WithAuthority("https://login.microsoftonline.com/"+url.PathEscape(cts.tenantID)),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("app: %w", err)
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	result, err := cts.Client.AcquireTokenByCredential(ctx, cts.Scopes)
+	cancel()
+	if err != nil {
+		return nil, fmt.Errorf("AcquiretokenByCredentials: %w", err)
+	}
+	return authResultToToken(result), nil
+}
+
+func authResultToToken(result confidential.AuthResult) *oauth2.Token {
+	return &oauth2.Token{
+		AccessToken: result.AccessToken,
+		Expiry:      result.ExpiresOn,
 	}
 }
 

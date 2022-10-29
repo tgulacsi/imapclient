@@ -42,10 +42,9 @@ func (a *xoauth2Client) Start() (mech string, ir []byte, err error) {
 func (a *xoauth2Client) Next(challenge []byte) ([]byte, error) {
 	authBearerErr := &XOAuth2Error{}
 	if err := json.Unmarshal(challenge, authBearerErr); err != nil {
-		return nil, err
-	} else {
-		return nil, authBearerErr
+		return nil, fmt.Errorf("unmarshal %s: %w", challenge, err)
 	}
+	return nil, fmt.Errorf("%s: %w", challenge, authBearerErr)
 }
 
 // An implementation of the OAUTHBEARER authentication mechanism, as

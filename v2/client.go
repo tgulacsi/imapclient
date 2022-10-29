@@ -673,10 +673,12 @@ func (c *imapClient) login(ctx context.Context) (err error) {
 
 		case "xoauth2":
 			if ok, _ := c.c.SupportAuth("XOAUTH2"); ok {
-				username, refreshToken := c.Username, c.password
 				err = c.c.Authenticate(xoauth2.NewXOAuth2Client(&xoauth2.XOAuth2Options{
-					Username: username, RefreshToken: refreshToken,
+					Username: c.Username, AccessToken: c.password,
 				}))
+				if err != nil {
+					logger.Info("XOAUTH2", "password", c.password, "error", err)
+				}
 			}
 		}
 
@@ -724,6 +726,6 @@ type loggerWriter struct {
 }
 
 func (lg loggerWriter) Write(p []byte) (int, error) {
-	lg.Logger.Info(string(p))
+	lg.Logger.Info(string(bytes.TrimSpace(p)))
 	return len(p), nil
 }

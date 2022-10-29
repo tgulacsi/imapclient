@@ -26,9 +26,11 @@ import (
 	"time"
 
 	"golang.org/x/net/context"
+	"golang.org/x/oauth2"
 	"golang.org/x/text/encoding/htmlindex"
 	"golang.org/x/text/transform"
 
+	"github.com/go-logr/logr"
 	"github.com/go-logr/zerologr"
 	"github.com/rs/zerolog"
 
@@ -79,15 +81,41 @@ func Main() error {
 
 	rootCtx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+	rootCtx = logr.NewContext(rootCtx, logger)
 
 	prepare := func(ctx context.Context) (imapclient.Client, error) {
 		var c imapclient.Client
 		if clientID != "" && clientSecret != "" {
-			c = o365.NewIMAPClient(o365.NewClient(
-				clientID, clientSecret, "http://localhost:8123",
-				o365.Impersonate(impersonate),
-				o365.TenantID(tenantID),
-			))
+			if true {
+				conf := &oauth2.Config{
+					ClientID:     clientID,
+					ClientSecret: clientSecret,
+					Scopes:       []string{"https://outlook.office365.com/.default"},
+				}
+				ts := oauth2.ReuseTokenSource(nil,
+					o365.NewConfidentialTokenSource(conf, tenantID),
+				)
+				token, err := ts.Token()
+				if err != nil {
+					return nil, err
+				}
+				sa := imapclient.ServerAddress{
+					Host: host, Port: 993,
+					Username:  username,
+					TLSPolicy: imapclient.ForceTLS,
+				}.WithPassword(token.AccessToken)
+				c = imapclient.FromServerAddress(sa)
+				if verbose {
+					c.SetLogger(logger)
+					c.SetLogMask(imapclient.LogAll)
+				}
+			} else {
+				c = o365.NewIMAPClient(o365.NewClient(
+					clientID, clientSecret, "http://localhost:8123",
+					o365.Impersonate(impersonate),
+					o365.TenantID(tenantID),
+				))
+			}
 		} else {
 			if port == 0 {
 				port = 143

@@ -72,6 +72,13 @@ func (g *graphMailClient) init(ctx context.Context) error {
 		g.u2s = make(map[uint32]string)
 		g.s2u = make(map[string]uint32)
 	}
+	if logger := logr.FromContextOrDiscard(ctx); logger.Enabled() {
+		resp, err := g.GraphServiceClient.Oauth2PermissionGrants().Get(ctx, nil)
+		if err != nil {
+			return fmt.Errorf("Oauth2PermissionGrants: %w", printOdataError(err))
+		}
+		logger.Info("Oauth2PermissionGrants", "grants", resp.GetValue())
+	}
 	resp, err := g.GraphServiceClient.Me().MailFolders().Get(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("MailFolders.Get: %w", printOdataError(err))

@@ -52,10 +52,10 @@ func main() {
 
 func Main() error {
 	var (
-		username, password               string
-		recursive, verbose, all, du      bool
-		clientID, clientSecret, tenantID string
-		impersonate                      string
+		username, password                    string
+		recursive, verbose, all, du, useGraph bool
+		clientID, clientSecret, tenantID      string
+		impersonate                           string
 	)
 	host := os.Getenv("IMAPDUMP_HOST")
 	port := 143
@@ -74,6 +74,7 @@ func Main() error {
 	FS.StringVar(&clientSecret, "client-secret", os.Getenv("CLIENT_SECRET"), "Office 365 CLIENT_SECRET")
 	FS.StringVar(&tenantID, "tenant-id", os.Getenv("TENANT_ID"), "Office 365 tenant ID")
 	FS.StringVar(&impersonate, "impersonate", "", "Office 365 impersonate")
+	FS.BoolVar(&useGraph, "use-graph", false, "Use Microsoft Graph")
 	flagForceTLS := FS.Bool("force-tls", false, "force use of TLS")
 	flagForbidTLS := FS.Bool("forbid-tls", false, "forbid (force no TLS)")
 
@@ -86,15 +87,13 @@ func Main() error {
 	prepare := func(ctx context.Context) (imapclient.Client, error) {
 		var c imapclient.Client
 		if clientID != "" && clientSecret != "" {
-			if true {
+			if false {
 				conf := &oauth2.Config{
 					ClientID:     clientID,
 					ClientSecret: clientSecret,
 					Scopes:       []string{"https://outlook.office365.com/.default"},
 				}
-				ts := oauth2.ReuseTokenSource(nil,
-					o365.NewConfidentialTokenSource(conf, tenantID),
-				)
+				ts := o365.NewConfidentialTokenSource(conf, tenantID)
 				token, err := ts.Token()
 				if err != nil {
 					return nil, err
@@ -108,6 +107,17 @@ func Main() error {
 				if verbose {
 					c.SetLogger(logger)
 					c.SetLogMask(imapclient.LogAll)
+				}
+			} else if useGraph {
+				conf := &oauth2.Config{
+					ClientID:     clientID,
+					ClientSecret: clientSecret,
+					Scopes:       []string{"https://graph.microsoft.com/.default"},
+				}
+				var err error
+				c, err = o365.NewGraphMailClient(conf, tenantID)
+				if err != nil {
+					return nil, err
 				}
 			} else {
 				c = o365.NewIMAPClient(o365.NewClient(

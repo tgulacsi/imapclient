@@ -1,6 +1,7 @@
 module github.com/tgulacsi/imapclient
 
 require (
+	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.1.0 // indirect
 	github.com/AzureAD/microsoft-authentication-library-for-go v0.7.0 // indirect
 	github.com/dgraph-io/badger/v3 v3.2103.1 // indirect
 	github.com/emersion/go-imap v1.2.1
@@ -13,6 +14,8 @@ require (
 	github.com/martinlindhe/base36 v1.0.0 // indirect
 	github.com/mattn/go-colorable v0.1.12 // indirect
 	github.com/mattn/go-isatty v0.0.14 // indirect
+	github.com/microsoft/kiota-authentication-azure-go v0.5.0 // indirect
+	github.com/microsoftgraph/msgraph-sdk-go v0.44.0 // indirect
 	github.com/peterbourgon/ff/v3 v3.1.2
 	github.com/pkg/browser v0.0.0-20210911075715-681adbf594b8 // indirect
 	github.com/pkg/errors v0.9.1 // indirect

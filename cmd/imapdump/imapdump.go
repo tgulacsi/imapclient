@@ -52,10 +52,11 @@ func main() {
 
 func Main() error {
 	var (
-		username, password                    string
-		recursive, verbose, all, du, useGraph bool
-		clientID, clientSecret, tenantID      string
-		impersonate                           string
+		username, password          string
+		recursive, verbose, all, du bool
+		clientID, clientSecret      string
+		tenantID, userID            string
+		impersonate                 string
 	)
 	host := os.Getenv("IMAPDUMP_HOST")
 	port := 143
@@ -74,7 +75,7 @@ func Main() error {
 	FS.StringVar(&clientSecret, "client-secret", os.Getenv("CLIENT_SECRET"), "Office 365 CLIENT_SECRET")
 	FS.StringVar(&tenantID, "tenant-id", os.Getenv("TENANT_ID"), "Office 365 tenant ID")
 	FS.StringVar(&impersonate, "impersonate", "", "Office 365 impersonate")
-	FS.BoolVar(&useGraph, "use-graph", false, "Use Microsoft Graph")
+	FS.StringVar(&userID, "user-id", os.Getenv("USER_ID"), "Office 365 user ID. Implies Graph API")
 	flagForceTLS := FS.Bool("force-tls", false, "force use of TLS")
 	flagForbidTLS := FS.Bool("forbid-tls", false, "forbid (force no TLS)")
 
@@ -108,14 +109,14 @@ func Main() error {
 					c.SetLogger(logger)
 					c.SetLogMask(imapclient.LogAll)
 				}
-			} else if useGraph {
+			} else if userID != "" {
 				conf := &oauth2.Config{
 					ClientID:     clientID,
 					ClientSecret: clientSecret,
 					Scopes:       []string{"https://graph.microsoft.com/.default"},
 				}
 				var err error
-				c, err = o365.NewGraphMailClient(conf, tenantID)
+				c, err = o365.NewGraphMailClient(conf, tenantID, userID)
 				if err != nil {
 					return nil, err
 				}

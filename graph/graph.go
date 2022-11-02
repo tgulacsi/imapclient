@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httputil"
+	"strconv"
 
 	"github.com/go-logr/logr"
 
@@ -108,6 +109,48 @@ func (g GraphMailClient) get(ctx context.Context, dest interface{}, entity strin
 		return fmt.Errorf("json.Unmarshal(): %w", err)
 	}
 	return nil
+}
+func (g GraphMailClient) MoveMessage(ctx context.Context, userID, messageID, folderID string) (Message, error) {
+	entity := fmt.Sprintf("/users/%s/messages/%s/move", userID, messageID)
+	resp, status, _, err := g.BaseClient.Post(ctx, msgraph.PostHttpRequestInput{
+		Body:                   []byte(`{"destinationId":` + strconv.Quote(folderID) + "}"),
+		ConsistencyFailureFunc: msgraph.RetryOn404ConsistencyFailureFunc,
+		OData:                  odata.Query{},
+		ValidStatusCodes:       []int{http.StatusOK},
+		Uri: msgraph.Uri{
+			Entity:      entity,
+			HasTenantId: true,
+		},
+	})
+	if err != nil {
+		return Message{}, fmt.Errorf("BaseClient.Get(%q): [%d] - %v", entity, status, err)
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return Message{}, fmt.Errorf("io.ReadAll(): %w", err)
+	}
+	var data Message
+	err = json.Unmarshal(respBody, &data)
+	return data, err
+}
+func (g GraphMailClient) GetMIMEMessage(ctx context.Context, w io.Writer, userID, messageID string) (int64, error) {
+	entity := fmt.Sprintf("/users/%s/messages/%s/$value", userID, messageID)
+	resp, status, _, err := g.BaseClient.Get(ctx, msgraph.GetHttpRequestInput{
+		ConsistencyFailureFunc: msgraph.RetryOn404ConsistencyFailureFunc,
+		DisablePaging:          true,
+		OData:                  odata.Query{},
+		ValidStatusCodes:       []int{http.StatusOK},
+		Uri: msgraph.Uri{
+			Entity:      entity,
+			HasTenantId: true,
+		},
+	})
+	if err != nil {
+		return 0, fmt.Errorf("BaseClient.Get(%q): [%d] - %v", entity, status, err)
+	}
+	defer resp.Body.Close()
+	return io.Copy(w, resp.Body)
 }
 
 func (g GraphMailClient) GetMessage(ctx context.Context, userID, messageID string, query odata.Query) ([]Message, error) {

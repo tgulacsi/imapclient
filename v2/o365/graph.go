@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/textproto"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -71,36 +72,54 @@ func (g *graphMailClient) Mailboxes(ctx context.Context, root string) ([]string,
 func (g *graphMailClient) FetchArgs(ctx context.Context, what string, msgIDs ...uint32) (map[uint32]map[string][]string, error) {
 	logger := logr.FromContextOrDiscard(ctx)
 	m := make(map[uint32]map[string][]string, len(msgIDs))
+	var wantMIME bool
+	for _, f := range strings.Fields(what) {
+		wantMIME = wantMIME || f == "RFC822.HEADER" || f == "RFC822.SIZE" || f == "RFC822.BODY"
+	}
 	var firstErr error
 	for _, mID := range msgIDs {
-		var err error
 		s := g.u2s[mID]
-		hdrs, err := g.GraphMailClient.GetMessageHeaders(ctx, g.userID, s, odata.Query{})
-		if err != nil {
-			logger.Error(err, "GetMessageHeaders", "msgID", s)
-			if firstErr == nil {
-				firstErr = err
-			}
-			continue
-		}
-
-		m[mID] = hdrs
-		if strings.Contains(what, "RFC822.SIZE") {
-			m[mID]["RFC822.SIZE"] = []string{"0"}
-		}
-		if strings.Contains(what, "RFC822.HEADER") {
+		if wantMIME {
 			var buf strings.Builder
-			for k, vv := range hdrs {
-				k = textproto.CanonicalMIMEHeaderKey(k)
-				for _, v := range vv {
-					buf.WriteString(k)
-					buf.WriteString(":\t")
-					buf.WriteString(v)
-					buf.WriteString("\r\n")
-				}
+			size, err := g.GraphMailClient.GetMIMEMessage(ctx, &buf, g.userID, s)
+			if err != nil {
+				return m, fmt.Errorf("GetMIMEMessage(%q): %w", s, err)
 			}
-			buf.WriteString("\r\n")
-			m[mID]["RFC822.HEADER"] = []string{buf.String()}
+			s := buf.String()
+			i := strings.Index(s, "\r\n\r\n")
+			m[mID] = map[string][]string{
+				"RFC822.HEADER": []string{s[:i+4]},
+				"RFC822.BODY":   []string{s[i+4:]},
+				"RFC822.SIZE":   []string{strconv.FormatInt(size, 10)},
+			}
+		} else {
+			hdrs, err := g.GraphMailClient.GetMessageHeaders(ctx, g.userID, s, odata.Query{})
+			if err != nil {
+				logger.Error(err, "GetMessageHeaders", "msgID", s)
+				if firstErr == nil {
+					firstErr = err
+				}
+				continue
+			}
+
+			m[mID] = hdrs
+			if strings.Contains(what, "RFC822.SIZE") {
+				m[mID]["RFC822.SIZE"] = []string{"0"}
+			}
+			if strings.Contains(what, "RFC822.HEADER") {
+				var buf strings.Builder
+				for k, vv := range hdrs {
+					k = textproto.CanonicalMIMEHeaderKey(k)
+					for _, v := range vv {
+						buf.WriteString(k)
+						buf.WriteString(":\t")
+						buf.WriteString(v)
+						buf.WriteString("\r\n")
+					}
+				}
+				buf.WriteString("\r\n")
+				m[mID]["RFC822.HEADER"] = []string{buf.String()}
+			}
 		}
 	}
 	if len(m) == 0 {
@@ -118,7 +137,7 @@ func (g *graphMailClient) Select(ctx context.Context, mbox string) error {
 	return nil
 }
 func (g *graphMailClient) Watch(ctx context.Context) ([]uint32, error) {
-	return nil, ErrNotImplemented
+	return nil, ErrNotSupported
 }
 func (g *graphMailClient) WriteTo(ctx context.Context, mbox string, msg []byte, date time.Time) error {
 	return ErrNotImplemented
@@ -127,45 +146,56 @@ func (g *graphMailClient) Connect(ctx context.Context) error {
 	return g.init(ctx)
 }
 func (g *graphMailClient) Move(ctx context.Context, msgID uint32, mbox string) error {
-	return ErrNotImplemented
+	mID, err := g.m2s(mbox)
+	if err != nil {
+		return nil
+	}
+	_, err = g.GraphMailClient.MoveMessage(ctx, g.userID, g.u2s[msgID], mID)
+	return err
 }
 func (g *graphMailClient) Mark(ctx context.Context, msgID uint32, seen bool) error {
 	return ErrNotImplemented
+}
+func (g *graphMailClient) m2s(mbox string) (string, error) {
+	for _, mf := range g.folders {
+		if nm := mf.DisplayName; strings.EqualFold(nm, mbox) || (strings.EqualFold(mbox, "inbox") && nm == "Beérkezett üzenetek") {
+			return mf.ID, nil
+		}
+	}
+	return "", fmt.Errorf("mbox %q not found (have: %+v)", mbox, g.folders)
 }
 func (g *graphMailClient) List(ctx context.Context, mbox, pattern string, all bool) ([]uint32, error) {
 	if err := g.init(ctx); err != nil {
 		return nil, err
 	}
 	logger := logr.FromContextOrDiscard(ctx)
-	for _, mf := range g.folders {
-		logger.Info("folder", "name", mf.DisplayName, "id", mf.ID, "unread", mf.UnreadItemCount, "total", mf.TotalItemCount)
-		if nm := mf.DisplayName; !(strings.EqualFold(nm, mbox) || (strings.EqualFold(mbox, "inbox") && nm == "Beérkezett üzenetek")) {
-			continue
-		}
-		msgs, err := g.GraphMailClient.ListMessages(ctx, g.userID, mf.ID, odata.Query{})
-		if err != nil {
-			return nil, err
-		}
-		if len(msgs) == 0 {
-			logger.Info("MailFolder.GetMessages returned no messages!")
-		}
-		logger.Info("messages", "msgs", len(msgs))
-		ids := make([]uint32, 0, len(msgs))
-		for _, m := range msgs {
-			s := m.ID
-			u, ok := g.s2u[s]
-			if !ok {
-				u = atomic.AddUint32(&g.seq, 1)
-				g.u2s[u] = s
-			}
-			ids = append(ids, u)
-		}
-		return ids, nil
+	mID, err := g.m2s(mbox)
+	if err != nil {
+		return nil, err
 	}
-	return nil, fmt.Errorf("%q not found", mbox)
+	logger.Info("folder", "id", mID, "name", mbox)
+	msgs, err := g.GraphMailClient.ListMessages(ctx, g.userID, mID, odata.Query{})
+	if err != nil {
+		return nil, err
+	}
+	if len(msgs) == 0 {
+		logger.Info("MailFolder.GetMessages returned no messages!")
+	}
+	logger.Info("messages", "msgs", len(msgs))
+	ids := make([]uint32, 0, len(msgs))
+	for _, m := range msgs {
+		s := m.ID
+		u, ok := g.s2u[s]
+		if !ok {
+			u = atomic.AddUint32(&g.seq, 1)
+			g.u2s[u] = s
+		}
+		ids = append(ids, u)
+	}
+	return ids, nil
 }
 func (g *graphMailClient) ReadTo(ctx context.Context, w io.Writer, msgID uint32) (int64, error) {
-	return 0, ErrNotImplemented
+	return g.GraphMailClient.GetMIMEMessage(ctx, w, g.userID, g.u2s[msgID])
 }
 func (g *graphMailClient) SetLogger(logr.Logger) {
 }

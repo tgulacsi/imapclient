@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/textproto"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -34,6 +35,8 @@ func NewGraphMailClient(ctx context.Context, conf *oauth2.Config, tenantID, user
 		return nil, err
 	}
 
+	logger := logr.FromContextOrDiscard(ctx)
+	logger.Info("NewGraphMailClient", "gmc", gmc, "userID", userID)
 	return &graphMailClient{GraphMailClient: gmc, userID: userID}, nil
 }
 
@@ -66,15 +69,42 @@ func (g *graphMailClient) Mailboxes(ctx context.Context, root string) ([]string,
 	return folders, nil
 }
 func (g *graphMailClient) FetchArgs(ctx context.Context, what string, msgIDs ...uint32) (map[uint32]map[string][]string, error) {
+	logger := logr.FromContextOrDiscard(ctx)
 	m := make(map[uint32]map[string][]string, len(msgIDs))
+	var firstErr error
 	for _, mID := range msgIDs {
 		var err error
 		s := g.u2s[mID]
 		hdrs, err := g.GraphMailClient.GetMessageHeaders(ctx, g.userID, s, odata.Query{})
 		if err != nil {
-			return m, fmt.Errorf("GetMessageHeaders(%s): %w", s, err)
+			logger.Error(err, "GetMessageHeaders", "msgID", s)
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
 		}
+
 		m[mID] = hdrs
+		if strings.Contains(what, "RFC822.SIZE") {
+			m[mID]["RFC822.SIZE"] = []string{"0"}
+		}
+		if strings.Contains(what, "RFC822.HEADER") {
+			var buf strings.Builder
+			for k, vv := range hdrs {
+				k = textproto.CanonicalMIMEHeaderKey(k)
+				for _, v := range vv {
+					buf.WriteString(k)
+					buf.WriteString(":\t")
+					buf.WriteString(v)
+					buf.WriteString("\r\n")
+				}
+			}
+			buf.WriteString("\r\n")
+			m[mID]["RFC822.HEADER"] = []string{buf.String()}
+		}
+	}
+	if len(m) == 0 {
+		return nil, firstErr
 	}
 	return m, nil
 }

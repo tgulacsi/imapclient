@@ -35,10 +35,16 @@ func NewGraphMailClient(ctx context.Context, tenantID, clientID, clientSecret st
 		EnableClientSecretAuth: true,
 	}
 
+	// https://learn.microsoft.com/hu-hu/azure/active-directory/develop/quickstart-register-app#add-a-certificate
 	authorizer, err := authConfig.NewAuthorizer(ctx, environment.MsGraph)
 	if err != nil {
 		return GraphMailClient{}, err
 	}
+	tok, err := authorizer.Token()
+	if err != nil {
+		return GraphMailClient{}, err
+	}
+	logger.Info("authorizer", "token", tok)
 
 	client := msgraph.NewClient(msgraph.VersionBeta, tenantID)
 	client.Authorizer = authorizer
@@ -91,7 +97,7 @@ func (g GraphMailClient) get(ctx context.Context, dest interface{}, entity strin
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("BaseClient.Get(): [%d] - %v", status, err)
+		return fmt.Errorf("BaseClient.Get(%q): [%d] - %v", entity, status, err)
 	}
 	defer resp.Body.Close()
 	respBody, err := io.ReadAll(resp.Body)
@@ -120,7 +126,8 @@ func (g GraphMailClient) GetMessageHeaders(ctx context.Context, userID, messageI
 	var data struct {
 		Headers []kv `json:"internetMessageHeaders"`
 	}
-	err := g.get(ctx, &data, fmt.Sprintf("/users/%s/messages/%s/?$select=internetMessageHeaders", userID, messageID), query)
+	query.Select = append(query.Select, "internetMessageHeaders")
+	err := g.get(ctx, &data, fmt.Sprintf("/users/%s/messages/%s", userID, messageID), query)
 	if err != nil {
 		return nil, err
 	}

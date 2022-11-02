@@ -109,7 +109,7 @@ func Main() error {
 					c.SetLogger(logger)
 					c.SetLogMask(imapclient.LogAll)
 				}
-			} else if true || userID != "" {
+			} else if userID != "" {
 				conf := &oauth2.Config{
 					ClientID:     clientID,
 					ClientSecret: clientSecret,
@@ -178,6 +178,7 @@ func Main() error {
 				if err != nil {
 					logger.Error(err, "Listing", "box", mbox)
 				}
+				fmt.Fprintln(os.Stdout, "UID\tSIZE\tSUBJECT")
 				for _, m := range mails {
 					fmt.Fprintf(os.Stdout, "%d\t%d\t%s\n", m.UID, m.Size, m.Subject)
 				}
@@ -532,8 +533,14 @@ func Main() error {
 		},
 	}
 	app.Subcommands = append(app.Subcommands, &syncCmd)
+	if err := app.Parse(os.Args[1:]); err != nil {
+		return err
+	}
+	if verbose {
+		zl = zl.Level(zerolog.TraceLevel)
+	}
 
-	return app.ParseAndRun(rootCtx, os.Args[1:])
+	return app.Run(rootCtx)
 }
 
 var bufPool = sync.Pool{New: func() interface{} { return bytes.NewBuffer(make([]byte, 0, 1<<20)) }}

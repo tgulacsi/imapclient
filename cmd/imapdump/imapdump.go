@@ -109,14 +109,14 @@ func Main() error {
 					c.SetLogger(logger)
 					c.SetLogMask(imapclient.LogAll)
 				}
-			} else if userID != "" {
+			} else if true || userID != "" {
 				conf := &oauth2.Config{
 					ClientID:     clientID,
 					ClientSecret: clientSecret,
 					Scopes:       []string{"https://graph.microsoft.com/.default"},
 				}
 				var err error
-				c, err = o365.NewGraphMailClient(conf, tenantID, userID)
+				c, err = o365.NewGraphMailClient(ctx, conf, tenantID, userID)
 				if err != nil {
 					return nil, err
 				}

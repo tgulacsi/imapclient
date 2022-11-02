@@ -164,7 +164,8 @@ type Recipient struct {
 }
 
 type EmailAddress struct {
-	Name, Address string `json:",omitempty"`
+	Name    string `json:"name"`
+	Address string `json:"address"`
 }
 
 type ItemBody struct {

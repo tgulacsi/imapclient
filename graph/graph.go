@@ -72,20 +72,19 @@ func NewGraphMailClient(ctx context.Context, tenantID, clientID, clientSecret st
 		client.ResponseMiddlewares = &[]msgraph.ResponseMiddleware{responseLogger}
 	}
 
-	uClient := &msgraph.UsersClient{BaseClient: client}
-	users, _, err := uClient.List(ctx, odata.Query{})
-	if err != nil {
-		return GraphMailClient{}, err
-	}
-	if users == nil {
-		return GraphMailClient{}, fmt.Errorf("bad API response, nil result received")
-	}
-	for _, user := range *users {
-		logger.Info("user", "id", *user.ID, "name", *user.DisplayName)
-	}
 	return GraphMailClient{BaseClient: client}, nil
 }
 
+func (g GraphMailClient) Users(ctx context.Context) ([]msgraph.User, error) {
+	users, _, err := (&msgraph.UsersClient{BaseClient: g.BaseClient}).List(ctx, odata.Query{})
+	if err != nil {
+		return nil, err
+	}
+	if users == nil {
+		return nil, fmt.Errorf("bad API response, nil result received")
+	}
+	return *users, nil
+}
 func (g GraphMailClient) get(ctx context.Context, dest interface{}, entity string, query odata.Query) error {
 	resp, status, _, err := g.BaseClient.Get(ctx, msgraph.GetHttpRequestInput{
 		ConsistencyFailureFunc: msgraph.RetryOn404ConsistencyFailureFunc,

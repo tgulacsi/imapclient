@@ -37,6 +37,23 @@ func NewGraphMailClient(ctx context.Context, conf *oauth2.Config, tenantID, user
 	}
 
 	logger := logr.FromContextOrDiscard(ctx)
+	if strings.IndexByte(userID, '@') >= 0 {
+		users, err := gmc.Users(ctx)
+		if err != nil {
+			return nil, err
+		}
+		var found bool
+		for _, u := range users {
+			logger.V(1).Info("users", "name", u.DisplayName, "mail", u.Mail)
+			if u.Mail != nil && string(*u.Mail) == userID {
+				userID, found = *u.ID, true
+				break
+			}
+		}
+		if !found {
+			return nil, fmt.Errorf("no user found with %q mail address", userID)
+		}
+	}
 	logger.Info("NewGraphMailClient", "gmc", gmc, "userID", userID)
 	return &graphMailClient{GraphMailClient: gmc, userID: userID}, nil
 }
@@ -174,7 +191,11 @@ func (g *graphMailClient) List(ctx context.Context, mbox, pattern string, all bo
 		return nil, err
 	}
 	logger.Info("folder", "id", mID, "name", mbox)
-	msgs, err := g.GraphMailClient.ListMessages(ctx, g.userID, mID, odata.Query{})
+	query := odata.Query{Filter: "isRead eq false"}
+	if pattern != "" {
+		query.Filter += " and contains(subject, " + strings.ReplaceAll(strconv.Quote(pattern), `"`, "'") + ")"
+	}
+	msgs, err := g.GraphMailClient.ListMessages(ctx, g.userID, mID, query)
 	if err != nil {
 		return nil, err
 	}

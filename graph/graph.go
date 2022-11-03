@@ -45,7 +45,7 @@ func NewGraphMailClient(ctx context.Context, tenantID, clientID, clientSecret st
 	if err != nil {
 		return GraphMailClient{}, err
 	}
-	logger.Info("authorizer", "token", tok)
+	logger.V(1).Info("authorizer", "token", tok)
 
 	client := msgraph.NewClient(msgraph.VersionBeta, tenantID)
 	client.Authorizer = authorizer

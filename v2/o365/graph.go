@@ -59,7 +59,7 @@ func NewGraphMailClient(ctx context.Context, conf *oauth2.Config, tenantID, user
 			return nil, fmt.Errorf("no user found with %q mail address", userID)
 		}
 	}
-	logger.Info("NewGraphMailClient", "gmc", gmc, "userID", userID)
+	logger.V(1).Info("NewGraphMailClient", "userID", userID)
 	return &graphMailClient{GraphMailClient: gmc, userID: userID}, nil
 }
 
@@ -80,7 +80,9 @@ func (g *graphMailClient) init(ctx context.Context) error {
 	}
 	return nil
 }
-func (g *graphMailClient) Close(ctx context.Context, commit bool) error { return ErrNotSupported }
+func (g *graphMailClient) SetLogger(logr.Logger)                            {}
+func (g *graphMailClient) SetLogMask(imapclient.LogMask) imapclient.LogMask { return false }
+func (g *graphMailClient) Close(ctx context.Context, commit bool) error     { return ErrNotSupported }
 func (g *graphMailClient) Mailboxes(ctx context.Context, root string) ([]string, error) {
 	if err := g.init(ctx); err != nil {
 		return nil, err
@@ -176,7 +178,15 @@ func (g *graphMailClient) Move(ctx context.Context, msgID uint32, mbox string) e
 	return err
 }
 func (g *graphMailClient) Mark(ctx context.Context, msgID uint32, seen bool) error {
-	return ErrNotImplemented
+	var buf strings.Builder
+	buf.WriteString(`{"isRead":`)
+	if seen {
+		buf.WriteString(`true}`)
+	} else {
+		buf.WriteString(`false}`)
+	}
+	_, err := g.GraphMailClient.UpdateMessage(ctx, g.userID, g.u2s[msgID], json.RawMessage(buf.String()))
+	return err
 }
 func (g *graphMailClient) m2s(mbox string) (string, error) {
 	for _, mf := range g.folders {
@@ -195,7 +205,7 @@ func (g *graphMailClient) List(ctx context.Context, mbox, pattern string, all bo
 	if err != nil {
 		return nil, err
 	}
-	logger.Info("folder", "id", mID, "name", mbox)
+	logger.V(1).Info("folder", "id", mID, "name", mbox)
 	query := odata.Query{Filter: "isRead eq false"}
 	if pattern != "" {
 		query.Filter += " and contains(subject, " + strings.ReplaceAll(strconv.Quote(pattern), `"`, "'") + ")"
@@ -205,9 +215,9 @@ func (g *graphMailClient) List(ctx context.Context, mbox, pattern string, all bo
 		return nil, err
 	}
 	if len(msgs) == 0 {
-		logger.Info("MailFolder.GetMessages returned no messages!")
+		return nil, nil
 	}
-	logger.Info("messages", "msgs", len(msgs))
+	logger.V(1).Info("messages", "msgs", len(msgs))
 	ids := make([]uint32, 0, len(msgs))
 	for _, m := range msgs {
 		s := m.ID
@@ -221,15 +231,5 @@ func (g *graphMailClient) List(ctx context.Context, mbox, pattern string, all bo
 	return ids, nil
 }
 func (g *graphMailClient) ReadTo(ctx context.Context, w io.Writer, msgID uint32) (int64, error) {
-	s := g.u2s[msgID]
-	n, err := g.GraphMailClient.GetMIMEMessage(ctx, w, g.userID, s)
-	if err != nil {
-		return n, err
-	}
-	m, updErr := g.GraphMailClient.UpdateMessage(ctx, g.userID, s, json.RawMessage(`{"isRead":true}`))
-	logr.FromContextOrDiscard(ctx).Info("UpdateMessage", "m", m, "error", updErr)
-	return n, err
+	return g.GraphMailClient.GetMIMEMessage(ctx, w, g.userID, g.u2s[msgID])
 }
-func (g *graphMailClient) SetLogger(logr.Logger) {
-}
-func (g *graphMailClient) SetLogMask(imapclient.LogMask) imapclient.LogMask { return false }

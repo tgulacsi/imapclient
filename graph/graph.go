@@ -109,6 +109,30 @@ func (g GraphMailClient) get(ctx context.Context, dest interface{}, entity strin
 	}
 	return nil
 }
+func (g GraphMailClient) UpdateMessage(ctx context.Context, userID, messageID string, update json.RawMessage) (Message, error) {
+	entity := fmt.Sprintf("/users/%s/messages/%s", userID, messageID)
+	resp, status, _, err := g.BaseClient.Patch(ctx, msgraph.PatchHttpRequestInput{
+		Body:                   []byte(update),
+		ConsistencyFailureFunc: msgraph.RetryOn404ConsistencyFailureFunc,
+		OData:                  odata.Query{},
+		ValidStatusCodes:       []int{http.StatusOK},
+		Uri: msgraph.Uri{
+			Entity:      entity,
+			HasTenantId: true,
+		},
+	})
+	if err != nil {
+		return Message{}, fmt.Errorf("BaseClient.Get(%q): [%d] - %v", entity, status, err)
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return Message{}, fmt.Errorf("io.ReadAll(): %w", err)
+	}
+	var data Message
+	err = json.Unmarshal(respBody, &data)
+	return data, err
+}
 func (g GraphMailClient) MoveMessage(ctx context.Context, userID, messageID, folderID string) (Message, error) {
 	entity := fmt.Sprintf("/users/%s/messages/%s/move", userID, messageID)
 	resp, status, _, err := g.BaseClient.Post(ctx, msgraph.PostHttpRequestInput{

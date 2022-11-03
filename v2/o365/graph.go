@@ -1,7 +1,12 @@
+// Copyright 2022 Tamás Gulácsi. All rights reserved.
+//
+// SPDX-License-Identifier: Apache-2.0
+
 package o365
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/textproto"
@@ -216,7 +221,14 @@ func (g *graphMailClient) List(ctx context.Context, mbox, pattern string, all bo
 	return ids, nil
 }
 func (g *graphMailClient) ReadTo(ctx context.Context, w io.Writer, msgID uint32) (int64, error) {
-	return g.GraphMailClient.GetMIMEMessage(ctx, w, g.userID, g.u2s[msgID])
+	s := g.u2s[msgID]
+	n, err := g.GraphMailClient.GetMIMEMessage(ctx, w, g.userID, s)
+	if err != nil {
+		return n, err
+	}
+	m, updErr := g.GraphMailClient.UpdateMessage(ctx, g.userID, s, json.RawMessage(`{"isRead":true}`))
+	logr.FromContextOrDiscard(ctx).Info("UpdateMessage", "m", m, "error", updErr)
+	return n, err
 }
 func (g *graphMailClient) SetLogger(logr.Logger) {
 }

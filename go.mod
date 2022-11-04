@@ -9,7 +9,7 @@ require (
 	github.com/manicminer/hamilton v0.51.0
 	github.com/peterbourgon/ff/v3 v3.1.2
 	github.com/rs/zerolog v1.28.0
-	github.com/tgulacsi/go v0.22.2
+	github.com/tgulacsi/go v0.23.1
 	github.com/tgulacsi/oauth2client v0.1.0
 	golang.org/x/net v0.1.0
 	golang.org/x/oauth2 v0.1.0

@@ -159,6 +159,7 @@ github.com/edsrzf/mmap-go v1.0.0/go.mod h1:YO35OhQPt3KJa3ryjFM5Bs14WD66h8eGKpfaB
 github.com/emersion/go-imap v1.2.1 h1:+s9ZjMEjOB8NzZMVTM3cCenz2JrQIGGo5j1df19WjTA=
 github.com/emersion/go-imap v1.2.1/go.mod h1:Qlx1FSx2FTxjnjWpIlVNEuX+ylerZQNFE5NsmKFSejY=
 github.com/emersion/go-message v0.15.0/go.mod h1:wQUEfE+38+7EW8p8aZ96ptg6bAb1iwdgej19uXASlE4=
+github.com/emersion/go-message v0.16.0/go.mod h1:pDJDgf/xeUIF+eicT6B/hPX/ZbEorKkUMPOxrPVG2eQ=
 github.com/emersion/go-sasl v0.0.0-20200509203442-7bfe0ed36a21/go.mod h1:iL2twTeMvZnrg54ZoPDNfJaJaqy0xIQFuBdrLsmspwQ=
 github.com/emersion/go-sasl v0.0.0-20211008083017-0b9dcfb154ac h1:tn/OQ2PmwQ0XFVgAHfjlLyqMewry25Rz7jWnVoh4Ggs=
 github.com/emersion/go-sasl v0.0.0-20211008083017-0b9dcfb154ac/go.mod h1:iL2twTeMvZnrg54ZoPDNfJaJaqy0xIQFuBdrLsmspwQ=
@@ -551,6 +552,8 @@ github.com/syndtr/goleveldb v0.0.0-20180608030153-db3ee9ee8931/go.mod h1:Z4AUp2K
 github.com/syndtr/goleveldb v1.0.0/go.mod h1:ZVVdQEZoIme9iO1Ch2Jdy24qqXrMMOU6lpPAyBWyWuQ=
 github.com/tgulacsi/go v0.22.2 h1:xfCfe8v1BzLi8+vTwq5izPxt1wqcl54xzoA6KZ/fOEU=
 github.com/tgulacsi/go v0.22.2/go.mod h1:DJdLEyuRomUXkuD5K4hXkOmclD3ocfVjhYmjzDp5vCQ=
+github.com/tgulacsi/go v0.23.1 h1:Su2V6hGRnGHzcm4GtsJbhTtt7trwQwOPeQEDxYrZc2k=
+github.com/tgulacsi/go v0.23.1/go.mod h1:KRGV1SClB1qY3e2WdH9HLuXhCcMiUkj9hdOs/l9yXcA=
 github.com/tgulacsi/oauth2client v0.1.0 h1:ZsM10C99AylCS0Zo6R74lxXlYeqrO9X723MZXZrwleg=
 github.com/tgulacsi/oauth2client v0.1.0/go.mod h1:JX+4TyGn0ox+A0q2w8RoKmI3nZ/ixW2cLs3IjlfT3UU=
 github.com/tgulacsi/picago v0.0.0-20171229130838-9e1ac2306c70/go.mod h1:YOW4MCz1GRh0aqedyC48A1CRXSHngOB/O/4+1rUjDQg=

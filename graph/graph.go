@@ -39,7 +39,7 @@ func NewGraphMailClient(ctx context.Context, tenantID, clientID, clientSecret st
 	// First try with limited time,
 	shortCtx, shortCancel := context.WithTimeout(ctx, 15*time.Second)
 	authorizer, err := newAuthorizer(shortCtx)
-	if err != nil {
+	if err == nil {
 		if _, err = authorizer.Token(); err == nil {
 			// then with the global Context.
 			authorizer, err = newAuthorizer(ctx)

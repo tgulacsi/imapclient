@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"strconv"
+	"time"
 
 	"github.com/go-logr/logr"
 
@@ -28,16 +29,23 @@ type GraphMailClient struct {
 func NewGraphMailClient(ctx context.Context, tenantID, clientID, clientSecret string) (GraphMailClient, error) {
 	logger := logr.FromContextOrDiscard(ctx)
 	environment := environments.Global
-	authConfig := &auth.Config{
-		Environment:            environment,
-		TenantID:               tenantID,
-		ClientID:               clientID,
-		ClientSecret:           clientSecret,
-		EnableClientSecretAuth: true,
-	}
-
 	// https://learn.microsoft.com/hu-hu/azure/active-directory/develop/quickstart-register-app#add-a-certificate
-	authorizer, err := authConfig.NewAuthorizer(ctx, environment.MsGraph)
+	newAuthorizer := func(ctx context.Context) (auth.Authorizer, error) {
+		return auth.NewClientSecretAuthorizer(ctx,
+			environment, environment.MsGraph, auth.TokenVersion2,
+			tenantID, nil, clientID, clientSecret,
+		)
+	}
+	// First try with limited time,
+	shortCtx, shortCancel := context.WithTimeout(ctx, 15*time.Second)
+	authorizer, err := newAuthorizer(shortCtx)
+	if err != nil {
+		if _, err = authorizer.Token(); err == nil {
+			// then with the global Context.
+			authorizer, err = newAuthorizer(ctx)
+		}
+	}
+	shortCancel()
 	if err != nil {
 		return GraphMailClient{}, err
 	}

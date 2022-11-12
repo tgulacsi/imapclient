@@ -15,8 +15,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"golang.org/x/oauth2"
-
 	"github.com/go-logr/logr"
 
 	"github.com/tgulacsi/imapclient/graph"
@@ -35,8 +33,8 @@ type graphMailClient struct {
 	seq     uint32
 }
 
-func NewGraphMailClient(ctx context.Context, conf *oauth2.Config, tenantID, userID string) (*graphMailClient, error) {
-	gmc, err := graph.NewGraphMailClient(ctx, tenantID, conf.ClientID, conf.ClientSecret)
+func NewGraphMailClient(ctx context.Context, clientID, clientSecret, tenantID, userID string) (*graphMailClient, error) {
+	gmc, err := graph.NewGraphMailClient(ctx, tenantID, clientID, clientSecret)
 	if err != nil {
 		return nil, err
 	}

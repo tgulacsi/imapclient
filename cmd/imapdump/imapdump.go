@@ -110,13 +110,8 @@ func Main() error {
 					c.SetLogMask(imapclient.LogAll)
 				}
 			} else if userID != "" {
-				conf := &oauth2.Config{
-					ClientID:     clientID,
-					ClientSecret: clientSecret,
-					Scopes:       []string{"https://graph.microsoft.com/.default"},
-				}
 				var err error
-				c, err = o365.NewGraphMailClient(ctx, conf, tenantID, userID)
+				c, err = o365.NewGraphMailClient(ctx, clientID, clientSecret, tenantID, userID)
 				if err != nil {
 					return nil, err
 				}

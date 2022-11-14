@@ -92,10 +92,10 @@ func DeliverOne(ctx context.Context, c Client, inbox, pattern string, deliver De
 type DeliverFunc func(ctx context.Context, r io.ReadSeeker, uid uint32, hsh []byte) error
 
 func one(ctx context.Context, c Client, inbox, pattern string, deliver DeliverFunc, outbox, errbox string, logger logr.Logger) (int, error) {
-	logger = logger.WithValues("c", c, "inbox", inbox)
+	logger = logger.WithValues("inbox", inbox)
 	if err := c.Connect(ctx); err != nil {
 		logger.Error(err, "Connecting")
-		return 0, fmt.Errorf("connect to %v: %w", c, err)
+		return 0, fmt.Errorf("connect: %w", err)
 	}
 	defer c.Close(ctx, true)
 

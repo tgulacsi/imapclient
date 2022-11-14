@@ -24,10 +24,10 @@ import (
 )
 
 type graphMailClient struct {
-	graph.GraphMailClient
+	graph.GraphMailClient `json:"-"`
 
 	userID  string
-	folders []graph.Folder
+	folders map[string]graph.Folder
 	u2s     map[uint32]string
 	s2u     map[string]uint32
 	seq     uint32
@@ -71,11 +71,38 @@ func (g *graphMailClient) init(ctx context.Context) error {
 		g.u2s = make(map[uint32]string)
 		g.s2u = make(map[string]uint32)
 	}
-	// https://www.c-sharpcorner.com/article/read-email-from-mailbox-folders-using-microsoft-graph-api/
-	var err error
-	if g.folders, err = g.GraphMailClient.ListMailFolders(ctx, g.userID, odata.Query{}); err != nil {
-		return fmt.Errorf("MailFolders.Get: %w", err)
+	folders, err := g.GraphMailClient.ListMailFolders(ctx, g.userID, odata.Query{})
+	g.folders = make(map[string]graph.Folder, len(folders))
+	byID := make(map[string]graph.Folder, len(folders))
+	for _, f := range folders {
+		byID[f.ID] = f
 	}
+	//logger := logr.FromContextOrDiscard(ctx)
+	var path []string
+	for _, f := range folders {
+		//logger.V(2).Info("folder", "name", f.DisplayName, "parent", f.ParentFolderID)
+		var prefix string
+		path = path[:0]
+		if f.ParentFolderID != "" {
+			for p := byID[f.ParentFolderID]; p.ParentFolderID != ""; p = byID[p.ParentFolderID] {
+				path = append(path, strings.ToLower(p.DisplayName))
+			}
+			//logger.Info("path", "name", f.DisplayName, "path", path)
+			if len(path) != 0 {
+				// reverse
+				for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
+					path[i], path[j] = path[j], path[i]
+				}
+				prefix = strings.Join(path, "/") + "/"
+			}
+		}
+		g.folders[prefix+strings.ToLower(f.DisplayName)] = f
+	}
+	if err != nil {
+		return fmt.Errorf("MailFolders.Get(%q): %w", g.userID, err)
+	}
+
+	// https://www.c-sharpcorner.com/article/read-email-from-mailbox-folders-using-microsoft-graph-api/
 	return nil
 }
 func (g *graphMailClient) SetLogger(logr.Logger)                            {}
@@ -86,8 +113,8 @@ func (g *graphMailClient) Mailboxes(ctx context.Context, root string) ([]string,
 		return nil, err
 	}
 	folders := make([]string, 0, len(g.folders))
-	for _, mf := range g.folders {
-		folders = append(folders, mf.DisplayName)
+	for k := range g.folders {
+		folders = append(folders, k)
 	}
 	return folders, nil
 }
@@ -153,7 +180,12 @@ func (g *graphMailClient) Peek(ctx context.Context, w io.Writer, msgID uint32, w
 	return 0, ErrNotImplemented
 }
 func (g *graphMailClient) Delete(ctx context.Context, msgID uint32) error {
-	return ErrNotImplemented
+	mID, err := g.m2s("deleted items")
+	if err != nil {
+		return err
+	}
+	_, err = g.GraphMailClient.MoveMessage(ctx, g.userID, g.u2s[msgID], mID)
+	return err
 }
 func (g *graphMailClient) Select(ctx context.Context, mbox string) error {
 	return nil
@@ -187,12 +219,20 @@ func (g *graphMailClient) Mark(ctx context.Context, msgID uint32, seen bool) err
 	return err
 }
 func (g *graphMailClient) m2s(mbox string) (string, error) {
+	mbox = strings.ToLower(mbox)
+	if mf, ok := g.folders[mbox]; ok {
+		return mf.ID, nil
+	}
 	for _, mf := range g.folders {
-		if nm := mf.DisplayName; strings.EqualFold(nm, mbox) || (strings.EqualFold(mbox, "inbox") && nm == "Beérkezett üzenetek") {
+		if nm := mf.DisplayName; strings.EqualFold(nm, mbox) || (mbox == "inbox" && nm == "beérkezett Üzenetek") {
 			return mf.ID, nil
 		}
 	}
-	return "", fmt.Errorf("mbox %q not found (have: %+v)", mbox, g.folders)
+	folders := make([]string, 0, len(g.folders))
+	for k := range g.folders {
+		folders = append(folders, k)
+	}
+	return "", fmt.Errorf("mbox %q not found (have: %+v)", mbox, folders)
 }
 func (g *graphMailClient) List(ctx context.Context, mbox, pattern string, all bool) ([]uint32, error) {
 	if err := g.init(ctx); err != nil {

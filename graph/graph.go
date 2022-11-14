@@ -7,11 +7,13 @@ package graph
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httputil"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -105,6 +107,9 @@ func (g GraphMailClient) get(ctx context.Context, dest interface{}, entity strin
 		},
 	})
 	if err != nil {
+		if errors.Is(err, context.Canceled) || ctx.Err() != nil {
+			return nil
+		}
 		return fmt.Errorf("BaseClient.Get(%q): [%d] - %v", entity, status, err)
 	}
 	defer resp.Body.Close()
@@ -244,8 +249,36 @@ func (g GraphMailClient) ListMailFolders(ctx context.Context, userID string, que
 	var data struct {
 		Folders []Folder `json:"value"`
 	}
-	err := g.get(ctx, &data, fmt.Sprintf("/users/%s/mailFolders", userID), query)
-	return data.Folders, err
+	path := fmt.Sprintf("/users/%s/mailFolders", userID)
+	if err := g.get(ctx, &data, path, query); err != nil {
+		return data.Folders, err
+	}
+	folders := append([]Folder(nil), data.Folders...)
+	toList := append([]Folder(nil), folders...)
+	var nextList []Folder
+	//seen := make(map[string]struct{})
+	logger := logr.FromContextOrDiscard(ctx)
+	for len(toList) != 0 {
+		logger.V(1).Info("toList", "toList", len(toList))
+		nextList = nextList[:0]
+		for _, f := range toList {
+			//if _, ok := seen[f.ID]; ok {
+			//continue
+			//}
+			//seen[f.ID] = struct{}{}
+			logger.V(2).Info("get", "name", f.DisplayName, "path", path+"/"+f.ID+"/childFolders")
+			if err := g.get(ctx, &data, path+"/"+f.ID+"/childFolders", query); err != nil {
+				if strings.Contains(err.Error(), "nil *Response with nil error") {
+					continue
+				}
+				return folders, err
+			}
+			folders = append(folders, data.Folders...)
+			nextList = append(nextList, data.Folders...)
+		}
+		toList = nextList
+	}
+	return folders, nil
 }
 
 type Folder struct {

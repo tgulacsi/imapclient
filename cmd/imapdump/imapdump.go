@@ -9,7 +9,6 @@ import (
 	"bufio"
 	"bytes"
 	"compress/gzip"
-	"crypto/sha512"
 	"encoding/base64"
 	"flag"
 	"fmt"
@@ -566,7 +565,7 @@ func dumpMails(rootCtx context.Context, tw *syncTW, c imapclient.Client, mbox st
 	buf := bufPool.Get().(*bytes.Buffer)
 	defer bufPool.Put(buf)
 	seen := make(map[string]struct{}, 1024)
-	var hshB []byte
+	hsh := imapclient.NewHash()
 	for _, uid := range uids {
 		buf.Reset()
 		ctx, cancel := context.WithTimeout(rootCtx, 10*time.Minute)
@@ -575,10 +574,9 @@ func dumpMails(rootCtx context.Context, tw *syncTW, c imapclient.Client, mbox st
 		if err != nil {
 			logger.Error(err, "read", "uid", uid)
 		}
-		hsh := sha512.New384()
+		hsh.Reset()
 		hsh.Write(buf.Bytes())
-		hshB = hsh.Sum(hshB[:0])
-		hshS := base64.URLEncoding.EncodeToString(hshB)
+		hshS := hsh.Array().String()
 		if _, ok := seen[hshS]; ok {
 			logger.Info("Deleting already seen.", "box", mbox, "uid", uid)
 			if err := c.Delete(ctx, uid); err != nil {

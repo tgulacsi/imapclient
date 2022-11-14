@@ -256,16 +256,16 @@ func (g GraphMailClient) ListMailFolders(ctx context.Context, userID string, que
 	folders := append([]Folder(nil), data.Folders...)
 	toList := append([]Folder(nil), folders...)
 	var nextList []Folder
-	//seen := make(map[string]struct{})
+	seen := make(map[string]struct{})
 	logger := logr.FromContextOrDiscard(ctx)
 	for len(toList) != 0 {
 		logger.V(1).Info("toList", "toList", len(toList))
 		nextList = nextList[:0]
 		for _, f := range toList {
-			//if _, ok := seen[f.ID]; ok {
-			//continue
-			//}
-			//seen[f.ID] = struct{}{}
+			if _, ok := seen[f.ID]; ok {
+				continue
+			}
+			seen[f.ID] = struct{}{}
 			logger.V(2).Info("get", "name", f.DisplayName, "path", path+"/"+f.ID+"/childFolders")
 			if err := g.get(ctx, &data, path+"/"+f.ID+"/childFolders", query); err != nil {
 				if strings.Contains(err.Error(), "nil *Response with nil error") {
@@ -274,7 +274,11 @@ func (g GraphMailClient) ListMailFolders(ctx context.Context, userID string, que
 				return folders, err
 			}
 			folders = append(folders, data.Folders...)
-			nextList = append(nextList, data.Folders...)
+			for _, f := range data.Folders {
+				if f.ChildFolderCount != 0 {
+					nextList = append(nextList, f)
+				}
+			}
 		}
 		toList = nextList
 	}

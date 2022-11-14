@@ -7,8 +7,10 @@ package imapclient
 import (
 	"context"
 	"crypto/sha512"
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"strconv"
 	"time"
@@ -71,8 +73,18 @@ func DeliveryLoop(ctx context.Context, c Client, inbox, pattern string, deliver 
 	}
 }
 
+func NewHash() *Hash { return &Hash{Hash: sha512.New512_224()} }
+
+type HashArray [sha512.Size224]byte
+
+func (h HashArray) String() string { return base64.URLEncoding.EncodeToString(h[:]) }
+
+type Hash struct{ hash.Hash }
+
+func (h Hash) Array() HashArray { var a HashArray; h.Hash.Sum(a[:0]); return a }
+
 func MkDeliverFunc(ctx context.Context, deliver DeliverFunc) DeliverFunc {
-	return func(ctx context.Context, r io.ReadSeeker, uid uint32, hsh []byte) error {
+	return func(ctx context.Context, r io.ReadSeeker, uid uint32, hsh HashArray) error {
 		return deliver(ctx, r, uid, hsh)
 	}
 }
@@ -89,7 +101,7 @@ func DeliverOne(ctx context.Context, c Client, inbox, pattern string, deliver De
 // DeliverFunc is the type for message delivery.
 //
 // r is the message data, uid is the IMAP server sent message UID, hsh is the message's hash.
-type DeliverFunc func(ctx context.Context, r io.ReadSeeker, uid uint32, hsh []byte) error
+type DeliverFunc func(ctx context.Context, r io.ReadSeeker, uid uint32, hsh HashArray) error
 
 func one(ctx context.Context, c Client, inbox, pattern string, deliver DeliverFunc, outbox, errbox string, logger logr.Logger) (int, error) {
 	logger = logger.WithValues("inbox", inbox)
@@ -106,7 +118,7 @@ func one(ctx context.Context, c Client, inbox, pattern string, deliver DeliverFu
 	}
 
 	var n int
-	hsh := sha512.New384()
+	hsh := NewHash()
 	for _, uid := range uids {
 		if err = ctx.Err(); err != nil {
 			return n, err
@@ -120,7 +132,7 @@ func one(ctx context.Context, c Client, inbox, pattern string, deliver DeliverFu
 			continue
 		}
 
-		err = deliver(ctx, body, uid, hsh.Sum(nil))
+		err = deliver(ctx, body, uid, hsh.Array())
 		body.Close()
 		if err != nil {
 			logger.Error(err, "deliver")

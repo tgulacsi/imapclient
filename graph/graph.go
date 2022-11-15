@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httputil"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -123,7 +124,7 @@ func (g GraphMailClient) get(ctx context.Context, dest interface{}, entity strin
 	return nil
 }
 func (g GraphMailClient) UpdateMessage(ctx context.Context, userID, messageID string, update json.RawMessage) (Message, error) {
-	entity := fmt.Sprintf("/users/%s/messages/%s", userID, messageID)
+	entity := "/users/" + url.PathEscape(userID) + "/messages/" + url.PathEscape(messageID)
 	resp, status, _, err := g.BaseClient.Patch(ctx, msgraph.PatchHttpRequestInput{
 		Body:                   []byte(update),
 		ConsistencyFailureFunc: msgraph.RetryOn404ConsistencyFailureFunc,
@@ -147,7 +148,7 @@ func (g GraphMailClient) UpdateMessage(ctx context.Context, userID, messageID st
 	return data, err
 }
 func (g GraphMailClient) MoveMessage(ctx context.Context, userID, messageID, folderID string) (Message, error) {
-	entity := fmt.Sprintf("/users/%s/messages/%s/move", userID, messageID)
+	entity := "/users/" + url.PathEscape(userID) + "/messages/" + url.PathEscape(messageID) + "/move"
 	resp, status, _, err := g.BaseClient.Post(ctx, msgraph.PostHttpRequestInput{
 		Body:                   []byte(`{"destinationId":` + strconv.Quote(folderID) + "}"),
 		ConsistencyFailureFunc: msgraph.RetryOn404ConsistencyFailureFunc,
@@ -171,7 +172,7 @@ func (g GraphMailClient) MoveMessage(ctx context.Context, userID, messageID, fol
 	return data, err
 }
 func (g GraphMailClient) GetMIMEMessage(ctx context.Context, w io.Writer, userID, messageID string) (int64, error) {
-	entity := fmt.Sprintf("/users/%s/messages/%s/$value", userID, messageID)
+	entity := "/users/" + url.PathEscape(userID) + "/messages/" + url.PathEscape(messageID) + "/$value"
 	resp, status, _, err := g.BaseClient.Get(ctx, msgraph.GetHttpRequestInput{
 		ConsistencyFailureFunc: msgraph.RetryOn404ConsistencyFailureFunc,
 		DisablePaging:          true,
@@ -193,7 +194,7 @@ func (g GraphMailClient) GetMessage(ctx context.Context, userID, messageID strin
 	var data struct {
 		Messages []Message `json:"value"`
 	}
-	err := g.get(ctx, &data, fmt.Sprintf("/users/%s/messages/%s", userID, messageID), query)
+	err := g.get(ctx, &data, "/users/"+url.PathEscape(userID)+"/messages/"+url.PathEscape(messageID), query)
 	return data.Messages, err
 }
 
@@ -206,7 +207,7 @@ func (g GraphMailClient) GetMessageHeaders(ctx context.Context, userID, messageI
 		Headers []kv `json:"internetMessageHeaders"`
 	}
 	query.Select = append(query.Select, "internetMessageHeaders")
-	err := g.get(ctx, &data, fmt.Sprintf("/users/%s/messages/%s", userID, messageID), query)
+	err := g.get(ctx, &data, "/users/"+url.PathEscape(userID)+"/messages/"+url.PathEscape(messageID), query)
 	if err != nil {
 		return nil, err
 	}
@@ -220,7 +221,7 @@ func (g GraphMailClient) ListMessages(ctx context.Context, userID, folderID stri
 	var data struct {
 		Messages []Message `json:"value"`
 	}
-	err := g.get(ctx, &data, fmt.Sprintf("/users/%s/mailFolders/%s/messages", userID, folderID), query)
+	err := g.get(ctx, &data, "/users/"+url.PathEscape(userID)+"/mailFolders/"+url.PathEscape(folderID)+"/messages", query)
 	return data.Messages, err
 }
 
@@ -245,16 +246,24 @@ type EmailAddress struct {
 	Address string `json:"address"`
 }
 
-func (g GraphMailClient) ListMailFolders(ctx context.Context, userID string, query odata.Query) ([]Folder, error) {
+func (g GraphMailClient) ListChildFolders(ctx context.Context, userID, folderID string, recursive bool, query odata.Query) ([]Folder, error) {
 	var data struct {
 		Folders []Folder `json:"value"`
 	}
-	path := fmt.Sprintf("/users/%s/mailFolders", userID)
-	if err := g.get(ctx, &data, path, query); err != nil {
+	path := "/users/" + url.PathEscape(userID) + "/mailFolders"
+	if err := g.get(ctx, &data, path+"/"+url.PathEscape(folderID)+"/childFolders", query); err != nil || !recursive {
 		return data.Folders, err
 	}
 	folders := append([]Folder(nil), data.Folders...)
-	toList := append([]Folder(nil), folders...)
+	toList := make([]Folder, 0, len(folders))
+	for _, f := range folders {
+		if f.ChildFolderCount != 0 {
+			toList = append(toList, f)
+		}
+	}
+	if len(toList) == 0 {
+		return folders, nil
+	}
 	var nextList []Folder
 	seen := make(map[string]struct{})
 	logger := logr.FromContextOrDiscard(ctx)
@@ -266,8 +275,8 @@ func (g GraphMailClient) ListMailFolders(ctx context.Context, userID string, que
 				continue
 			}
 			seen[f.ID] = struct{}{}
-			logger.V(2).Info("get", "name", f.DisplayName, "path", path+"/"+f.ID+"/childFolders")
-			if err := g.get(ctx, &data, path+"/"+f.ID+"/childFolders", query); err != nil {
+			logger.V(2).Info("get", "name", f.DisplayName, "path", path+"/"+url.PathEscape(f.ID)+"/childFolders")
+			if err := g.get(ctx, &data, path+"/"+url.PathEscape(f.ID)+"/childFolders", query); err != nil {
 				if strings.Contains(err.Error(), "nil *Response with nil error") {
 					continue
 				}
@@ -283,6 +292,15 @@ func (g GraphMailClient) ListMailFolders(ctx context.Context, userID string, que
 		toList = nextList
 	}
 	return folders, nil
+}
+
+func (g GraphMailClient) ListMailFolders(ctx context.Context, userID string, query odata.Query) ([]Folder, error) {
+	var data struct {
+		Folders []Folder `json:"value"`
+	}
+	path := "/users/" + url.PathEscape(userID) + "/mailFolders"
+	err := g.get(ctx, &data, path, query)
+	return data.Folders, err
 }
 
 type Folder struct {

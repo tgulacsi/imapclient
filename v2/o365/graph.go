@@ -63,19 +63,40 @@ func NewGraphMailClient(ctx context.Context, clientID, clientSecret, tenantID, u
 
 var _ imapclient.Client = (*graphMailClient)(nil)
 
-func (g *graphMailClient) init(ctx context.Context) error {
-	if g.folders != nil {
-		return nil
-	}
+func (g *graphMailClient) init(ctx context.Context, mbox string) error {
 	if g.u2s == nil {
 		g.u2s = make(map[uint32]string)
 		g.s2u = make(map[string]uint32)
 	}
-	folders, err := g.GraphMailClient.ListMailFolders(ctx, g.userID, odata.Query{})
-	g.folders = make(map[string]graph.Folder, len(folders))
-	byID := make(map[string]graph.Folder, len(folders))
+	if g.folders == nil {
+		g.folders = make(map[string]graph.Folder)
+		if folders, err := g.GraphMailClient.ListMailFolders(ctx, g.userID, odata.Query{}); err != nil && len(folders) == 0 {
+			return err
+		} else {
+			for _, f := range folders {
+				g.folders[strings.ToLower(f.DisplayName)] = f
+				g.folders["{"+f.ID+"}"] = f
+			}
+		}
+	}
+	if mbox == "" {
+		return nil
+	}
+	if i := strings.IndexByte(mbox, '/'); i >= 0 {
+		mbox = mbox[:i]
+	}
+	mbox = strings.ToLower(mbox)
+
+	fID, err := g.m2s(mbox)
+	if err != nil {
+		return err
+	}
+	folders, err := g.GraphMailClient.ListChildFolders(ctx, g.userID, fID, true, odata.Query{})
+	if err != nil && len(folders) == 0 {
+		return err
+	}
 	for _, f := range folders {
-		byID[f.ID] = f
+		g.folders["{"+f.ID+"}"] = f
 	}
 	//logger := logr.FromContextOrDiscard(ctx)
 	var path []string
@@ -84,7 +105,7 @@ func (g *graphMailClient) init(ctx context.Context) error {
 		var prefix string
 		path = path[:0]
 		if f.ParentFolderID != "" {
-			for p := byID[f.ParentFolderID]; p.ParentFolderID != ""; p = byID[p.ParentFolderID] {
+			for p := g.folders["{"+f.ParentFolderID+"}"]; p.ParentFolderID != ""; p = g.folders["{"+p.ParentFolderID+"}"] {
 				path = append(path, strings.ToLower(p.DisplayName))
 			}
 			//logger.Info("path", "name", f.DisplayName, "path", path)
@@ -109,12 +130,14 @@ func (g *graphMailClient) SetLogger(logr.Logger)                            {}
 func (g *graphMailClient) SetLogMask(imapclient.LogMask) imapclient.LogMask { return false }
 func (g *graphMailClient) Close(ctx context.Context, commit bool) error     { return ErrNotSupported }
 func (g *graphMailClient) Mailboxes(ctx context.Context, root string) ([]string, error) {
-	if err := g.init(ctx); err != nil {
+	if err := g.init(ctx, root); err != nil {
 		return nil, err
 	}
 	folders := make([]string, 0, len(g.folders))
 	for k := range g.folders {
-		folders = append(folders, k)
+		if !(len(k) > 2 && k[0] == '{' && k[len(k)-1] == '}') {
+			folders = append(folders, k)
+		}
 	}
 	return folders, nil
 }
@@ -180,6 +203,9 @@ func (g *graphMailClient) Peek(ctx context.Context, w io.Writer, msgID uint32, w
 	return 0, ErrNotImplemented
 }
 func (g *graphMailClient) Delete(ctx context.Context, msgID uint32) error {
+	if err := g.init(ctx, ""); err != nil {
+		return err
+	}
 	mID, err := g.m2s("deleted items")
 	if err != nil {
 		return err
@@ -197,9 +223,12 @@ func (g *graphMailClient) WriteTo(ctx context.Context, mbox string, msg []byte, 
 	return ErrNotImplemented
 }
 func (g *graphMailClient) Connect(ctx context.Context) error {
-	return g.init(ctx)
+	return g.init(ctx, "")
 }
 func (g *graphMailClient) Move(ctx context.Context, msgID uint32, mbox string) error {
+	if err := g.init(ctx, mbox); err != nil {
+		return err
+	}
 	mID, err := g.m2s(mbox)
 	if err != nil {
 		return nil
@@ -223,19 +252,27 @@ func (g *graphMailClient) m2s(mbox string) (string, error) {
 	if mf, ok := g.folders[mbox]; ok {
 		return mf.ID, nil
 	}
-	for _, mf := range g.folders {
-		if nm := mf.DisplayName; strings.EqualFold(nm, mbox) || (mbox == "inbox" && nm == "beérkezett Üzenetek") {
+	if mf, ok := g.folders["{"+mbox+"}"]; ok {
+		return mf.ID, nil
+	}
+	for k, mf := range g.folders {
+		if len(k) > 2 && k[0] == '{' && k[len(k)-1] == '}' {
+			continue
+		}
+		if nm := mf.DisplayName; strings.EqualFold(nm, mbox) || (mbox == "inbox" && nm == "beérkezett üzenetek") {
 			return mf.ID, nil
 		}
 	}
 	folders := make([]string, 0, len(g.folders))
 	for k := range g.folders {
-		folders = append(folders, k)
+		if !(len(k) > 2 && k[0] == '{' && k[len(k)-1] == '}') {
+			folders = append(folders, k)
+		}
 	}
 	return "", fmt.Errorf("mbox %q not found (have: %+v)", mbox, folders)
 }
 func (g *graphMailClient) List(ctx context.Context, mbox, pattern string, all bool) ([]uint32, error) {
-	if err := g.init(ctx); err != nil {
+	if err := g.init(ctx, mbox); err != nil {
 		return nil, err
 	}
 	logger := logr.FromContextOrDiscard(ctx)

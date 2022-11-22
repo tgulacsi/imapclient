@@ -153,7 +153,7 @@ func (g GraphMailClient) MoveMessage(ctx context.Context, userID, messageID, fol
 		Body:                   []byte(`{"destinationId":` + strconv.Quote(folderID) + "}"),
 		ConsistencyFailureFunc: msgraph.RetryOn404ConsistencyFailureFunc,
 		OData:                  odata.Query{},
-		ValidStatusCodes:       []int{http.StatusOK},
+		ValidStatusCodes:       []int{http.StatusOK, http.StatusCreated},
 		Uri: msgraph.Uri{
 			Entity:      entity,
 			HasTenantId: true,

@@ -49,7 +49,7 @@ func NewGraphMailClient(ctx context.Context, clientID, clientSecret, tenantID, u
 		for _, u := range users {
 			logger.V(1).Info("users", "name", u.DisplayName, "mail", u.Mail)
 			if u.Mail != nil && string(*u.Mail) == userID {
-				userID, found = *u.ID, true
+				userID, found = *u.ID(), true
 				break
 			}
 		}

@@ -29,9 +29,8 @@ import (
 	"golang.org/x/text/encoding/htmlindex"
 	"golang.org/x/text/transform"
 
+	"github.com/UNO-SOFT/zlog/v2"
 	"github.com/go-logr/logr"
-	"github.com/go-logr/zerologr"
-	"github.com/rs/zerolog"
 
 	"github.com/peterbourgon/ff/v3/ffcli"
 	"github.com/tgulacsi/imapclient/v2"
@@ -40,8 +39,7 @@ import (
 
 const fetchBatchLen = 1024
 
-var zl = zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr}).With().Timestamp().Logger().Level(zerolog.InfoLevel)
-var logger = zerologr.New(&zl)
+var logger = zlog.New(os.Stderr)
 
 func main() {
 	if err := Main(); err != nil {
@@ -82,7 +80,7 @@ func Main() error {
 
 	rootCtx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	rootCtx = logr.NewContext(rootCtx, logger)
+	rootCtx = logr.NewContext(zlog.NewContext(rootCtx, logger), logger.AsLogr())
 
 	prepare := func(ctx context.Context) (imapclient.Client, error) {
 		var c imapclient.Client
@@ -105,7 +103,7 @@ func Main() error {
 				}.WithPassword(token.AccessToken)
 				c = imapclient.FromServerAddress(sa)
 				if verbose {
-					c.SetLogger(logger)
+					c.SetLogger(logger.AsLogr())
 					c.SetLogMask(imapclient.LogAll)
 				}
 			} else if userID != "" {
@@ -140,7 +138,7 @@ func Main() error {
 			}
 			c = imapclient.FromServerAddress(sa)
 			if verbose {
-				c.SetLogger(logger)
+				c.SetLogger(logger.AsLogr())
 				c.SetLogMask(imapclient.LogAll)
 			}
 		}
@@ -454,7 +452,7 @@ func Main() error {
 				return err
 			}
 			if verbose {
-				src.SetLogger(logger)
+				src.SetLogger(logger.AsLogr())
 				src.SetLogMask(imapclient.LogAll)
 			}
 			dstM, err := imapclient.ParseMailbox(syncDst)
@@ -530,8 +528,8 @@ func Main() error {
 	if err := app.Parse(os.Args[1:]); err != nil {
 		return err
 	}
-	if verbose {
-		zl = zl.Level(zerolog.TraceLevel)
+	if !verbose {
+		logger.SetLevel(zlog.ErrorLevel)
 	}
 
 	return app.Run(rootCtx)

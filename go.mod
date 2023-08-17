@@ -2,7 +2,7 @@ module github.com/tgulacsi/imapclient
 
 require (
 	github.com/AzureAD/microsoft-authentication-library-for-go v0.7.0
-	github.com/UNO-SOFT/zlog v0.7.6
+	github.com/UNO-SOFT/zlog v0.7.7
 	github.com/emersion/go-imap v1.2.1
 	github.com/emersion/go-sasl v0.0.0-20220912192320-0145f2c60ead
 	github.com/go-logr/logr v1.2.4

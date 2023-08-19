@@ -1,4 +1,4 @@
-// Copyright 2022 Tamás Gulácsi. All rights reserved.
+// Copyright 2022, 2023 Tamás Gulácsi. All rights reserved.
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -9,13 +9,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/textproto"
 	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
-
-	"github.com/go-logr/logr"
 
 	"github.com/tgulacsi/imapclient/graph"
 	"github.com/tgulacsi/imapclient/v2"
@@ -30,7 +29,10 @@ type graphMailClient struct {
 	folders map[string]graph.Folder
 	u2s     map[uint32]string
 	s2u     map[string]uint32
-	seq     uint32
+
+	logger *slog.Logger
+
+	seq uint32
 }
 
 func NewGraphMailClient(ctx context.Context, clientID, clientSecret, tenantID, userID string) (*graphMailClient, error) {
@@ -39,7 +41,7 @@ func NewGraphMailClient(ctx context.Context, clientID, clientSecret, tenantID, u
 		return nil, err
 	}
 
-	logger := logr.FromContextOrDiscard(ctx)
+	logger := slog.Default()
 	if strings.IndexByte(userID, '@') >= 0 {
 		users, err := gmc.Users(ctx)
 		if err != nil {
@@ -47,7 +49,7 @@ func NewGraphMailClient(ctx context.Context, clientID, clientSecret, tenantID, u
 		}
 		var found bool
 		for _, u := range users {
-			logger.V(1).Info("users", "name", u.DisplayName, "mail", u.Mail)
+			logger.Debug("users", "name", u.DisplayName, "mail", u.Mail)
 			if u.Mail != nil && string(*u.Mail) == userID {
 				userID, found = *u.ID(), true
 				break
@@ -57,8 +59,11 @@ func NewGraphMailClient(ctx context.Context, clientID, clientSecret, tenantID, u
 			return nil, fmt.Errorf("no user found with %q mail address", userID)
 		}
 	}
-	logger.V(1).Info("NewGraphMailClient", "userID", userID)
-	return &graphMailClient{GraphMailClient: gmc, userID: userID}, nil
+	logger.Debug("NewGraphMailClient", "userID", userID)
+	return &graphMailClient{
+		GraphMailClient: gmc, userID: userID,
+		logger: logger,
+	}, nil
 }
 
 var _ imapclient.Client = (*graphMailClient)(nil)
@@ -98,17 +103,14 @@ func (g *graphMailClient) init(ctx context.Context, mbox string) error {
 	for _, f := range folders {
 		g.folders["{"+f.ID+"}"] = f
 	}
-	//logger := logr.FromContextOrDiscard(ctx)
 	var path []string
 	for _, f := range folders {
-		//logger.V(2).Info("folder", "name", f.DisplayName, "parent", f.ParentFolderID)
 		var prefix string
 		path = path[:0]
 		if f.ParentFolderID != "" {
 			for p := g.folders["{"+f.ParentFolderID+"}"]; p.ParentFolderID != ""; p = g.folders["{"+p.ParentFolderID+"}"] {
 				path = append(path, strings.ToLower(p.DisplayName))
 			}
-			//logger.Info("path", "name", f.DisplayName, "path", path)
 			if len(path) != 0 {
 				// reverse
 				for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
@@ -126,7 +128,7 @@ func (g *graphMailClient) init(ctx context.Context, mbox string) error {
 	// https://www.c-sharpcorner.com/article/read-email-from-mailbox-folders-using-microsoft-graph-api/
 	return nil
 }
-func (g *graphMailClient) SetLogger(logr.Logger)                            {}
+func (g *graphMailClient) SetLogger(lgr *slog.Logger)                       { g.logger = lgr }
 func (g *graphMailClient) SetLogMask(imapclient.LogMask) imapclient.LogMask { return false }
 func (g *graphMailClient) Close(ctx context.Context, commit bool) error     { return ErrNotSupported }
 func (g *graphMailClient) Mailboxes(ctx context.Context, root string) ([]string, error) {
@@ -142,7 +144,6 @@ func (g *graphMailClient) Mailboxes(ctx context.Context, root string) ([]string,
 	return folders, nil
 }
 func (g *graphMailClient) FetchArgs(ctx context.Context, what string, msgIDs ...uint32) (map[uint32]map[string][]string, error) {
-	logger := logr.FromContextOrDiscard(ctx)
 	m := make(map[uint32]map[string][]string, len(msgIDs))
 	var wantMIME bool
 	for _, f := range strings.Fields(what) {
@@ -167,7 +168,7 @@ func (g *graphMailClient) FetchArgs(ctx context.Context, what string, msgIDs ...
 		} else {
 			hdrs, err := g.GraphMailClient.GetMessageHeaders(ctx, g.userID, s, odata.Query{})
 			if err != nil {
-				logger.Error(err, "GetMessageHeaders", "msgID", s)
+				g.logger.Error("GetMessageHeaders", "msgID", s, "error", err)
 				if firstErr == nil {
 					firstErr = err
 				}
@@ -275,12 +276,11 @@ func (g *graphMailClient) List(ctx context.Context, mbox, pattern string, all bo
 	if err := g.init(ctx, mbox); err != nil {
 		return nil, err
 	}
-	logger := logr.FromContextOrDiscard(ctx)
 	mID, err := g.m2s(mbox)
 	if err != nil {
 		return nil, err
 	}
-	logger.V(1).Info("folder", "id", mID, "name", mbox)
+	g.logger.Debug("folder", "id", mID, "name", mbox)
 	query := odata.Query{Filter: "isRead eq false"}
 	if pattern != "" {
 		query.Filter += " and contains(subject, " + strings.ReplaceAll(strconv.Quote(pattern), `"`, "'") + ")"
@@ -292,7 +292,7 @@ func (g *graphMailClient) List(ctx context.Context, mbox, pattern string, all bo
 	if len(msgs) == 0 {
 		return nil, nil
 	}
-	logger.V(1).Info("messages", "msgs", len(msgs))
+	g.logger.Debug("messages", "msgs", len(msgs))
 	ids := make([]uint32, 0, len(msgs))
 	for _, m := range msgs {
 		s := m.ID

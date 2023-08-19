@@ -30,7 +30,6 @@ import (
 	"golang.org/x/text/transform"
 
 	"github.com/UNO-SOFT/zlog/v2"
-	"github.com/go-logr/logr"
 
 	"github.com/peterbourgon/ff/v3/ffcli"
 	"github.com/tgulacsi/imapclient/v2"
@@ -39,7 +38,8 @@ import (
 
 const fetchBatchLen = 1024
 
-var logger = zlog.New(os.Stderr)
+var verbose zlog.VerboseVar
+var logger = zlog.NewLogger(zlog.MaybeConsoleHandler(&verbose, os.Stderr)).SLog()
 
 func main() {
 	if err := Main(); err != nil {
@@ -49,11 +49,11 @@ func main() {
 
 func Main() error {
 	var (
-		username, password          string
-		recursive, verbose, all, du bool
-		clientID, clientSecret      string
-		tenantID, userID            string
-		impersonate                 string
+		username, password     string
+		recursive, all, du     bool
+		clientID, clientSecret string
+		tenantID, userID       string
+		impersonate            string
 	)
 	host := os.Getenv("IMAPDUMP_HOST")
 	port := 143
@@ -63,7 +63,7 @@ func Main() error {
 		}
 	}
 	FS := flag.NewFlagSet("global", flag.ExitOnError)
-	FS.BoolVar(&verbose, "v", false, "verbose")
+	FS.Var(&verbose, "v", "verbose")
 	FS.StringVar(&username, "username", os.Getenv("IMAPDUMP_USER"), "username")
 	FS.StringVar(&password, "password", os.Getenv("IMAPDUMP_PASS"), "password")
 	FS.StringVar(&host, "host", host, "host")
@@ -80,7 +80,7 @@ func Main() error {
 
 	rootCtx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	rootCtx = logr.NewContext(zlog.NewContext(rootCtx, logger), logger.AsLogr())
+	rootCtx = zlog.NewSContext(rootCtx, logger)
 
 	prepare := func(ctx context.Context) (imapclient.Client, error) {
 		var c imapclient.Client
@@ -102,8 +102,8 @@ func Main() error {
 					TLSPolicy: imapclient.ForceTLS,
 				}.WithPassword(token.AccessToken)
 				c = imapclient.FromServerAddress(sa)
-				if verbose {
-					c.SetLogger(logger.AsLogr())
+				if verbose > 1 {
+					c.SetLogger(logger)
 					c.SetLogMask(imapclient.LogAll)
 				}
 			} else if userID != "" {
@@ -137,8 +137,8 @@ func Main() error {
 				sa.TLSPolicy = imapclient.NoTLS
 			}
 			c = imapclient.FromServerAddress(sa)
-			if verbose {
-				c.SetLogger(logger.AsLogr())
+			if verbose > 1 {
+				c.SetLogger(logger)
 				c.SetLogMask(imapclient.LogAll)
 			}
 		}
@@ -168,7 +168,7 @@ func Main() error {
 			for _, mbox := range args {
 				mails, err := listMbox(rootCtx, c, mbox, all)
 				if err != nil {
-					logger.Error(err, "Listing", "box", mbox)
+					logger.Error("Listing", "box", mbox, "error", err)
 				}
 				fmt.Fprintln(os.Stdout, "UID\tSIZE\tSUBJECT")
 				for _, m := range mails {
@@ -200,7 +200,7 @@ func Main() error {
 			cancel()
 			logger.Info("end Mailboxes", "boxes", boxes, "du", du, "error", err)
 			if err != nil {
-				logger.Error(err, "LIST")
+				logger.Error("LIST", "error", err)
 				return err
 			}
 			if !du {
@@ -217,7 +217,7 @@ func Main() error {
 				mails, err := listMbox(ctx, c, m, true)
 				cancel()
 				if err != nil {
-					logger.Error(err, "list", "box", m)
+					logger.Error("list", "box", m, "error", err)
 				}
 				var s uint64
 				for _, m := range mails {
@@ -258,7 +258,7 @@ func Main() error {
 				mailboxes, err = c.Mailboxes(ctx, mbox)
 				cancel()
 				if err != nil {
-					logger.Error(err, "List mailboxes under", "box", mbox)
+					logger.Error("List mailboxes under", "box", mbox, "error", err)
 					//return err
 					mailboxes = []string{mbox}
 				}
@@ -269,13 +269,13 @@ func Main() error {
 				var err error
 				dest, err = os.Create(*saveOut)
 				if err != nil {
-					logger.Error(err, "create", "output", *saveOut)
+					logger.Error("create", "output", *saveOut, "error", err)
 					return err
 				}
 			}
 			defer func() {
 				if err := dest.Close(); err != nil {
-					logger.Error(err, "close output")
+					logger.Error("close output", "error", err)
 				}
 			}()
 
@@ -284,7 +284,7 @@ func Main() error {
 				err := c.Select(ctx, mbox)
 				cancel()
 				if err != nil {
-					logger.Error(err, "SELECT", "box", mbox)
+					logger.Error("SELECT", "box", mbox, "error", err)
 					return err
 				}
 
@@ -294,7 +294,7 @@ func Main() error {
 					uids, err = c.List(ctx, mbox, "", true)
 					cancel()
 					if err != nil {
-						logger.Error(err, "list", "box", mbox)
+						logger.Error("list", "box", mbox, "error", err)
 						return err
 					}
 				}
@@ -304,7 +304,7 @@ func Main() error {
 					_, err = c.ReadTo(ctx, dest, uids[0])
 					cancel()
 					if err != nil {
-						logger.Error(err, "Read", "uid", uids[0])
+						logger.Error("Read", "uid", uids[0], "error", err)
 						return err
 					}
 				}
@@ -314,7 +314,7 @@ func Main() error {
 					err = closeErr
 				}
 				if err != nil {
-					logger.Error(err, "dumpMails")
+					logger.Error("dumpMails", "error", err)
 				}
 				return err
 			}
@@ -322,7 +322,7 @@ func Main() error {
 			tw := &syncTW{Writer: tar.NewWriter(dest)}
 			defer func() {
 				if err := tw.Close(); err != nil {
-					logger.Error(err, "Close tar")
+					logger.Error("Close tar", "error", err)
 					os.Exit(1)
 				}
 			}()
@@ -332,7 +332,7 @@ func Main() error {
 				uids, err := c.List(ctx, mbox, "", true)
 				cancel()
 				if err != nil {
-					logger.Error(err, "list", "box", mbox)
+					logger.Error("list", "box", mbox, "error", err)
 					return err
 				}
 				if len(uids) == 0 {
@@ -451,8 +451,8 @@ func Main() error {
 			if err != nil {
 				return err
 			}
-			if verbose {
-				src.SetLogger(logger.AsLogr())
+			if verbose > 1 {
+				src.SetLogger(logger)
 				src.SetLogMask(imapclient.LogAll)
 			}
 			dstM, err := imapclient.ParseMailbox(syncDst)
@@ -465,7 +465,7 @@ func Main() error {
 			if err != nil {
 				return err
 			}
-			if verbose {
+			if verbose > 1 {
 				dst.SetLogMask(imapclient.LogAll)
 			}
 
@@ -528,9 +528,6 @@ func Main() error {
 	if err := app.Parse(os.Args[1:]); err != nil {
 		return err
 	}
-	if !verbose {
-		logger.SetLevel(zlog.ErrorLevel)
-	}
 
 	return app.Run(rootCtx)
 }
@@ -542,7 +539,7 @@ func dumpMails(rootCtx context.Context, tw *syncTW, c imapclient.Client, mbox st
 	err := c.Select(ctx, mbox)
 	cancel()
 	if err != nil {
-		logger.Error(err, "SELECT", "box", mbox)
+		logger.Error("SELECT", "box", mbox, "error", err)
 		return err
 	}
 
@@ -552,7 +549,7 @@ func dumpMails(rootCtx context.Context, tw *syncTW, c imapclient.Client, mbox st
 		uids, err = c.List(ctx, mbox, "", true)
 		cancel()
 		if err != nil {
-			logger.Error(err, "list", "box", mbox)
+			logger.Error("list", "box", mbox, "error", err)
 			return err
 		}
 	}
@@ -570,7 +567,7 @@ func dumpMails(rootCtx context.Context, tw *syncTW, c imapclient.Client, mbox st
 		_, err = c.ReadTo(ctx, buf, uint32(uid))
 		cancel()
 		if err != nil {
-			logger.Error(err, "read", "uid", uid)
+			logger.Error("read", "uid", uid, "error", err)
 		}
 		hsh.Reset()
 		hsh.Write(buf.Bytes())
@@ -578,7 +575,7 @@ func dumpMails(rootCtx context.Context, tw *syncTW, c imapclient.Client, mbox st
 		if _, ok := seen[hshS]; ok {
 			logger.Info("Deleting already seen.", "box", mbox, "uid", uid)
 			if err := c.Delete(ctx, uid); err != nil {
-				logger.Error(err, "Delete", "box", mbox, "uid", uid)
+				logger.Error("Delete", "box", mbox, "uid", uid, "error", err)
 			}
 			continue
 		}
@@ -591,7 +588,7 @@ func dumpMails(rootCtx context.Context, tw *syncTW, c imapclient.Client, mbox st
 		}
 		t := now
 		if err != nil {
-			logger.Error(err, "parse", "uid", uid, "bytes", buf.Bytes())
+			logger.Error("parse", "uid", uid, "bytes", buf.Bytes(), "error", err)
 		} else {
 			var ok bool
 			if t, ok = HeadDate(hdr.Get("Date")); !ok {
@@ -645,7 +642,7 @@ func HeadDecode(head string) string {
 	if err == nil {
 		return res
 	}
-	logger.Error(err, "decode", "head", head)
+	logger.Error("decode", "head", head, "error", err)
 	return head
 }
 
@@ -683,7 +680,7 @@ func listMbox(rootCtx context.Context, c imapclient.Client, mbox string, all boo
 		attrs, err := c.FetchArgs(ctx, "RFC822.SIZE RFC822.HEADER", uids[:n]...)
 		cancel()
 		if err != nil {
-			logger.Error(err, "FetchArgs", "uids", uids)
+			logger.Error("FetchArgs", "uids", uids, "error", err)
 			return nil, fmt.Errorf("FetchArgs %v: %w", uids, err)
 		}
 		uids = uids[n:]
@@ -695,7 +692,7 @@ func listMbox(rootCtx context.Context, c imapclient.Client, mbox string, all boo
 			}
 			hdr, err := textproto.NewReader(bufio.NewReader(strings.NewReader(a["RFC822.HEADER"][0]))).ReadMIMEHeader()
 			if err != nil {
-				logger.Error(err, "parse", "uid", uid, "bytes", a["RFC822.HEADER"])
+				logger.Error("parse", "uid", uid, "bytes", a["RFC822.HEADER"], "error", err)
 				continue
 			}
 			m.Subject = HeadDecode(hdr.Get("Subject"))
@@ -708,7 +705,7 @@ func listMbox(rootCtx context.Context, c imapclient.Client, mbox string, all boo
 				}
 			}
 			if s, err := strconv.ParseUint(a["RFC822.SIZE"][0], 10, 32); err != nil {
-				logger.Error(err, "size of", "uid", uid, "text", a["RFC822.SIZE"])
+				logger.Error("size of", "uid", uid, "text", a["RFC822.SIZE"], "error", err)
 				continue
 			} else {
 				m.Size = uint32(s)

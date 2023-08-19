@@ -1,4 +1,4 @@
-// Copyright 2021 Tamás Gulácsi. All rights reserved.
+// Copyright 2021, 2023 Tamás Gulácsi. All rights reserved.
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -10,7 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -25,17 +25,13 @@ import (
 	"github.com/tgulacsi/oauth2client"
 )
 
-var Log = func(keyvals ...interface{}) error {
-	log.Println(keyvals...)
-	return nil
-}
-
 const baseURL = "https://outlook.office.com/api/v2.0"
 
 type client struct {
 	*oauth2.Config
 	oauth2.TokenSource
-	Me string
+	logger *slog.Logger
+	Me     string
 }
 
 type clientOptions struct {
@@ -100,6 +96,7 @@ func NewClient(clientID, clientSecret, redirectURL string, options ...ClientOpti
 		Config:      conf,
 		Me:          opts.Impersonate,
 		TokenSource: oauth2client.NewTokenSource(conf, tokensFile, opts.TLSCertFile, opts.TLSKeyFile),
+		logger:      slog.Default(),
 	}
 }
 
@@ -466,9 +463,9 @@ func (c *client) DeleteFolder(ctx context.Context, folderID string) error {
 func (c *client) URLFor(path string) string { return baseURL + "/" + c.Me + path }
 func (c *client) get(ctx context.Context, path string) (io.ReadCloser, error) {
 	URL := c.URLFor(path)
-	Log("get", URL)
+	c.logger.Debug("get", "url", URL)
 	resp, err := oauth2.NewClient(ctx, c.TokenSource).Get(URL)
-	Log("resp", resp, "error", err)
+	c.logger.Info("get", "resp", resp, "error", err)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}

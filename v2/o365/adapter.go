@@ -1,4 +1,4 @@
-// Copyright 2021 Tamás Gulácsi. All rights reserved.
+// Copyright 2021, 2023 Tamás Gulácsi. All rights reserved.
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -9,11 +9,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/go-logr/logr"
 	"github.com/tgulacsi/imapclient/v2"
 )
 
@@ -146,7 +146,7 @@ func (c *oClient) uidToStr(msgID uint32) (string, error) {
 	return s, nil
 }
 func (c *oClient) SetLogMask(mask imapclient.LogMask) imapclient.LogMask { return false }
-func (c *oClient) SetLogger(lgr logr.Logger)                             {}
+func (c *oClient) SetLogger(lgr *slog.Logger)                            { c.logger = lgr }
 func (c *oClient) Select(ctx context.Context, mbox string) error {
 	c.mu.Lock()
 	c.selected = mbox

@@ -8,20 +8,19 @@ package imapclient
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
-	stdlog "log"
+	"log"
+	"log/slog"
 	"net"
 	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
-	"golang.org/x/net/context"
-
-	"github.com/go-logr/logr"
 	"github.com/tgulacsi/imapclient/xoauth2"
 
 	"github.com/emersion/go-imap"
@@ -53,7 +52,7 @@ type Client interface {
 	Mark(ctx context.Context, msgID uint32, seen bool) error
 	List(ctx context.Context, mbox, pattern string, all bool) ([]uint32, error)
 	ReadTo(ctx context.Context, w io.Writer, msgID uint32) (int64, error)
-	SetLogger(logr.Logger)
+	SetLogger(*slog.Logger)
 	SetLogMask(LogMask) LogMask
 }
 
@@ -69,7 +68,7 @@ type imapClient struct {
 	ServerAddress
 	//mu      sync.Mutex
 	c       *client.Client
-	logger  logr.Logger
+	logger  *slog.Logger
 	status  *imap.MailboxStatus
 	created []string
 	logMask LogMask
@@ -88,7 +87,7 @@ func NewClient(host string, port int, username, password string) Client {
 
 // FromServerAddress returns a new (not connected) Client, using the ServerAddress.
 func FromServerAddress(sa ServerAddress) Client {
-	return &imapClient{ServerAddress: sa, logger: logr.Discard()}
+	return &imapClient{ServerAddress: sa, logger: slog.Default()}
 }
 
 // NewClientTLS returns a new (not connected) Client, using TLS.
@@ -246,11 +245,11 @@ func (c *imapClient) setLogMask(mask LogMask) LogMask {
 	return mask
 }
 
-func (c *imapClient) SetLogger(lgr logr.Logger) {
+func (c *imapClient) SetLogger(lgr *slog.Logger) {
 	c.logger = lgr
 	//c.mu.Lock()
 	if c.c != nil {
-		c.c.ErrorLog = stdlog.New(loggerWriter{c.logger}, "", 0)
+		c.c.ErrorLog = log.New(loggerWriter{c.logger}, "", 0)
 	}
 	//c.mu.Unlock()
 }
@@ -423,7 +422,7 @@ func (c *imapClient) Move(ctx context.Context, msgID uint32, mbox string) error 
 		err := c.c.Create(mbox)
 		//c.mu.Unlock()
 		if err != nil {
-			c.logger.Error(err, "Create", "box", mbox)
+			c.logger.Error("Create", "box", mbox, "error", err)
 		}
 	}
 
@@ -445,7 +444,6 @@ func (c *imapClient) List(ctx context.Context, mbox, pattern string, all bool) (
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	//Log("msg","List", "box",mbox, "pattern",pattern)
 	if err := c.Select(ctx, mbox); err != nil {
 		return nil, fmt.Errorf("SELECT %q: %w", mbox, err)
 	}
@@ -600,7 +598,7 @@ func (c *imapClient) Connect(ctx context.Context) error {
 	}
 	//c.mu.Unlock()
 	if err != nil {
-		c.logger.Error(err, "Connect", "addr", addr)
+		c.logger.Error("Connect", "addr", addr, "error", err)
 		return fmt.Errorf("%s: %w", addr, err)
 	}
 	c.c = cl
@@ -629,7 +627,7 @@ func (c *imapClient) login(ctx context.Context) (err error) {
 	if err = ctx.Err(); err != nil {
 		return err
 	}
-	logger := c.logger.WithValues("username", c.Username)
+	logger := c.logger.With("username", c.Username)
 	order := []string{"login", "oauthbearer", "xoauth2", "cram-md5", "plain"}
 	if len(c.password) > 40 {
 		order[0], order[1], order[2] = order[1], order[2], order[0]
@@ -640,7 +638,7 @@ func (c *imapClient) login(ctx context.Context) (err error) {
 	c.setLogMask(LogAll)
 
 	for _, method := range order {
-		logger := logger.WithValues("method", method)
+		logger := logger.With("method", method)
 		logger.Info("try logging in")
 		err = errNotLoggedIn
 
@@ -666,7 +664,7 @@ func (c *imapClient) login(ctx context.Context) (err error) {
 				if i := strings.IndexByte(username, '\\'); i >= 0 {
 					identity, username = strings.TrimPrefix(username[i+1:], "\\"), username[:i]
 				}
-				logger = logger.WithValues("method", method, "identity", identity)
+				logger = logger.With("method", method, "identity", identity)
 
 				err = c.c.Authenticate(sasl.NewPlainClient(identity, username, c.password))
 			}
@@ -722,7 +720,7 @@ func (lit literal) Len() int { return lit.length }
 var _ = io.Writer(loggerWriter{})
 
 type loggerWriter struct {
-	logr.Logger
+	*slog.Logger
 }
 
 func (lg loggerWriter) Write(p []byte) (int, error) {

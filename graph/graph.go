@@ -309,6 +309,6 @@ type Folder struct {
 	ParentFolderID   string `json:"parentFolderId"`
 	ChildFolderCount int    `json:"childFolderCount"`
 	UnreadItemCount  int    `json:"unreadItemCount"`
-	TotalItemCount   int    `json:"unreadItemCount"`
+	TotalItemCount   int    `json:"totalItemCount"`
 	Hidden           bool   `json:"isHidden"`
 }

@@ -15,14 +15,13 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/go-logr/logr"
 
-	"github.com/manicminer/hamilton/auth"
-	"github.com/manicminer/hamilton/environments"
+	"github.com/hashicorp/go-azure-sdk/sdk/auth"
+	"github.com/hashicorp/go-azure-sdk/sdk/environments"
+	"github.com/hashicorp/go-azure-sdk/sdk/odata"
 	"github.com/manicminer/hamilton/msgraph"
-	"github.com/manicminer/hamilton/odata"
 )
 
 type GraphMailClient struct {
@@ -31,36 +30,24 @@ type GraphMailClient struct {
 
 func NewGraphMailClient(ctx context.Context, tenantID, clientID, clientSecret string) (GraphMailClient, error) {
 	logger := logr.FromContextOrDiscard(ctx)
-	environment := environments.Global
-	// https://learn.microsoft.com/hu-hu/azure/active-directory/develop/quickstart-register-app#add-a-certificate
-	newAuthorizer := func(ctx context.Context) (auth.Authorizer, error) {
-		return auth.NewClientSecretAuthorizer(ctx,
-			environment, environment.MsGraph, auth.TokenVersion2,
-			tenantID, nil, clientID, clientSecret,
-		)
-	}
-	// First try with limited time,
-	shortCtx, shortCancel := context.WithTimeout(ctx, 15*time.Second)
-	authorizer, err := newAuthorizer(shortCtx)
-	if err == nil {
-		if _, err = authorizer.Token(); err == nil {
-			// then with the global Context.
-			authorizer, err = newAuthorizer(ctx)
-		}
-	}
-	shortCancel()
-	if err != nil {
-		return GraphMailClient{}, err
-	}
-	tok, err := authorizer.Token()
-	if err != nil {
-		return GraphMailClient{}, err
-	}
-	logger.V(1).Info("authorizer", "token", tok)
+	env := environments.AzurePublic()
 
-	client := msgraph.NewClient(msgraph.VersionBeta, tenantID)
-	client.Authorizer = authorizer
-	client.RetryableClient.RetryMax = 3
+	credentials := auth.Credentials{
+		Environment:  *env,
+		TenantID:     tenantID,
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+
+		EnableAuthenticatingUsingClientSecret: true,
+	}
+	// https://learn.microsoft.com/hu-hu/azure/active-directory/develop/quickstart-register-app#add-a-certificate
+	authorizer, err := auth.NewAuthorizerFromCredentials(ctx, credentials, env.MicrosoftGraph)
+	if err != nil {
+		return GraphMailClient{}, err
+	}
+	client := msgraph.NewUsersClient()
+	client.BaseClient.Authorizer = authorizer
+	client.BaseClient.RetryableClient.RetryMax = 3
 
 	if logger.V(1).Enabled() {
 		requestLogger := func(req *http.Request) (*http.Request, error) {
@@ -79,11 +66,11 @@ func NewGraphMailClient(ctx context.Context, tenantID, clientID, clientSecret st
 			return resp, nil
 		}
 
-		client.RequestMiddlewares = &[]msgraph.RequestMiddleware{requestLogger}
-		client.ResponseMiddlewares = &[]msgraph.ResponseMiddleware{responseLogger}
+		client.BaseClient.RequestMiddlewares = &[]msgraph.RequestMiddleware{requestLogger}
+		client.BaseClient.ResponseMiddlewares = &[]msgraph.ResponseMiddleware{responseLogger}
 	}
 
-	return GraphMailClient{BaseClient: client}, nil
+	return GraphMailClient{BaseClient: client.BaseClient}, nil
 }
 
 func (g GraphMailClient) Users(ctx context.Context) ([]msgraph.User, error) {
@@ -103,8 +90,8 @@ func (g GraphMailClient) get(ctx context.Context, dest interface{}, entity strin
 		OData:                  query,
 		ValidStatusCodes:       []int{http.StatusOK},
 		Uri: msgraph.Uri{
-			Entity:      entity,
-			HasTenantId: true,
+			Entity: entity,
+			// HasTenantId: true,
 		},
 	})
 	if err != nil {
@@ -131,8 +118,8 @@ func (g GraphMailClient) UpdateMessage(ctx context.Context, userID, messageID st
 		OData:                  odata.Query{},
 		ValidStatusCodes:       []int{http.StatusOK},
 		Uri: msgraph.Uri{
-			Entity:      entity,
-			HasTenantId: true,
+			Entity: entity,
+			// HasTenantId: true,
 		},
 	})
 	if err != nil {
@@ -155,8 +142,8 @@ func (g GraphMailClient) MoveMessage(ctx context.Context, userID, messageID, fol
 		OData:                  odata.Query{},
 		ValidStatusCodes:       []int{http.StatusOK, http.StatusCreated},
 		Uri: msgraph.Uri{
-			Entity:      entity,
-			HasTenantId: true,
+			Entity: entity,
+			// HasTenantId: true,
 		},
 	})
 	if err != nil {
@@ -179,8 +166,8 @@ func (g GraphMailClient) GetMIMEMessage(ctx context.Context, w io.Writer, userID
 		OData:                  odata.Query{},
 		ValidStatusCodes:       []int{http.StatusOK},
 		Uri: msgraph.Uri{
-			Entity:      entity,
-			HasTenantId: true,
+			Entity: entity,
+			// HasTenantId: true,
 		},
 	})
 	if err != nil {

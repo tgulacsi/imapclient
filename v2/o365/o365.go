@@ -103,7 +103,8 @@ func NewClient(clientID, clientSecret, redirectURL string, options ...ClientOpti
 type confidentialTokenSource struct {
 	clientID, clientSecret, tenantID string
 	confidential.Client
-	Scopes []string
+	Scopes   []string
+	clientOK bool
 }
 
 func NewConfidentialTokenSource(conf *oauth2.Config, tenantID string) *confidentialTokenSource {
@@ -115,17 +116,19 @@ func NewConfidentialTokenSource(conf *oauth2.Config, tenantID string) *confident
 }
 
 func (cts *confidentialTokenSource) Token() (*oauth2.Token, error) {
-	if cts.Client.UserID() == "" {
+	if !cts.clientOK {
 		cred, err := confidential.NewCredFromSecret(cts.clientSecret)
 		if err != nil {
 			return nil, fmt.Errorf("could not create a cred from a secret: %w", err)
 		}
-		cts.Client, err = confidential.New(cts.clientID, cred,
-			confidential.WithAuthority("https://login.microsoftonline.com/"+url.PathEscape(cts.tenantID)),
+		cts.Client, err = confidential.New(
+			"https://login.microsoftonline.com/"+url.PathEscape(cts.tenantID),
+			cts.clientID, cred,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("app: %w", err)
 		}
+		cts.clientOK = true
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	result, err := cts.Client.AcquireTokenByCredential(ctx, cts.Scopes)

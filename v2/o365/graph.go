@@ -19,7 +19,7 @@ import (
 	"github.com/tgulacsi/imapclient/graph"
 	"github.com/tgulacsi/imapclient/v2"
 
-	"github.com/manicminer/hamilton/odata"
+	"github.com/hashicorp/go-azure-sdk/sdk/odata"
 )
 
 type graphMailClient struct {

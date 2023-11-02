@@ -12,10 +12,10 @@ import (
 	"time"
 )
 
-var clientID, clientSecret = os.Getenv("CLIENT_ID"), os.Getenv("CLIENT_SECRET")
+var clientID, clientSecret, tenantID = os.Getenv("CLIENT_ID"), os.Getenv("CLIENT_SECRET"), os.Getenv("TENANT_ID")
 
 func TestList(t *testing.T) {
-	cl := NewClient(clientID, clientSecret, "")
+	cl := NewClient(clientID, clientSecret, "", TenantID(tenantID))
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	messages, err := cl.List(ctx, "", "", false)

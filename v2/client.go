@@ -264,8 +264,10 @@ func (c *imapClient) Select(ctx context.Context, mbox string) error {
 	status, err := c.c.Select(mbox, false)
 	//c.mu.Unlock()
 	if err != nil {
+		c.logger.Error("Select", "mbox", mbox, "error", err)
 		return fmt.Errorf("SELECT %q: %w", mbox, err)
 	}
+	c.logger.Debug("Select", "mbox", mbox, "status", status)
 	c.status = status
 	return nil
 }
@@ -459,7 +461,15 @@ func (c *imapClient) List(ctx context.Context, mbox, pattern string, all bool) (
 	//c.mu.Lock()
 	//defer c.mu.Unlock()
 	// The response contains a list of message sequence IDs
-	return c.c.UidSearch(crit)
+	uids, err := c.c.UidSearch(crit)
+	if err != nil {
+		c.logger.Error("UidSearch", "crit", crit, "error", err)
+		return uids, err
+	}
+	if c.logger.Enabled(ctx, slog.LevelDebug) {
+		c.logger.Debug("UidSearch", "crit", crit, "error", err)
+	}
+	return uids, err
 }
 
 // Mailboxes returns the list of mailboxes under root

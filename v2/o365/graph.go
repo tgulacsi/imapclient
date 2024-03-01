@@ -97,8 +97,11 @@ func (g *graphMailClient) init(ctx context.Context, mbox string) error {
 		return err
 	}
 	folders, err := g.GraphMailClient.ListChildFolders(ctx, g.userID, fID, true, odata.Query{})
-	if err != nil && len(folders) == 0 {
-		return err
+	if err != nil {
+		g.logger.Error("ListChildFolders", "userID", g.userID, "folder", fID, "folders", folders, "error", err)
+		if len(folders) == 0 {
+			return err
+		}
 	}
 	for _, f := range folders {
 		g.folders["{"+f.ID+"}"] = f
@@ -122,6 +125,7 @@ func (g *graphMailClient) init(ctx context.Context, mbox string) error {
 		g.folders[prefix+strings.ToLower(f.DisplayName)] = f
 	}
 	if err != nil {
+		g.logger.Error("MailFolders.Get", "userID", g.userID, "folder", fID, "error", err)
 		return fmt.Errorf("MailFolders.Get(%q): %w", g.userID, err)
 	}
 
@@ -274,25 +278,27 @@ func (g *graphMailClient) m2s(mbox string) (string, error) {
 }
 func (g *graphMailClient) List(ctx context.Context, mbox, pattern string, all bool) ([]uint32, error) {
 	if err := g.init(ctx, mbox); err != nil {
+		g.logger.Error("init", "mbox", mbox, "error", err)
 		return nil, err
 	}
 	mID, err := g.m2s(mbox)
 	if err != nil {
+		g.logger.Error("m2s", "mbox", mbox, "error", err)
 		return nil, err
 	}
-	g.logger.Debug("folder", "id", mID, "name", mbox)
 	query := odata.Query{Filter: "isRead eq false"}
 	if pattern != "" {
 		query.Filter += " and contains(subject, " + strings.ReplaceAll(strconv.Quote(pattern), `"`, "'") + ")"
 	}
 	msgs, err := g.GraphMailClient.ListMessages(ctx, g.userID, mID, query)
 	if err != nil {
+		g.logger.Error("folder", "id", mID, "name", mbox, "query", query, "error", err)
 		return nil, err
 	}
+	g.logger.Debug("folder", "id", mID, "name", mbox, "query", query, "msgs", len(msgs))
 	if len(msgs) == 0 {
 		return nil, nil
 	}
-	g.logger.Debug("messages", "msgs", len(msgs))
 	ids := make([]uint32, 0, len(msgs))
 	for _, m := range msgs {
 		s := m.ID

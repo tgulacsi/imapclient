@@ -312,10 +312,13 @@ func (c *client) List(ctx context.Context, mbox, pattern string, all bool) ([]Me
 		values.Set("$filter", "IsRead eq false")
 	}
 
-	body, err := c.get(ctx, path+"?"+values.Encode())
+	s := path + "?" + values.Encode()
+	body, err := c.get(ctx, s)
 	if err != nil {
+		c.logger.Error("List", "path", s, "error", err)
 		return nil, err
 	}
+	c.logger.Debug("List", "path", s)
 	defer func() {
 		io.Copy(io.Discard, body)
 		body.Close()
@@ -325,8 +328,13 @@ func (c *client) List(ctx context.Context, mbox, pattern string, all bool) ([]Me
 		Value []Message `json:"value"`
 	}
 	var resp listResponse
-	err = json.NewDecoder(body).Decode(&resp)
-	return resp.Value, err
+	var buf bytes.Buffer
+	if err = json.NewDecoder(io.TeeReader(body, &buf)).Decode(&resp); err != nil {
+		b, _ := io.ReadAll(io.MultiReader(bytes.NewReader(buf.Bytes()), body))
+		c.logger.Error("decode", "listResponse", string(b))
+	}
+	c.logger.Debug("List", "resp", resp)
+	return resp.Value, nil
 }
 
 func (c *client) Get(ctx context.Context, msgID string) (Message, error) {

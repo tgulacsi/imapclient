@@ -1,4 +1,4 @@
-// Copyright 2022 Tamás Gulácsi. All rights reserved.
+// Copyright 2022, 2024 Tamás Gulácsi. All rights reserved.
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -10,14 +10,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"strconv"
 	"strings"
 
-	"github.com/go-logr/logr"
-
+	"github.com/UNO-SOFT/zlog/v2"
 	"github.com/hashicorp/go-azure-sdk/sdk/auth"
 	"github.com/hashicorp/go-azure-sdk/sdk/environments"
 	"github.com/hashicorp/go-azure-sdk/sdk/odata"
@@ -29,7 +29,7 @@ type GraphMailClient struct {
 }
 
 func NewGraphMailClient(ctx context.Context, tenantID, clientID, clientSecret string) (GraphMailClient, error) {
-	logger := logr.FromContextOrDiscard(ctx)
+	logger := zlog.SFromContext(ctx)
 	env := environments.AzurePublic()
 
 	credentials := auth.Credentials{
@@ -49,11 +49,11 @@ func NewGraphMailClient(ctx context.Context, tenantID, clientID, clientSecret st
 	client.BaseClient.Authorizer = authorizer
 	client.BaseClient.RetryableClient.RetryMax = 3
 
-	if logger.V(1).Enabled() {
+	if logger.Enabled(ctx, slog.LevelDebug) {
 		requestLogger := func(req *http.Request) (*http.Request, error) {
 			if req != nil {
 				dump, _ := httputil.DumpRequestOut(req, true)
-				logger.V(1).Info("request", "method", req.Method, "URL", req.URL.String(), "body", dump)
+				logger.Debug("request", "method", req.Method, "URL", req.URL.String(), "body", dump)
 			}
 			return req, nil
 		}
@@ -61,7 +61,7 @@ func NewGraphMailClient(ctx context.Context, tenantID, clientID, clientSecret st
 		responseLogger := func(req *http.Request, resp *http.Response) (*http.Response, error) {
 			if resp != nil {
 				dump, _ := httputil.DumpResponse(resp, true)
-				logger.V(1).Info("response", "URL", resp.Request.URL.String(), "body", dump)
+				logger.Debug("response", "URL", resp.Request.URL.String(), "body", dump)
 			}
 			return resp, nil
 		}
@@ -253,16 +253,16 @@ func (g GraphMailClient) ListChildFolders(ctx context.Context, userID, folderID 
 	}
 	var nextList []Folder
 	seen := make(map[string]struct{})
-	logger := logr.FromContextOrDiscard(ctx)
+	logger := zlog.SFromContext(ctx)
 	for len(toList) != 0 {
-		logger.V(1).Info("toList", "toList", len(toList))
+		logger.Debug("toList", "toList", len(toList))
 		nextList = nextList[:0]
 		for _, f := range toList {
 			if _, ok := seen[f.ID]; ok {
 				continue
 			}
 			seen[f.ID] = struct{}{}
-			logger.V(2).Info("get", "name", f.DisplayName, "path", path+"/"+url.PathEscape(f.ID)+"/childFolders")
+			logger.Debug("get", "name", f.DisplayName, "path", path+"/"+url.PathEscape(f.ID)+"/childFolders")
 			if err := g.get(ctx, &data, path+"/"+url.PathEscape(f.ID)+"/childFolders", query); err != nil {
 				if strings.Contains(err.Error(), "nil *Response with nil error") {
 					continue

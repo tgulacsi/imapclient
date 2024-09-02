@@ -5,7 +5,6 @@ require (
 	github.com/UNO-SOFT/zlog v0.8.3
 	github.com/emersion/go-imap v1.2.1
 	github.com/emersion/go-sasl v0.0.0-20231106173351-e73c9f7bad43
-	github.com/go-logr/logr v1.4.2
 	github.com/hashicorp/go-azure-sdk v0.20240125.1100331
 	github.com/manicminer/hamilton v0.71.0
 	github.com/peterbourgon/ff/v3 v3.4.0
@@ -17,6 +16,7 @@ require (
 )
 
 require (
+	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/golang-jwt/jwt/v5 v5.2.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/hashicorp/go-azure-helpers v0.70.1 // indirect

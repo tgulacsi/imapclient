@@ -1,10 +1,11 @@
-// Copyright 2017, 2021 Tamás Gulácsi. All rights reserved.
+// Copyright 2017, 2024 Tamás Gulácsi. All rights reserved.
 //
 // SPDX-License-Identifier: Apache-2.0
 
 package imapclient
 
 import (
+	"context"
 	"crypto/sha512"
 	"errors"
 	"fmt"
@@ -12,9 +13,7 @@ import (
 	"strconv"
 	"time"
 
-	"golang.org/x/net/context"
-
-	"github.com/go-logr/logr"
+	"github.com/UNO-SOFT/zlog/v2"
 	"github.com/tgulacsi/go/temp"
 )
 
@@ -63,7 +62,7 @@ func DeliveryLoopC(ctx context.Context, c Client, inbox, pattern string, deliver
 		// nosemgrep: trailofbits.go.invalid-usage-of-modified-variable.invalid-usage-of-modified-variable
 		n, err := one(ctx, c, inbox, pattern, deliver, outbox, errbox)
 		if err != nil {
-			logger.Error(err, "DeliveryLoop one round", "count", n)
+			logger.Error("DeliveryLoop one round", "count", n, "error", err)
 		} else {
 			logger.Info("DeliveryLoop one round", "count", n)
 		}
@@ -124,9 +123,9 @@ type DeliverFunc func(r io.ReadSeeker, uid uint32, hsh []byte) error
 type DeliverFuncC func(ctx context.Context, r io.ReadSeeker, uid uint32, hsh []byte) error
 
 func one(ctx context.Context, c Client, inbox, pattern string, deliver DeliverFuncC, outbox, errbox string) (int, error) {
-	logger := GetLogger(ctx).WithValues("c", c, "inbox", inbox)
+	logger := GetLogger(ctx).With("c", c, "inbox", inbox)
 	if err := c.ConnectC(ctx); err != nil {
-		logger.Error(err, "Connecting")
+		logger.Error("Connecting", "error", err)
 		return 0, fmt.Errorf("connect to %v: %w", c, err)
 	}
 	defer c.Close(true)
@@ -143,23 +142,23 @@ func one(ctx context.Context, c Client, inbox, pattern string, deliver DeliverFu
 		if err = ctx.Err(); err != nil {
 			return n, err
 		}
-		logger := logger.WithValues("uid", uid)
-		ctx := logr.NewContext(ctx, logger)
+		logger := logger.With("uid", uid)
+		ctx := zlog.NewSContext(ctx, logger)
 		hsh.Reset()
 		body := temp.NewMemorySlurper(strconv.FormatUint(uint64(uid), 10))
 		if _, err = c.ReadToC(ctx, io.MultiWriter(body, hsh), uid); err != nil {
 			body.Close()
-			logger.Error(err, "Read")
+			logger.Error("Read", "error", err)
 			continue
 		}
 
 		err = deliver(ctx, body, uid, hsh.Sum(nil))
 		body.Close()
 		if err != nil {
-			logger.Error(err, "deliver")
+			logger.Error("deliver", "error", err)
 			if errbox != "" && !errors.Is(err, ErrSkip) {
 				if err = c.MoveC(ctx, uid, errbox); err != nil {
-					logger.Error(err, "move to", "errbox", errbox)
+					logger.Error("move to", "errbox", errbox, "error", err)
 				}
 			}
 			continue
@@ -167,12 +166,12 @@ func one(ctx context.Context, c Client, inbox, pattern string, deliver DeliverFu
 		n++
 
 		if err = c.MarkC(ctx, uid, true); err != nil {
-			logger.Error(err, "mark seen")
+			logger.Error("mark seen", "error", err)
 		}
 
 		if outbox != "" {
 			if err = c.MoveC(ctx, uid, outbox); err != nil {
-				logger.Error(err, "move to", "outbox", outbox)
+				logger.Error("move to", "outbox", outbox, "error", err)
 				continue
 			}
 		}

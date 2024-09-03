@@ -52,16 +52,16 @@ func NewGraphMailClient(ctx context.Context, tenantID, clientID, clientSecret st
 	if logger.Enabled(ctx, slog.LevelDebug) {
 		requestLogger := func(req *http.Request) (*http.Request, error) {
 			if req != nil {
-				dump, _ := httputil.DumpRequestOut(req, true)
-				logger.Debug("request", "method", req.Method, "URL", req.URL.String(), "body", dump)
+				dump, _ := httputil.DumpRequestOut(req, false)
+				logger.Debug("request", "method", req.Method, "URL", req.URL.String(), "body", string(dump))
 			}
 			return req, nil
 		}
 
 		responseLogger := func(req *http.Request, resp *http.Response) (*http.Response, error) {
 			if resp != nil {
-				dump, _ := httputil.DumpResponse(resp, true)
-				logger.Debug("response", "URL", resp.Request.URL.String(), "body", dump)
+				dump, _ := httputil.DumpResponse(resp, false)
+				logger.Debug("response", "URL", resp.Request.URL.String(), "body", string(dump))
 			}
 			return resp, nil
 		}
@@ -101,12 +101,12 @@ func (g GraphMailClient) get(ctx context.Context, dest interface{}, entity strin
 		return fmt.Errorf("BaseClient.Get(%q): [%d] - %v", entity, status, err)
 	}
 	defer resp.Body.Close()
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("io.ReadAll(): %w", err)
+	var buf strings.Builder
+	if err := json.NewDecoder(io.TeeReader(resp.Body, &buf)).Decode(dest); err != nil {
+		return fmt.Errorf("json.Unmarshal(%q): %w", buf.String(), err)
 	}
-	if err := json.Unmarshal(respBody, dest); err != nil {
-		return fmt.Errorf("json.Unmarshal(): %w", err)
+	if logger := zlog.SFromContext(ctx); logger.Enabled(ctx, slog.LevelDebug) {
+		logger.Debug("get", "URL", resp.Request.URL, "response", buf.String())
 	}
 	return nil
 }
@@ -241,6 +241,8 @@ func (g GraphMailClient) ListChildFolders(ctx context.Context, userID, folderID 
 	if err := g.get(ctx, &data, path+"/"+url.PathEscape(folderID)+"/childFolders", query); err != nil || !recursive {
 		return data.Folders, err
 	}
+	logger := zlog.SFromContext(ctx)
+	logger.Debug("ListChildFolders", "got", data.Folders)
 	folders := append([]Folder(nil), data.Folders...)
 	toList := make([]Folder, 0, len(folders))
 	for _, f := range folders {
@@ -253,7 +255,6 @@ func (g GraphMailClient) ListChildFolders(ctx context.Context, userID, folderID 
 	}
 	var nextList []Folder
 	seen := make(map[string]struct{})
-	logger := zlog.SFromContext(ctx)
 	for len(toList) != 0 {
 		logger.Debug("toList", "toList", len(toList))
 		nextList = nextList[:0]
@@ -287,6 +288,9 @@ func (g GraphMailClient) ListMailFolders(ctx context.Context, userID string, que
 	}
 	path := "/users/" + url.PathEscape(userID) + "/mailFolders"
 	err := g.get(ctx, &data, path, query)
+	if logger := zlog.SFromContext(ctx); logger.Enabled(ctx, slog.LevelDebug) {
+		logger.Debug("ListMailFolders", "got", data.Folders, "error", err)
+	}
 	return data.Folders, err
 }
 
@@ -294,8 +298,10 @@ type Folder struct {
 	ID               string `json:"id"`
 	DisplayName      string `json:"displayName"`
 	ParentFolderID   string `json:"parentFolderId"`
+	WellKnownName    string `json:"wellKnownName"`
 	ChildFolderCount int    `json:"childFolderCount"`
 	UnreadItemCount  int    `json:"unreadItemCount"`
 	TotalItemCount   int    `json:"totalItemCount"`
+	SizeInBytes      int    `json:"sizeInBytes"`
 	Hidden           bool   `json:"isHidden"`
 }

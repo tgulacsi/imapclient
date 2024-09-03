@@ -165,6 +165,9 @@ func Main() error {
 				return err
 			}
 			defer cClose(c)
+			if len(args) == 0 {
+				args = []string{"INBOX"}
+			}
 			for _, mbox := range args {
 				mails, err := listMbox(rootCtx, c, mbox, all)
 				if err != nil {
@@ -194,7 +197,7 @@ func Main() error {
 				return err
 			}
 			defer cClose(c)
-			ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
+			ctx, cancel := context.WithTimeout(rootCtx, 10*time.Minute)
 			logger.Info("start Mailboxes")
 			boxes, err := c.Mailboxes(ctx, mbox)
 			cancel()
@@ -253,7 +256,7 @@ func Main() error {
 			mbox := *saveMbox
 			mailboxes := []string{mbox}
 			if recursive {
-				ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
+				ctx, cancel := context.WithTimeout(rootCtx, 1*time.Minute)
 				var err error
 				mailboxes, err = c.Mailboxes(ctx, mbox)
 				cancel()
@@ -280,7 +283,7 @@ func Main() error {
 			}()
 
 			if !recursive {
-				ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
+				ctx, cancel := context.WithTimeout(rootCtx, 1*time.Minute)
 				err := c.Select(ctx, mbox)
 				cancel()
 				if err != nil {
@@ -289,7 +292,7 @@ func Main() error {
 				}
 
 				if len(uids) == 0 {
-					ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
+					ctx, cancel := context.WithTimeout(rootCtx, 1*time.Minute)
 					var err error
 					uids, err = c.List(ctx, mbox, "", true)
 					cancel()
@@ -300,7 +303,7 @@ func Main() error {
 				}
 
 				if len(uids) == 1 {
-					ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
+					ctx, cancel := context.WithTimeout(rootCtx, 1*time.Minute)
 					_, err = c.ReadTo(ctx, dest, uids[0])
 					cancel()
 					if err != nil {
@@ -357,7 +360,7 @@ func Main() error {
 				return err
 			}
 			defer cClose(c)
-			ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
+			ctx, cancel := context.WithTimeout(rootCtx, 1*time.Minute)
 			err = c.Select(ctx, mbox)
 			cancel()
 			if err != nil {
@@ -386,7 +389,7 @@ func Main() error {
 						inpFh.Close()
 						return err
 					}
-					ctx, cancel := context.WithTimeout(rootCtx, 30*time.Second)
+					ctx, cancel := context.WithTimeout(rootCtx, 3*time.Minute)
 					err = c.WriteTo(ctx, mbox, b, date)
 					cancel()
 					if err != nil {
@@ -445,7 +448,7 @@ func Main() error {
 			if err != nil {
 				return err
 			}
-			ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
+			ctx, cancel := context.WithTimeout(rootCtx, 1*time.Minute)
 			src, err := srcM.Connect(ctx)
 			cancel()
 			if err != nil {
@@ -459,7 +462,7 @@ func Main() error {
 			if err != nil {
 				return err
 			}
-			ctx, cancel = context.WithTimeout(rootCtx, 10*time.Second)
+			ctx, cancel = context.WithTimeout(rootCtx, 1*time.Minute)
 			dst, err := dstM.Connect(ctx)
 			cancel()
 			if err != nil {
@@ -473,12 +476,12 @@ func Main() error {
 			var destMails []Mail
 			var destListErr error
 			go func() {
-				ctx, cancel := context.WithTimeout(rootCtx, 30*time.Second)
+				ctx, cancel := context.WithTimeout(rootCtx, 3*time.Minute)
 				destMails, destListErr = listMbox(ctx, dst, dstM.Mailbox, true)
 				cancel()
 			}()
 
-			ctx, cancel = context.WithTimeout(rootCtx, 30*time.Second)
+			ctx, cancel = context.WithTimeout(rootCtx, 3*time.Minute)
 			sourceMails, err := listMbox(ctx, src, srcM.Mailbox, true)
 			cancel()
 			if err != nil {
@@ -503,7 +506,7 @@ func Main() error {
 					return err
 				}
 				buf.Reset()
-				ctx, cancel = context.WithTimeout(rootCtx, 30*time.Second)
+				ctx, cancel = context.WithTimeout(rootCtx, 3*time.Minute)
 				_, err = src.ReadTo(ctx, &buf, m.UID)
 				cancel()
 				if err != nil {
@@ -512,7 +515,7 @@ func Main() error {
 				if err = rootCtx.Err(); err != nil {
 					return err
 				}
-				ctx, cancel = context.WithTimeout(rootCtx, 30*time.Second)
+				ctx, cancel = context.WithTimeout(rootCtx, 3*time.Minute)
 				err = dst.WriteTo(ctx, dstM.Mailbox, buf.Bytes(), m.Date)
 				cancel()
 				if err != nil {
@@ -535,7 +538,7 @@ func Main() error {
 var bufPool = sync.Pool{New: func() interface{} { return bytes.NewBuffer(make([]byte, 0, 1<<20)) }}
 
 func dumpMails(rootCtx context.Context, tw *syncTW, c imapclient.Client, mbox string, uids []uint32) error {
-	ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
+	ctx, cancel := context.WithTimeout(rootCtx, 1*time.Minute)
 	err := c.Select(ctx, mbox)
 	cancel()
 	if err != nil {
@@ -545,7 +548,7 @@ func dumpMails(rootCtx context.Context, tw *syncTW, c imapclient.Client, mbox st
 
 	if len(uids) == 0 {
 		var err error
-		ctx, cancel := context.WithTimeout(rootCtx, 10*time.Second)
+		ctx, cancel := context.WithTimeout(rootCtx, 1*time.Minute)
 		uids, err = c.List(ctx, mbox, "", true)
 		cancel()
 		if err != nil {
@@ -655,9 +658,10 @@ type Mail struct {
 }
 
 func listMbox(rootCtx context.Context, c imapclient.Client, mbox string, all bool) ([]Mail, error) {
-	ctx, cancel := context.WithTimeout(rootCtx, 30*time.Second)
+	ctx, cancel := context.WithTimeout(rootCtx, 3*time.Minute)
 	uids, err := c.List(ctx, mbox, "", all)
 	cancel()
+	// logger.Info("listMbox", "uids", uids, "error", err)
 	if err != nil {
 		return nil, fmt.Errorf("LIST %q: %w", mbox, err)
 	}
@@ -676,7 +680,7 @@ func listMbox(rootCtx context.Context, c imapclient.Client, mbox string, all boo
 			n = fetchBatchLen
 			logger.Info("Fetching.", "n", n, "of", len(uids))
 		}
-		ctx, cancel = context.WithTimeout(rootCtx, 30*time.Second)
+		ctx, cancel = context.WithTimeout(rootCtx, 3*time.Minute)
 		attrs, err := c.FetchArgs(ctx, "RFC822.SIZE RFC822.HEADER", uids[:n]...)
 		cancel()
 		if err != nil {

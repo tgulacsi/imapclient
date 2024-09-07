@@ -5,15 +5,19 @@
 package o365
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"mime"
+	"net/mail"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/emersion/go-message"
 	"github.com/tgulacsi/imapclient/v2"
 )
 
@@ -174,8 +178,75 @@ func (c *oClient) Mailboxes(ctx context.Context, root string) ([]string, error) 
 	return names, err
 }
 
-func (c *oClient) WriteTo(ctx context.Context, mbox string, msg []byte, date time.Time) error {
-	return ErrNotImplemented
+func (c *oClient) WriteTo(ctx context.Context, mbox string, p []byte, date time.Time) error {
+	m, err := message.Read(bytes.NewReader(p))
+	if err != nil {
+		return err
+	}
+	from, _ := mail.ParseAddress(m.Header.Get("From"))
+	to, _ := parseAddressList(m.Header.Get("To"))
+	cc, _ := parseAddressList(m.Header.Get("Cc"))
+	bcc, _ := parseAddressList(m.Header.Get("Bcc"))
+	replyTo, _ := parseAddressList(m.Header.Get("Reply-To"))
+	dt, _ := mail.ParseDate(m.Header.Get("Date"))
+	msg := Message{
+		Created: &dt,
+		From:    &Recipient{EmailAddress: EmailAddress{Name: from.Name, Address: from.Address}},
+		To:      to, Cc: cc, Bcc: bcc,
+		Subject: m.Header.Get("Subject"),
+		ID:      m.Header.Get("Message-ID"),
+		ReplyTo: replyTo,
+	}
+	var buf bytes.Buffer
+	m.Walk(func(path []int, ent *message.Entity, err error) error {
+		if err != nil {
+			if c.logger != nil {
+				c.logger.Error("walk", "error", err)
+			}
+			return nil
+		}
+		buf.Reset()
+		if _, err = io.Copy(&buf, ent.Body); err != nil && c.logger != nil {
+			c.logger.Error("read body: %w", err)
+		}
+		if msg.Body.Content == "" {
+			msg.Body.Content = buf.String()
+			msg.Body.ContentType = ent.Header.Get("Content-Type")
+		} else {
+			_, params, _ := mime.ParseMediaType(ent.Header.Get("Content-Disposition"))
+			_, isInline := params["inline"]
+			msg.Attachments = append(msg.Attachments, Attachment{
+				ContentType: ent.Header.Get("Content-Type"),
+				Name:        nvl(params["filename"], params["name"]),
+				Size:        int32(buf.Len()),
+				IsInline:    isInline,
+			})
+		}
+		return nil
+	})
+	return c.client.Send(ctx, msg)
+}
+
+func parseAddressList(s string) ([]Recipient, error) {
+	aa, err := mail.ParseAddressList(s)
+	rr := make([]Recipient, 0, len(aa))
+	for _, a := range aa {
+		rr = append(rr, Recipient{EmailAddress: EmailAddress{Name: a.Name, Address: a.Address}})
+	}
+	return rr, err
 }
 
 var ErrNotImplemented = errors.New("not implemented")
+
+func nvl[T comparable](a T, b ...T) T {
+	var z T
+	if a != z {
+		return a
+	}
+	for _, a := range b {
+		if a != z {
+			return a
+		}
+	}
+	return a
+}

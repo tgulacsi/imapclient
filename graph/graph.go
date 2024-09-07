@@ -22,7 +22,37 @@ import (
 	"github.com/hashicorp/go-azure-sdk/sdk/environments"
 	"github.com/hashicorp/go-azure-sdk/sdk/odata"
 	"github.com/manicminer/hamilton/msgraph"
+	// "github.com/microsoftgraph/msgraph-sdk-go"
 )
+
+type (
+	// Query is a re-export of odata.Query to save the users of importing that package, too.
+	Query = odata.Query
+	User  = msgraph.User
+)
+
+func EscapeSingleQuote(s string) string { return odata.EscapeSingleQuote(s) }
+
+// WellKnownFolders folder names
+var WellKnownFolders = map[string][]string{
+	"archive":                   {"Archive"},                           // The archive folder messages are sent to when using the One_Click Archive feature in Outlook clients that support it. Note: this isn't the same as the Archive Mailbox feature of Exchange online.
+	"clutter":                   nil,                                   // The clutter folder low-priority messages are moved to when using the Clutter feature.
+	"conflicts":                 nil,                                   // The folder that contains conflicting items in the mailbox.
+	"conversationhistory":       nil,                                   // The folder where Skype saves IM conversations (if Skype is configured to do so).
+	"deleteditems":              {"Trash", "Deleted", "Deleted Items"}, // The folder items are moved to when they're deleted.
+	"drafts":                    {"Drafts"},                            // The folder that contains unsent messages.
+	"inbox":                     {"INBOX"},                             // The inbox folder.
+	"junkemail":                 {"Spam", "Junk", "Junk Email"},        // The junk email folder.
+	"localfailures":             nil,                                   // The folder that contains items that exist on the local client but couldn't be uploaded to the server.
+	"msgfolderroot":             nil,                                   // "The Top of Information Store" folder. This folder is the parent folder for folders that are displayed in normal mail clients, such as the inbox.
+	"outbox":                    nil,                                   // The outbox folder.
+	"recoverableitemsdeletions": nil,                                   // The folder that contains soft-deleted items: deleted either from the Deleted Items folder, or by pressing shift+delete in Outlook. This folder isn't visible in any Outlook email client, but end users can interact with it through the Recover Deleted Items from Server feature in Outlook or Outlook on the web.
+	"scheduled":                 nil,                                   // The folder that contains messages that are scheduled to reappear in the inbox using the Schedule feature in Outlook for iOS.
+	"searchfolders":             nil,                                   // The parent folder for all search folders defined in the user's mailbox.
+	"sentitems":                 {"Sent", "Sent Items"},                // The sent items folder.
+	"serverfailures":            nil,                                   // The folder that contains items that exist on the server but couldn't be synchronized to the local client.
+	"syncissues":                nil,                                   // The folder that contains synchronization logs created by Outlook.
+}
 
 type GraphMailClient struct {
 	BaseClient msgraph.Client
@@ -134,30 +164,7 @@ func (g GraphMailClient) UpdateMessage(ctx context.Context, userID, messageID st
 	err = json.Unmarshal(respBody, &data)
 	return data, err
 }
-func (g GraphMailClient) MoveMessage(ctx context.Context, userID, messageID, folderID string) (Message, error) {
-	entity := "/users/" + url.PathEscape(userID) + "/messages/" + url.PathEscape(messageID) + "/move"
-	resp, status, _, err := g.BaseClient.Post(ctx, msgraph.PostHttpRequestInput{
-		Body:                   []byte(`{"destinationId":` + strconv.Quote(folderID) + "}"),
-		ConsistencyFailureFunc: msgraph.RetryOn404ConsistencyFailureFunc,
-		OData:                  odata.Query{},
-		ValidStatusCodes:       []int{http.StatusOK, http.StatusCreated},
-		Uri: msgraph.Uri{
-			Entity: entity,
-			// HasTenantId: true,
-		},
-	})
-	if err != nil {
-		return Message{}, fmt.Errorf("BaseClient.Get(%q): [%d] - %v", entity, status, err)
-	}
-	defer resp.Body.Close()
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return Message{}, fmt.Errorf("io.ReadAll(): %w", err)
-	}
-	var data Message
-	err = json.Unmarshal(respBody, &data)
-	return data, err
-}
+
 func (g GraphMailClient) GetMIMEMessage(ctx context.Context, w io.Writer, userID, messageID string) (int64, error) {
 	entity := "/users/" + url.PathEscape(userID) + "/messages/" + url.PathEscape(messageID) + "/$value"
 	resp, status, _, err := g.BaseClient.Get(ctx, msgraph.GetHttpRequestInput{
@@ -210,6 +217,167 @@ func (g GraphMailClient) ListMessages(ctx context.Context, userID, folderID stri
 	}
 	err := g.get(ctx, &data, "/users/"+url.PathEscape(userID)+"/mailFolders/"+url.PathEscape(folderID)+"/messages", query)
 	return data.Messages, err
+}
+
+func (g GraphMailClient) CreateFolder(ctx context.Context, userID, displayName string) (Folder, error) {
+	entity := "/users/" + url.PathEscape(userID) + "/mailFolders"
+	resp, status, _, err := g.BaseClient.Post(ctx, msgraph.PostHttpRequestInput{
+		Body:                   []byte(`{"displayName":` + strconv.Quote(displayName) + "}"),
+		ConsistencyFailureFunc: msgraph.RetryOn404ConsistencyFailureFunc,
+		ValidStatusCodes:       []int{http.StatusOK, http.StatusCreated},
+		Uri: msgraph.Uri{
+			Entity: entity,
+			// HasTenantId: true,
+		},
+	})
+	if err != nil {
+		return Folder{}, fmt.Errorf("BaseClient.Get(%q): [%d] - %v", entity, status, err)
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return Folder{}, fmt.Errorf("io.ReadAll(): %w", err)
+	}
+	var data Folder
+	err = json.Unmarshal(respBody, &data)
+	return data, err
+}
+func (g GraphMailClient) CreateChildFolder(ctx context.Context, userID, parentID, displayName string) (Folder, error) {
+	entity := "/users/" + url.PathEscape(userID) + "/mailFolders/" + url.PathEscape(parentID) + "/childFolders"
+	resp, status, _, err := g.BaseClient.Post(ctx, msgraph.PostHttpRequestInput{
+		Body:                   []byte(`{"displayName":` + strconv.Quote(displayName) + "}"),
+		ConsistencyFailureFunc: msgraph.RetryOn404ConsistencyFailureFunc,
+		ValidStatusCodes:       []int{http.StatusOK, http.StatusCreated},
+		Uri: msgraph.Uri{
+			Entity: entity,
+			// HasTenantId: true,
+		},
+	})
+	if err != nil {
+		return Folder{}, fmt.Errorf("BaseClient.Get(%q): [%d] - %v", entity, status, err)
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return Folder{}, fmt.Errorf("io.ReadAll(): %w", err)
+	}
+	var data Folder
+	err = json.Unmarshal(respBody, &data)
+	return data, err
+}
+
+func (g GraphMailClient) CreateMessage(ctx context.Context, userID, folderID string, msg Message) (Message, error) {
+	entity := "/users/" + url.PathEscape(userID) + "/mailFolders/" + url.PathEscape(folderID) + "/messages"
+	b, err := json.Marshal(msg)
+	if err != nil {
+		return Message{}, err
+	}
+	resp, status, _, err := g.BaseClient.Post(ctx, msgraph.PostHttpRequestInput{
+		Body:                   b,
+		ConsistencyFailureFunc: msgraph.RetryOn404ConsistencyFailureFunc,
+		ValidStatusCodes:       []int{http.StatusOK, http.StatusCreated},
+		Uri: msgraph.Uri{
+			Entity: entity,
+			// HasTenantId: true,
+		},
+	})
+	if err != nil {
+		return Message{}, fmt.Errorf("BaseClient.Get(%q): [%d] - %v", entity, status, err)
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return Message{}, fmt.Errorf("io.ReadAll(): %w", err)
+	}
+	var data Message
+	err = json.Unmarshal(respBody, &data)
+	return data, err
+}
+
+func (g GraphMailClient) CopyMessage(ctx context.Context, userID, srcFolderID, msgID, destFolderID string) (Message, error) {
+	return g.copyOrMoveMessage(ctx, userID, srcFolderID, msgID, destFolderID, false)
+}
+func (g GraphMailClient) MoveMessage(ctx context.Context, userID, srcFolderID, msgID, destFolderID string) (Message, error) {
+	return g.copyOrMoveMessage(ctx, userID, srcFolderID, msgID, destFolderID, true)
+}
+func (g GraphMailClient) copyOrMoveMessage(ctx context.Context, userID, srcFolderID, msgID, destFolderID string, move bool) (Message, error) {
+	entity := "/users/" + url.PathEscape(userID) + "/mailFolders/" + url.PathEscape(srcFolderID) + "/messages/" + url.PathEscape(msgID)
+	if move {
+		entity += "/move"
+	} else {
+		entity += "/copy"
+	}
+	resp, status, _, err := g.BaseClient.Post(ctx, msgraph.PostHttpRequestInput{
+		Body:                   []byte(`{"destinationId":` + strconv.Quote(destFolderID) + "}"),
+		ConsistencyFailureFunc: msgraph.RetryOn404ConsistencyFailureFunc,
+		ValidStatusCodes:       []int{http.StatusOK, http.StatusCreated},
+		Uri: msgraph.Uri{
+			Entity: entity,
+			// HasTenantId: true,
+		},
+	})
+	if err != nil {
+		return Message{}, fmt.Errorf("copyOrMoveMessage(%q): [%d] - %v", entity, status, err)
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return Message{}, fmt.Errorf("io.ReadAll(): %w", err)
+	}
+	var data Message
+	err = json.Unmarshal(respBody, &data)
+	return data, err
+}
+
+func (g GraphMailClient) DeleteFolder(ctx context.Context, userID, folderID string) error {
+	entity := "/users/" + url.PathEscape(userID) + "/mailFolders/" + url.PathEscape(folderID)
+	resp, status, _, err := g.BaseClient.Delete(ctx, msgraph.DeleteHttpRequestInput{
+		ConsistencyFailureFunc: msgraph.RetryOn404ConsistencyFailureFunc,
+		ValidStatusCodes:       []int{http.StatusOK, http.StatusCreated},
+		Uri: msgraph.Uri{
+			Entity: entity,
+			// HasTenantId: true,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("BaseClient.Delete(%q): [%d] - %v", entity, status, err)
+	}
+	defer resp.Body.Close()
+	return nil
+}
+
+func (g GraphMailClient) DeleteChildFolder(ctx context.Context, userID, parentID, folderID string) error {
+	entity := "/users/" + url.PathEscape(userID) + "/mailFolders/" + url.PathEscape(parentID) + "/childFolders/" + url.PathEscape(folderID)
+	resp, status, _, err := g.BaseClient.Delete(ctx, msgraph.DeleteHttpRequestInput{
+		ConsistencyFailureFunc: msgraph.RetryOn404ConsistencyFailureFunc,
+		ValidStatusCodes:       []int{http.StatusOK, http.StatusCreated},
+		Uri: msgraph.Uri{
+			Entity: entity,
+			// HasTenantId: true,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("BaseClient.Delete(%q): [%d] - %v", entity, status, err)
+	}
+	defer resp.Body.Close()
+	return nil
+}
+
+func (g GraphMailClient) DeleteMessage(ctx context.Context, userID, folderID, msgID string) error {
+	entity := "/users/" + url.PathEscape(userID) + "/mailFolders/" + url.PathEscape(folderID) + "/messages/" + url.PathEscape(msgID)
+	resp, status, _, err := g.BaseClient.Delete(ctx, msgraph.DeleteHttpRequestInput{
+		ConsistencyFailureFunc: msgraph.RetryOn404ConsistencyFailureFunc,
+		ValidStatusCodes:       []int{http.StatusOK, http.StatusCreated},
+		Uri: msgraph.Uri{
+			Entity: entity,
+			// HasTenantId: true,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("BaseClient.Delete(%q): [%d] - %v", entity, status, err)
+	}
+	defer resp.Body.Close()
+	return nil
 }
 
 type Message struct {

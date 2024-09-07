@@ -4,6 +4,7 @@ require (
 	github.com/AzureAD/microsoft-authentication-library-for-go v1.2.2
 	github.com/UNO-SOFT/zlog v0.8.3
 	github.com/emersion/go-imap v1.2.1
+	github.com/emersion/go-imap/v2 v2.0.0-beta.3
 	github.com/emersion/go-sasl v0.0.0-20231106173351-e73c9f7bad43
 	github.com/hashicorp/go-azure-sdk v0.20240125.1100331
 	github.com/manicminer/hamilton v0.71.0
@@ -16,6 +17,8 @@ require (
 )
 
 require (
+	github.com/dgryski/go-linebreak v0.0.0-20180812204043-d8f37254e7d3 // indirect
+	github.com/emersion/go-message v0.18.1 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/golang-jwt/jwt/v5 v5.2.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
@@ -35,4 +38,4 @@ require (
 
 // The last version supporting Xoauth2: github.com/emersion/go-sasl v0.0.0-20200509202850-4132e15e133d
 
-go 1.22.0
+go 1.22

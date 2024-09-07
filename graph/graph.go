@@ -5,6 +5,7 @@
 package graph
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -16,6 +17,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/UNO-SOFT/zlog/v2"
 	"github.com/hashicorp/go-azure-sdk/sdk/auth"
@@ -27,8 +29,14 @@ import (
 
 type (
 	// Query is a re-export of odata.Query to save the users of importing that package, too.
-	Query = odata.Query
-	User  = msgraph.User
+	Query   = odata.Query
+	OrderBy = odata.OrderBy
+	User    = msgraph.User
+)
+
+const (
+	Ascending  = odata.Ascending
+	Descending = odata.Descending
 )
 
 func EscapeSingleQuote(s string) string { return odata.EscapeSingleQuote(s) }
@@ -116,7 +124,7 @@ func (g GraphMailClient) Users(ctx context.Context) ([]msgraph.User, error) {
 func (g GraphMailClient) get(ctx context.Context, dest interface{}, entity string, query odata.Query) error {
 	resp, status, _, err := g.BaseClient.Get(ctx, msgraph.GetHttpRequestInput{
 		ConsistencyFailureFunc: msgraph.RetryOn404ConsistencyFailureFunc,
-		DisablePaging:          query.Top > 0,
+		DisablePaging:          query.Top == 0,
 		OData:                  query,
 		ValidStatusCodes:       []int{http.StatusOK},
 		Uri: msgraph.Uri{
@@ -140,6 +148,7 @@ func (g GraphMailClient) get(ctx context.Context, dest interface{}, entity strin
 	}
 	return nil
 }
+
 func (g GraphMailClient) UpdateMessage(ctx context.Context, userID, messageID string, update json.RawMessage) (Message, error) {
 	entity := "/users/" + url.PathEscape(userID) + "/messages/" + url.PathEscape(messageID)
 	resp, status, _, err := g.BaseClient.Patch(ctx, msgraph.PatchHttpRequestInput{
@@ -170,7 +179,6 @@ func (g GraphMailClient) GetMIMEMessage(ctx context.Context, w io.Writer, userID
 	resp, status, _, err := g.BaseClient.Get(ctx, msgraph.GetHttpRequestInput{
 		ConsistencyFailureFunc: msgraph.RetryOn404ConsistencyFailureFunc,
 		DisablePaging:          true,
-		OData:                  odata.Query{},
 		ValidStatusCodes:       []int{http.StatusOK},
 		Uri: msgraph.Uri{
 			Entity: entity,
@@ -184,12 +192,11 @@ func (g GraphMailClient) GetMIMEMessage(ctx context.Context, w io.Writer, userID
 	return io.Copy(w, resp.Body)
 }
 
-func (g GraphMailClient) GetMessage(ctx context.Context, userID, messageID string, query odata.Query) ([]Message, error) {
-	var data struct {
-		Messages []Message `json:"value"`
-	}
+func (g GraphMailClient) GetMessage(ctx context.Context, userID, messageID string, query odata.Query) (Message, error) {
+	var data Message
+	// "{\"@odata.context\":\"https://graph.microsoft.com/beta/$metadata#users('ff61c637-79fc-4e94-9d85-13c161b85a93')/messages(flag,isRead,id,importance)/$entity\",\"@odata.etag\":\"W/\\\"CQAAABYAAACo4yIhuSqFRaYgFOcu6OmPAAj5GmpC\\\"\",\"id\":\"AAMkAGJiZjViMTczLTM3Y2MtNDY4ZS1hZWUyLTg3YThiODcwM2IzYQBGAAAAAABiKbJsEoSxRopuDrKLuGHjBwCo4yIhuSqFRaYgFOcu6OmPAAAAAAEMAACo4yIhuSqFRaYgFOcu6OmPAAj7nIpyAAA=\",\"importance\":\"normal\",\"isRead\":true,\"flag\":{\"flagStatus\":\"notFlagged\"}}"
 	err := g.get(ctx, &data, "/users/"+url.PathEscape(userID)+"/messages/"+url.PathEscape(messageID), query)
-	return data.Messages, err
+	return data, err
 }
 
 func (g GraphMailClient) GetMessageHeaders(ctx context.Context, userID, messageID string, query odata.Query) (map[string][]string, error) {
@@ -328,12 +335,31 @@ func (g GraphMailClient) copyOrMoveMessage(ctx context.Context, userID, srcFolde
 	err = json.Unmarshal(respBody, &data)
 	return data, err
 }
+func (g GraphMailClient) RenameFolder(ctx context.Context, userID, folderID, displayName string) error {
+	entity := "/users/" + url.PathEscape(userID) + "/mailFolders/" + url.PathEscape(folderID)
+	var buf bytes.Buffer
+	fmt.Fprintf(&buf, `{"displayName":%q}`, displayName)
+	resp, status, _, err := g.BaseClient.Patch(ctx, msgraph.PatchHttpRequestInput{
+		Body:                   buf.Bytes(),
+		ConsistencyFailureFunc: msgraph.RetryOn404ConsistencyFailureFunc,
+		ValidStatusCodes:       []int{http.StatusOK, http.StatusCreated},
+		Uri: msgraph.Uri{
+			Entity: entity,
+			// HasTenantId: true,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("BaseClient.Patch(%q): [%d] - %v", entity, status, err)
+	}
+	defer resp.Body.Close()
+	return nil
+}
 
 func (g GraphMailClient) DeleteFolder(ctx context.Context, userID, folderID string) error {
 	entity := "/users/" + url.PathEscape(userID) + "/mailFolders/" + url.PathEscape(folderID)
 	resp, status, _, err := g.BaseClient.Delete(ctx, msgraph.DeleteHttpRequestInput{
 		ConsistencyFailureFunc: msgraph.RetryOn404ConsistencyFailureFunc,
-		ValidStatusCodes:       []int{http.StatusOK, http.StatusCreated},
+		ValidStatusCodes:       []int{http.StatusOK, http.StatusAccepted, http.StatusNoContent},
 		Uri: msgraph.Uri{
 			Entity: entity,
 			// HasTenantId: true,
@@ -367,7 +393,7 @@ func (g GraphMailClient) DeleteMessage(ctx context.Context, userID, folderID, ms
 	entity := "/users/" + url.PathEscape(userID) + "/mailFolders/" + url.PathEscape(folderID) + "/messages/" + url.PathEscape(msgID)
 	resp, status, _, err := g.BaseClient.Delete(ctx, msgraph.DeleteHttpRequestInput{
 		ConsistencyFailureFunc: msgraph.RetryOn404ConsistencyFailureFunc,
-		ValidStatusCodes:       []int{http.StatusOK, http.StatusCreated},
+		ValidStatusCodes:       []int{http.StatusOK, http.StatusAccepted, http.StatusNoContent},
 		Uri: msgraph.Uri{
 			Entity: entity,
 			// HasTenantId: true,
@@ -381,16 +407,37 @@ func (g GraphMailClient) DeleteMessage(ctx context.Context, userID, folderID, ms
 }
 
 type Message struct {
-	ID          string         `json:"id"`
-	Subject     string         `json:"subject"`
-	BodyPreview string         `json:"bodyPreview"`
-	Body        Content        `json:"body"`
-	Sender      EmailAddress   `json:"sender"`
-	From        EmailAddress   `json:"from"`
-	To          []EmailAddress `json:"toRecipients"`
-	Cc          []EmailAddress `json:"bccRecipients"`
-	Bcc         []EmailAddress `json:"ccRecipients"`
-	UniqueBody  Content        `json:"uniqueBody"`
+	Created        time.Time    `json:"createdDateTime,omitempty"`
+	Modified       time.Time    `json:"lastModifiedDateTime,omitempty"`
+	Received       time.Time    `json:"receivedDateTime,omitempty"`
+	Sent           time.Time    `json:"sentDateTime,omitempty"`
+	Body           Content      `json:"body,omitempty"`
+	Sender         EmailAddress `json:"sender,omitempty"`
+	From           EmailAddress `json:"from,omitempty"`
+	UniqueBody     Content      `json:"uniqueBody,omitempty"`
+	ReplyTo        EmailAddress `json:"replyTo,omitempty"`
+	ID             string       `json:"id,omitempty"`
+	Subject        string       `json:"subject,omitempty"`
+	BodyPreview    string       `json:"bodyPreview,omitempty"`
+	ChangeKey      string       `json:"changeKey,omitempty"`
+	ConversationID string       `json:"conversationId,omitempty"`
+	Flag           struct {
+		Status string `json:"flagStatus,omitempty"`
+	} `json:"flag,omitempty"`
+	Importance string         `json:"importance,omitempty"`
+	MessageID  string         `json:"internetMessageId,omitempty"`
+	FolderID   string         `json:"parentFolderId,omitempty"`
+	WebLink    string         `json:"webLink,omitempty"`
+	To         []EmailAddress `json:"toRecipients,omitempty"`
+	Cc         []EmailAddress `json:"bccRecipients,omitempty"`
+	Bcc        []EmailAddress `json:"ccRecipients,omitempty"`
+	Headers    []struct {
+		Name  string `json:"name"`
+		Value string `json:"value"`
+	} `json:"internetMessageHeaders,omitempty"`
+	HasAttachments bool `json:"hasAttachments,omitempty"`
+	Draft          bool `json:"isDraft",omitempty`
+	Read           bool `json:"isRead,omitempty"`
 }
 type Content struct {
 	ContentType string `json:"contentType"`

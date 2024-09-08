@@ -633,11 +633,11 @@ func (s *session) Store(w *imapserver.FetchWriter, numSet imap.NumSet, flags *im
 		var tbd bool
 		for _, f := range flags.Flags {
 			switch f {
-			case "\\Seen":
+			case imap.FlagSeen:
 				u.Read = true
-			case "\\Flagged":
+			case imap.FlagFlagged:
 				u.Importance = "high"
-			case "\\Deleted":
+			case imap.FlagDeleted:
 				tbd = true
 			}
 		}

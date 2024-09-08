@@ -407,20 +407,20 @@ func (g GraphMailClient) DeleteMessage(ctx context.Context, userID, folderID, ms
 }
 
 type Message struct {
-	Created        time.Time    `json:"createdDateTime,omitempty"`
-	Modified       time.Time    `json:"lastModifiedDateTime,omitempty"`
-	Received       time.Time    `json:"receivedDateTime,omitempty"`
-	Sent           time.Time    `json:"sentDateTime,omitempty"`
-	Body           Content      `json:"body,omitempty"`
-	Sender         EmailAddress `json:"sender,omitempty"`
-	From           EmailAddress `json:"from,omitempty"`
-	UniqueBody     Content      `json:"uniqueBody,omitempty"`
-	ReplyTo        EmailAddress `json:"replyTo,omitempty"`
-	ID             string       `json:"id,omitempty"`
-	Subject        string       `json:"subject,omitempty"`
-	BodyPreview    string       `json:"bodyPreview,omitempty"`
-	ChangeKey      string       `json:"changeKey,omitempty"`
-	ConversationID string       `json:"conversationId,omitempty"`
+	Created        time.Time      `json:"createdDateTime,omitempty"`
+	Modified       time.Time      `json:"lastModifiedDateTime,omitempty"`
+	Received       time.Time      `json:"receivedDateTime,omitempty"`
+	Sent           time.Time      `json:"sentDateTime,omitempty"`
+	Body           Content        `json:"body,omitempty"`
+	Sender         EmailAddress   `json:"sender,omitempty"`
+	From           EmailAddress   `json:"from,omitempty"`
+	UniqueBody     Content        `json:"uniqueBody,omitempty"`
+	ReplyTo        []EmailAddress `json:"replyTo,omitempty"`
+	ID             string         `json:"id,omitempty"`
+	Subject        string         `json:"subject,omitempty"`
+	BodyPreview    string         `json:"bodyPreview,omitempty"`
+	ChangeKey      string         `json:"changeKey,omitempty"`
+	ConversationID string         `json:"conversationId,omitempty"`
 	Flag           struct {
 		Status string `json:"flagStatus,omitempty"`
 	} `json:"flag,omitempty"`

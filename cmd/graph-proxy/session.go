@@ -42,14 +42,15 @@ func (p *proxy) newSession(conn *imapserver.Conn) (imapserver.Session, *imapserv
 }
 
 type session struct {
-	cl       graph.GraphMailClient
-	p        *proxy
-	conn     *imapserver.Conn
-	idm      *uidMap
-	folders  map[string]*Folder
-	folderID string
-	userID   string
-	users    []graph.User
+	cl            graph.GraphMailClient
+	p             *proxy
+	conn          *imapserver.Conn
+	idm           *uidMap
+	folders       map[string]*Folder
+	folderID      string
+	userID        string
+	mboxDeltaLink string
+	users         []graph.User
 }
 
 func (s *session) logger() *slog.Logger { return s.p.logger() }
@@ -59,14 +60,13 @@ var _ imapserver.SessionIMAP4rev2 = (*session)(nil)
 func (s *session) Close() error {
 	conn := s.conn
 	s.cl, s.conn, s.p, s.users = graph.GraphMailClient{}, nil, nil, nil
-	var firstErr error
-	if conn == nil {
-		return firstErr
+	if conn != nil {
+		conn.Bye("QUIT")
+		if nc := conn.NetConn(); nc != nil {
+			nc.Close()
+		}
 	}
-	if err := conn.Bye("QUIT"); err != nil && firstErr == nil {
-		firstErr = err
-	}
-	return firstErr
+	return nil
 }
 
 // Not authenticated state
@@ -229,8 +229,31 @@ func (s *session) Rename(mailbox, newName string) error {
 	return err
 }
 
-func (s *session) Poll(w *imapserver.UpdateWriter, allowExpunge bool) error    { return nil }
-func (s *session) Idle(w *imapserver.UpdateWriter, stop <-chan struct{}) error { return nil }
+func (s *session) Poll(w *imapserver.UpdateWriter, allowExpunge bool) error {
+	changes, deltaLink, err := s.cl.DeltaMailFolders(s.p.ctx, s.userID, s.mboxDeltaLink)
+	if err != nil {
+		return err
+	}
+	if deltaLink != "" {
+		s.mboxDeltaLink = deltaLink
+	}
+	var flags []imap.Flag
+	for _, c := range changes {
+		flags = flags[:0]
+		if c.Removed != nil {
+			flags = append(flags, imap.FlagDeleted)
+		}
+		if c.Read {
+			flags = append(flags, imap.FlagSeen)
+		}
+		if err := w.WriteMessageFlags(uint32(s.idm.uidOf(c.ID)), s.idm.uidOf(c.ID), flags); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *session) Idle(w *imapserver.UpdateWriter, stop <-chan struct{}) error { <-stop; return nil }
 func (s *session) Subscribe(mailbox string) error                              { return ErrNotImplemented }
 func (s *session) Unsubscribe(mailbox string) error                            { return ErrNotImplemented }
 

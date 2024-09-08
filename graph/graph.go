@@ -124,7 +124,7 @@ func (g GraphMailClient) Users(ctx context.Context) ([]msgraph.User, error) {
 func (g GraphMailClient) get(ctx context.Context, dest interface{}, entity string, query odata.Query) error {
 	resp, status, _, err := g.BaseClient.Get(ctx, msgraph.GetHttpRequestInput{
 		ConsistencyFailureFunc: msgraph.RetryOn404ConsistencyFailureFunc,
-		DisablePaging:          query.Top == 0,
+		DisablePaging:          query.Top != 0,
 		OData:                  query,
 		ValidStatusCodes:       []int{http.StatusOK},
 		Uri: msgraph.Uri{

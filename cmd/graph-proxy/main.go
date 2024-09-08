@@ -26,8 +26,8 @@ func Main() error {
 	var verbose zlog.VerboseVar
 	logger := zlog.NewLogger(zlog.MaybeConsoleHandler(&verbose, os.Stderr)).SLog()
 	flagClientID := flag.String("client-id", "", "ClientID")
-	flagClientSecret := flag.String("client-secret", "", "ClientSecret")
-	flagTenantID := flag.String("tenant-id", "", "TenantID")
+	// flagClientSecret := flag.String("client-secret", "", "ClientSecret")
+	// flagTenantID := flag.String("tenant-id", "", "TenantID")
 	// flagUserID := flag.String("user-id", "", "UserID")
 	flag.Var(&verbose, "v", "verbosity")
 	flag.Parse()
@@ -37,6 +37,7 @@ func Main() error {
 
 	return NewProxy(
 		zlog.NewSContext(ctx, logger),
-		*flagTenantID, *flagClientID, *flagClientSecret,
+		//*flagTenantID,*flagClientSecret,
+		*flagClientID,
 	).ListenAndServe(flag.Arg(0))
 }

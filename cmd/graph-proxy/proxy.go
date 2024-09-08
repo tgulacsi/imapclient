@@ -8,6 +8,7 @@ import (
 	"context"
 	"log/slog"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/UNO-SOFT/zlog/v2"
@@ -103,6 +104,9 @@ type proxy struct {
 	// client                           *graph.GraphMailClient
 	//tenantID string
 	clientID string
+
+	mu      sync.Mutex
+	clients map[string]clientUsers
 }
 
 func (P *proxy) logger() *slog.Logger {
@@ -115,6 +119,12 @@ func (P *proxy) logger() *slog.Logger {
 func (P *proxy) connect(ctx context.Context, tenantID, clientSecret string) (graph.GraphMailClient, []graph.User, error) {
 	logger := P.logger().With("tenantID", tenantID, "clientID", P.clientID, "clientSecretLen", len(clientSecret))
 	start := time.Now()
+	P.mu.Lock()
+	defer P.mu.Unlock()
+	key := tenantID + "\t" + clientSecret
+	if clu, ok := P.clients[key]; ok {
+		return clu.Client, clu.Users, nil
+	}
 	cl, err := graph.NewGraphMailClient(ctx, tenantID, P.clientID, clientSecret)
 	if err != nil {
 		logger.Error("NewGraphMailClient", "dur", time.Since(start).String(), "error", err)
@@ -128,7 +138,16 @@ func (P *proxy) connect(ctx context.Context, tenantID, clientSecret string) (gra
 	} else {
 		logger.Debug("Users", "dur", time.Since(start).String())
 	}
+	if P.clients == nil {
+		P.clients = make(map[string]clientUsers)
+	}
+	P.clients[key] = clientUsers{Client: cl, Users: users}
 	return cl, users, err
+}
+
+type clientUsers struct {
+	Client graph.GraphMailClient
+	Users  []graph.User
 }
 
 type slogDebugWriter struct{ *slog.Logger }

@@ -6,6 +6,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -14,6 +15,7 @@ import (
 	"log/slog"
 	"net/mail"
 	"path"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -60,11 +62,12 @@ var _ imapserver.SessionIMAP4rev2 = (*session)(nil)
 func (s *session) Close() error {
 	conn := s.conn
 	s.cl, s.conn, s.p, s.users = graph.GraphMailClient{}, nil, nil, nil
-	if conn != nil {
-		conn.Bye("QUIT")
-		if nc := conn.NetConn(); nc != nil {
-			nc.Close()
-		}
+	if conn == nil {
+		return nil
+	}
+	conn.Bye("QUIT")
+	if nc := conn.NetConn(); nc != nil {
+		nc.Close()
 	}
 	return nil
 }
@@ -496,7 +499,7 @@ func (s *session) Expunge(w *imapserver.ExpungeWriter, uids *imap.UIDSet) error 
 	})
 }
 
-func encodeCriteria(criteria imap.SearchCriteria) (filter, search string) {
+func encodeCriteria(criteria imap.SearchCriteria, slctSorted []string) (filter, search string, slct []string) {
 	F := func(t time.Time, end bool) string {
 		t = t.Truncate(24 * time.Hour)
 		if end {
@@ -506,77 +509,111 @@ func encodeCriteria(criteria imap.SearchCriteria) (filter, search string) {
 	}
 
 	var filt, srch []string
+	// slog.Info("encodeCriteria", "slct", slct, "slctSorted", slctSorted)
+	slct = slctSorted
+	need := func(s string) string {
+		// old := slct
+		slct = insert(slct, s)
+		// slog.Info("need", "s", s, "old", old, "new", slct)
+		return s
+	}
 	for _, f := range criteria.Flag {
 		switch f {
 		case imap.FlagSeen:
-			filt = append(filt, "isRead")
+			filt = append(filt, need("isRead"))
 		case imap.FlagFlagged:
-			filt = append(filt, "flag.flagStatus eq flagged")
+			filt = append(filt, need("flag")+".flagStatus eq flagged")
 		case imap.FlagImportant:
-			filt = append(filt, "importance eq high")
+			filt = append(filt, need("importance")+" eq high")
 		}
 	}
 	if !criteria.Since.IsZero() {
-		filt = append(filt, "received ge "+F(criteria.Since, false))
+		filt = append(filt, need("received")+" ge "+F(criteria.Since, false))
 	}
 	if !criteria.Before.IsZero() {
-		filt = append(filt, "received le "+F(criteria.Before, true))
+		filt = append(filt, need("received")+" le "+F(criteria.Before, true))
 	}
 	if !criteria.SentSince.IsZero() {
-		filt = append(filt, "sent ge "+F(criteria.SentSince, true))
+		filt = append(filt, need("sent")+" ge "+F(criteria.SentSince, true))
 	}
 	if !criteria.SentBefore.IsZero() {
-		filt = append(filt, "sent le "+F(criteria.SentBefore, true))
+		filt = append(filt, need("sent")+" le "+F(criteria.SentBefore, true))
 	}
 
 	if criteria.Smaller != 0 {
-		filt = append(filt, fmt.Sprintf("size le %d", criteria.Smaller))
+		filt = append(filt, need("size")+fmt.Sprintf(" le %d", criteria.Smaller))
 	}
 	if criteria.Larger != 0 {
-		filt = append(filt, fmt.Sprintf("size ge %d", criteria.Larger))
+		filt = append(filt, need("size")+fmt.Sprintf(" ge %d", criteria.Larger))
 	}
 
 	for _, s := range criteria.Body {
-		srch = append(srch, "body:"+graph.EscapeSingleQuote(s))
+		need("body")
+		// srch = append(srch, need("body")+":"+graph.EscapeSingleQuote(s))
+		srch = append(srch, graph.EscapeSingleQuote(s))
 	}
 	for _, s := range criteria.Text {
-		srch = append(srch, "subject:"+graph.EscapeSingleQuote(s))
+		need("subject")
+		// srch = append(srch, need("subject")+":"+graph.EscapeSingleQuote(s))
+		srch = append(srch, graph.EscapeSingleQuote(s))
 	}
 	for _, c := range criteria.Not {
-		ff, ss := encodeCriteria(c)
+		ff, ss, slsl := encodeCriteria(c, slct)
+		slct = slsl
 		filt = append(filt, "NOT ("+ff+")")
 		srch = append(srch, "NOT ("+ss+")")
 	}
 	for _, cc := range criteria.Or {
-		fa, sa := encodeCriteria(cc[0])
-		fb, sb := encodeCriteria(cc[1])
+		fa, sa, slsl := encodeCriteria(cc[0], slct)
+		fb, sb, slsl := encodeCriteria(cc[1], slsl)
+		slct = slsl
 		filt = append(filt, "(("+fa+") OR ("+fb+"))")
 		srch = append(srch, "(("+sa+") OR ("+sb+"))")
 	}
 	for _, h := range criteria.Header {
-		srch = append(srch, strings.ToLower(h.Key)+":"+graph.EscapeSingleQuote(h.Value))
+		if strings.EqualFold(h.Key, "subject") || strings.EqualFold(h.Key, "body") {
+			need(strings.ToLower(h.Key))
+			srch = append(srch, graph.EscapeSingleQuote(h.Value))
+		} else {
+			srch = append(srch, need(strings.ToLower(h.Key))+":"+graph.EscapeSingleQuote(h.Value))
+		}
 	}
 
 	// TODO: other criteria values
 
-	return strings.Join(filt, " AND "), strings.Join(srch, " AND ")
+	// slog.Info("encodeCriteria", "slct", slct)
+	return strings.Join(filt, " AND "), strings.Join(srch, " AND "), slct
+}
+
+func insert[S ~[]E, E cmp.Ordered](x S, target E) S {
+	if i, ok := slices.BinarySearch(x, target); !ok {
+		return slices.Insert(x, i, target)
+	}
+	return x
 }
 
 func (s *session) Search(kind imapserver.NumKind, criteria *imap.SearchCriteria, options *imap.SearchOptions) (*imap.SearchData, error) {
 	qry := graph.Query{
-		Select:  []string{"id", "createdDateTime"},
-		OrderBy: graph.OrderBy{Field: "createdDateTime", Direction: graph.Ascending},
+		Select: []string{"id"},
 	}
 	if criteria != nil {
-		qry.Filter, qry.Search = encodeCriteria(*criteria)
+		qry.Filter, qry.Search, qry.Select = encodeCriteria(*criteria, qry.Select)
+	}
+	if len(qry.Search) == 0 {
+		qry.Select = insert(qry.Select, "createdDateTime")
+		qry.OrderBy = graph.OrderBy{Field: "createdDateTime", Direction: graph.Ascending}
 	}
 
 	logger := s.logger().With("qry", qry, "folderID", s.folderID, "folder", s.folders[s.folderID].DisplayName, "mbox", s.folders[s.folderID].Mailbox)
-	logger.Debug("Search")
+	logger.Info("Search", "criteria", criteria, "qry", qry)
 	ctx, cancel := context.WithTimeout(s.p.ctx, time.Minute)
 	msgs, err := s.cl.ListMessages(ctx, s.userID, s.folderID, qry)
 	cancel()
-	logger.Debug("ListMessages", "qry", qry, "msgs", msgs, "error", err)
+	if err != nil {
+		logger.Error("ListMessages", "qry", qry, "msgs", msgs, "error", err)
+	} else {
+		logger.Info("ListMessages", "qry", qry, "msgsNum", len(msgs))
+	}
 	var nums imap.UIDSet
 	sd := imap.SearchData{UID: true, Count: uint32(len(msgs))}
 	for i, m := range msgs {

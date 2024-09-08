@@ -42,14 +42,14 @@ func (p *proxy) newSession(conn *imapserver.Conn) (imapserver.Session, *imapserv
 }
 
 type session struct {
-	p        *proxy
 	cl       graph.GraphMailClient
+	p        *proxy
 	conn     *imapserver.Conn
 	idm      *uidMap
 	folders  map[string]*Folder
-	users    []graph.User
 	folderID string
 	userID   string
+	users    []graph.User
 }
 
 func (s *session) logger() *slog.Logger { return s.p.logger() }

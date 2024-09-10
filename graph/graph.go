@@ -625,7 +625,7 @@ var _ auth.Authorizer = (*interactiveAuthorizer)(nil)
 func newInteractiveAuthorizer(ctx context.Context, clientID, tenantID, redirectURI string, scopes []string, cacheFileName string) (*interactiveAuthorizer, error) {
 	ia := interactiveAuthorizer{RedirectURI: redirectURI, Scopes: scopes}
 	if cacheFileName != "" {
-		if strings.IndexByte(cacheFileName, filepath.Separator) >= 0 {
+		if strings.IndexByte(cacheFileName, filepath.Separator) < 0 {
 			if cd, err := os.UserCacheDir(); err == nil {
 				cacheFileName = filepath.Join(cd, cacheFileName)
 			}

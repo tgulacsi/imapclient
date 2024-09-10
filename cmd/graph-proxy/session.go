@@ -650,12 +650,15 @@ func (s *session) Fetch(w *imapserver.FetchWriter, numSet imap.NumSet, options *
 			return err
 		}
 		logger := s.logger().With("uid", msgID)
-		gm, err := s.cl.GetMessage(ctx, s.userID, s.idm.idOf(msgID), qry)
-		if err != nil {
-			logger.Error("getMessage", "error", err)
-			return err
+		type gmErr struct {
+			Message graph.Message
+			Err     error
 		}
-		logger.Debug("GetMessage", "messages", gm)
+		mCh := make(chan gmErr, 1)
+		go func() {
+			gm, err := s.cl.GetMessage(ctx, s.userID, s.idm.idOf(msgID), qry)
+			mCh <- gmErr{Message: gm, Err: err}
+		}()
 		buf.Reset()
 		length, err := s.cl.GetMIMEMessage(ctx, &buf, s.userID, s.idm.idOf(msgID))
 		if err != nil {
@@ -665,10 +668,16 @@ func (s *session) Fetch(w *imapserver.FetchWriter, numSet imap.NumSet, options *
 
 		logger.Debug("GetMIMEMessage", "id", s.idm.idOf(msgID), "length", length)
 		msg := message{uid: msgID, buf: buf.Bytes(), flags: make(map[imap.Flag]struct{}, 2)}
-		if gm.Flag.Status == "flagged" {
+		gm := <-mCh
+		if gm.Err != nil {
+			logger.Error("getMessage", "error", gm.Err)
+			return gm.Err
+		}
+		logger.Debug("GetMessage", "messages", gm)
+		if gm.Message.Flag.Status == "flagged" {
 			msg.flags[imap.FlagFlagged] = struct{}{}
 		}
-		if gm.Read {
+		if gm.Message.Read {
 			msg.flags[imap.FlagSeen] = struct{}{}
 		}
 		mw := w.CreateMessage(uint32(msgID))

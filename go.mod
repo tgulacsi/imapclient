@@ -21,6 +21,7 @@ require (
 	github.com/emersion/go-message v0.18.1 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/golang-jwt/jwt/v5 v5.2.1 // indirect
+	github.com/google/renameio/v2 v2.0.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/hashicorp/go-azure-helpers v0.70.1 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect

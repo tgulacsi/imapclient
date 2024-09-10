@@ -7,9 +7,11 @@ package graph
 import (
 	"bytes"
 	"context"
+	"crypto/sha512"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"log/slog"
 	"net/http"
@@ -29,6 +31,7 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/UNO-SOFT/zlog/v2"
+	"github.com/google/renameio/v2"
 	"github.com/hashicorp/go-azure-sdk/sdk/auth"
 	"github.com/hashicorp/go-azure-sdk/sdk/environments"
 	"github.com/hashicorp/go-azure-sdk/sdk/odata"
@@ -706,6 +709,8 @@ type tokenCache struct {
 	mu           sync.Mutex
 	m            map[string]json.RawMessage
 	lastModified time.Time
+	hasher       hash.Hash
+	hsh          [sha512.Size224]byte
 }
 
 var _ cache.ExportReplace = (*tokenCache)(nil)
@@ -749,7 +754,13 @@ func (c *tokenCache) readFile(ctx context.Context) error {
 		logger.Warn("unmarshal", "b", string(b), "error", err)
 		os.Remove(c.FileName)
 	} else {
-		logger.Debug("successfully read", "file", c.FileName, "mtime", c.lastModified)
+		if c.hasher == nil {
+			c.hasher = sha512.New512_224()
+		}
+		c.hasher.Reset()
+		c.hasher.Write(b)
+		c.hasher.Sum(c.hsh[:0])
+		logger.Debug("successfully read", "file", c.FileName, "mtime", c.lastModified, "hash", c.hsh[:])
 		c.m = mm
 	}
 	return nil
@@ -778,22 +789,33 @@ func (c *tokenCache) Export(ctx context.Context, m cache.Marshaler, hints cache.
 		if c.m == nil {
 			c.m = make(map[string]json.RawMessage)
 		}
-		logger.Info("save", "key", hints.PartitionKey, "value", string(b))
+		if logger.Enabled(ctx, slog.LevelDebug) {
+			logger.Debug("save", "key", hints.PartitionKey, "value", string(b))
+		}
 		c.m[hints.PartitionKey] = b
 	}
-	if b, err := json.Marshal(c.m); err != nil {
+	b, err := json.Marshal(c.m)
+	if err != nil {
 		logger.Error("marshal", "error", err)
 		return fmt.Errorf("marshal map: %w", err)
-	} else if err = os.WriteFile(c.FileName, b, 0600); err != nil {
+	} else if true || c.hasher != nil {
+		c.hasher.Reset()
+		c.hasher.Write(b)
+		old := c.hsh
+		c.hasher.Sum(c.hsh[:0])
+		if old == c.hsh {
+			logger.Info("SKIP same hash")
+			return nil
+		}
+		if logger.Enabled(ctx, slog.LevelDebug) {
+			logger.Debug("changed", "b", string(b), "old", old, "new", c.hsh)
+		}
+	}
+	if err = renameio.WriteFile(c.FileName, b, 0600); err != nil {
 		logger.Error("write", "file", c.FileName, "error", err)
 		return fmt.Errorf("write file %q: %w", c.FileName, err)
 	}
-	fi, err = os.Stat(c.FileName)
-	if err != nil {
-		logger.Error("stat", "file", c.FileName, "error", err)
-		return fmt.Errorf("stat %q: %w", c.FileName, err)
-	}
-	c.lastModified = fi.ModTime()
-	logger.Info("saved", "lastModified", c.lastModified)
+	c.lastModified = time.Now()
+	// logger.Info("saved", "lastModified", c.lastModified)
 	return nil
 }

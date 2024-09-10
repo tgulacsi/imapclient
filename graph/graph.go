@@ -88,7 +88,7 @@ func NewGraphMailClient(ctx context.Context, tenantID, clientID, clientSecret, r
 		if ia, err = newInteractiveAuthorizer(ctx, clientID, tenantID, redirectURI, mailReadWriteScopes, "graph-tokens.json"); err == nil {
 			authorizer = ia
 			if _, err = ia.Token(ctx, nil); err == nil {
-				// logger.Warn("Token", "ia", ia, "accounts", ia.Accounts)
+				logger.Info("Token", "ia", ia, "accounts", ia.Accounts)
 				a := ia.Accounts[0]
 				// logger.Info("got", "Account", a, "a", fmt.Sprintf("%#v", a))
 				u := User{
@@ -626,14 +626,15 @@ func newInteractiveAuthorizer(ctx context.Context, clientID, tenantID, redirectU
 			if cd, err := os.UserCacheDir(); err == nil {
 				cacheFileName = filepath.Join(cd, cacheFileName)
 			}
-			ia.cache = &tokenCache{FileName: cacheFileName}
 		}
+		ia.cache = &tokenCache{FileName: cacheFileName}
 	}
 
 	opts := []msal.Option{msal.WithAuthority("https://login.microsoftonline.com/" + tenantID), nil}[:1]
 	if ia.cache != nil {
 		opts = append(opts, msal.WithCache(ia.cache))
 	}
+	// zlog.SFromContext(ctx).Info("interactiveAuthorizer", "cache", ia.cache, "cacheFileName", cacheFileName, "opts", opts)
 	var err error
 	if ia.client, err = msal.New(clientID, opts...); err != nil {
 		return nil, fmt.Errorf("msal.New: %w", err)
@@ -658,7 +659,6 @@ func (ia *interactiveAuthorizer) Token(ctx context.Context, request *http.Reques
 		// AcquireTokenSilent returns a non-nil error when it can't provide a token.
 		if result, err = ia.client.AcquireTokenSilent(ctx, ia.Scopes, msal.WithSilentAccount(ia.Accounts[0])); err != nil {
 			logger.Warn("AcquireTokenSilent", "error", err)
-			return nil, fmt.Errorf("AcquireTokenSilet: %w", err)
 		}
 	}
 	if result.AccessToken == "" {
@@ -713,33 +713,44 @@ var _ cache.ExportReplace = (*tokenCache)(nil)
 // Replace replaces the cache with what is in external storage. Implementors should honor
 // Context cancellations and return context.Canceled or context.DeadlineExceeded in those cases.
 func (c *tokenCache) Replace(ctx context.Context, um cache.Unmarshaler, hints cache.ReplaceHints) error {
+	logger := zlog.SFromContext(ctx)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if !c.lastModified.IsZero() {
-		if fi, err := os.Stat(c.FileName); err == nil && c.lastModified.Equal(fi.ModTime()) {
+	if c.m != nil && !c.lastModified.IsZero() {
+		if fi, err := os.Stat(c.FileName); err == nil && !c.lastModified.Before(fi.ModTime()) {
 			if err = um.Unmarshal(c.m[hints.PartitionKey]); err != nil {
-				err = fmt.Errorf("unmarshal %q: %w", c.m[hints.PartitionKey], err)
+				logger.Error("Replace", "error", err)
+				return fmt.Errorf("unmarshal %q: %w", c.m[hints.PartitionKey], err)
 			}
-			return err
 		}
 	}
-	if b, err := os.ReadFile(c.FileName); err != nil {
-		if c.m == nil {
-			c.m = make(map[string]json.RawMessage)
-		}
-	} else if len(b) != 0 {
-		if fi, err := os.Stat(c.FileName); err == nil {
-			c.lastModified = fi.ModTime()
-		}
-		var mm map[string]json.RawMessage
-		if err = json.Unmarshal(b, &mm); err == nil {
-			c.m = mm
-		} else {
-			return fmt.Errorf("unmarshal %+v: %w", b, err)
-		}
+	if err := c.readFile(ctx); err != nil {
+		logger.Error("readFile", "error", err)
+		return err
 	}
-	if b := c.m[hints.PartitionKey]; len(b) != 0 {
+	b := c.m[hints.PartitionKey]
+	if len(b) == 0 {
+		b = c.m[""]
+	}
+	if len(b) != 0 {
 		return um.Unmarshal(b)
+	}
+	return nil
+}
+
+func (c *tokenCache) readFile(ctx context.Context) error {
+	logger := zlog.SFromContext(ctx)
+	c.lastModified = time.Now()
+	var mm map[string]json.RawMessage
+	if b, err := os.ReadFile(c.FileName); err != nil {
+		logger.Warn("read", "file", c.FileName, "error", err)
+		os.Remove(c.FileName)
+	} else if err = json.Unmarshal(b, &mm); err != nil {
+		logger.Warn("unmarshal", "b", string(b), "error", err)
+		os.Remove(c.FileName)
+	} else {
+		logger.Debug("successfully read", "file", c.FileName, "mtime", c.lastModified)
+		c.m = mm
 	}
 	return nil
 }
@@ -747,36 +758,42 @@ func (c *tokenCache) Replace(ctx context.Context, um cache.Unmarshaler, hints ca
 // Export writes the binary representation of the cache (cache.Marshal()) to external storage.
 // This is considered opaque. Context cancellations should be honored as in Replace.
 func (c *tokenCache) Export(ctx context.Context, m cache.Marshaler, hints cache.ExportHints) error {
+	logger := zlog.SFromContext(ctx)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	fi, err := os.Stat(c.FileName)
 	if err != nil {
+		logger.Warn("stat", "file", c.FileName, "error", err)
 		os.Remove(c.FileName)
-	} else if c.lastModified.Before(fi.ModTime()) {
-		var mm map[string]json.RawMessage
-		if b, err := os.ReadFile(c.FileName); err != nil {
-			os.Remove(c.FileName)
-		} else if err = json.Unmarshal(b, &mm); err == nil {
-			c.m = mm
+	} else if c.m == nil || c.lastModified.Before(fi.ModTime()) {
+		if err = c.readFile(ctx); err != nil {
+			logger.Error("readFile", "error", err)
+			return err
 		}
 	}
 	if b, err := m.Marshal(); err != nil {
+		logger.Error("marshal", "error", err)
 		return fmt.Errorf("marshal: %w", err)
-	} else {
+	} else if len(b) != 0 {
 		if c.m == nil {
 			c.m = make(map[string]json.RawMessage)
 		}
+		logger.Info("save", "key", hints.PartitionKey, "value", string(b))
 		c.m[hints.PartitionKey] = b
 	}
 	if b, err := json.Marshal(c.m); err != nil {
+		logger.Error("marshal", "error", err)
 		return fmt.Errorf("marshal map: %w", err)
 	} else if err = os.WriteFile(c.FileName, b, 0600); err != nil {
+		logger.Error("write", "file", c.FileName, "error", err)
 		return fmt.Errorf("write file %q: %w", c.FileName, err)
 	}
 	fi, err = os.Stat(c.FileName)
 	if err != nil {
+		logger.Error("stat", "file", c.FileName, "error", err)
 		return fmt.Errorf("stat %q: %w", c.FileName, err)
 	}
 	c.lastModified = fi.ModTime()
+	logger.Info("saved", "lastModified", c.lastModified)
 	return nil
 }

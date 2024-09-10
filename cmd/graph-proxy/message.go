@@ -30,6 +30,7 @@ import (
 	"bufio"
 	"bytes"
 	"io"
+	"log/slog"
 	"mime"
 	"strings"
 	"time"
@@ -37,6 +38,7 @@ import (
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapserver"
 	gomessage "github.com/emersion/go-message"
+	_ "github.com/emersion/go-message/charset"
 	"github.com/emersion/go-message/mail"
 	"github.com/emersion/go-message/textproto"
 )
@@ -277,7 +279,11 @@ func getEnvelope(h textproto.Header) *imap.Envelope {
 func parseAddressList(mh mail.Header, k string) []imap.Address {
 	// TODO: leave the quoted words unchanged
 	// TODO: handle groups
-	addrs, _ := mh.AddressList(k)
+	addrs, err := mh.AddressList(k)
+	if err != nil {
+		raw, _ := mh.Header.Header.Raw(k)
+		slog.Warn("parseAddressList", "k", k, "raw", string(raw), "error", err)
+	}
 	var l []imap.Address
 	for _, addr := range addrs {
 		mailbox, host, ok := strings.Cut(addr.Address, "@")

@@ -25,10 +25,12 @@ func main() {
 func Main() error {
 	var verbose zlog.VerboseVar
 	logger := zlog.NewLogger(zlog.MaybeConsoleHandler(&verbose, os.Stderr)).SLog()
-	flagClientID := flag.String("client-id", "", "ClientID")
+	flagClientID := flag.String("client-id", nvl(os.Getenv("AZURE_CLIENT_ID"), "34f2c0c1-b509-43c5-aae8-56c10fa19ed7"), "ClientID")
+	// flagRedirectURI := flag.String("redirect-uri", "http://localhost:19414/auth-repsonse", "The redirect URI you send in the request to the login server")
 	// flagClientSecret := flag.String("client-secret", "", "ClientSecret")
 	// flagTenantID := flag.String("tenant-id", "", "TenantID")
 	// flagUserID := flag.String("user-id", "", "UserID")
+	flagRedirectURI := flag.String("redirect-uri", "http://localhost", "redirectURI (if client secret is empty)")
 	flag.Var(&verbose, "v", "verbosity")
 	flag.Parse()
 
@@ -37,7 +39,19 @@ func Main() error {
 
 	return NewProxy(
 		zlog.NewSContext(ctx, logger),
-		//*flagTenantID,*flagClientSecret,
-		*flagClientID,
+		*flagClientID, *flagRedirectURI,
 	).ListenAndServe(flag.Arg(0))
+}
+
+func nvl[T comparable](a T, b ...T) T {
+	var zero T
+	if a != zero {
+		return a
+	}
+	for _, a := range b {
+		if a != zero {
+			return a
+		}
+	}
+	return a
 }

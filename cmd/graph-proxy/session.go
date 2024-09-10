@@ -102,7 +102,10 @@ func (s *session) Login(username, password string) error {
 	}
 	if s.userID == "" {
 		logger.Error("user not found", "user", user, "users", s.users)
-		return fmt.Errorf("user %q not found: %w", user, imapserver.ErrAuthFailed)
+		if len(s.users) != 1 {
+			return fmt.Errorf("user %q not found: %w", user, imapserver.ErrAuthFailed)
+		}
+		s.userID = *s.users[0].ID()
 	}
 	logger.Info("Login succeeded", "userID", s.userID)
 	return nil

@@ -15,11 +15,18 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unsafe"
+
+	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/cache"
+	msal "github.com/AzureAD/microsoft-authentication-library-for-go/apps/public"
+	"golang.org/x/oauth2"
 
 	"github.com/UNO-SOFT/zlog/v2"
 	"github.com/hashicorp/go-azure-sdk/sdk/auth"
@@ -68,22 +75,43 @@ type GraphMailClient struct {
 	BaseClient msgraph.Client
 }
 
-func NewGraphMailClient(ctx context.Context, tenantID, clientID, clientSecret string) (GraphMailClient, error) {
+var mailReadWriteScopes = []string{"https://graph.microsoft.com/Mail.ReadWrite", "https://graph.microsoft.com/Mail.Send", "https://graph.microsoft.com/MailboxFolder.ReadWrite"}
+
+func NewGraphMailClient(ctx context.Context, tenantID, clientID, clientSecret, redirectURI string) (GraphMailClient, []User, error) {
 	logger := zlog.SFromContext(ctx)
 	env := environments.AzurePublic()
-
-	credentials := auth.Credentials{
-		Environment:  *env,
-		TenantID:     tenantID,
-		ClientID:     clientID,
-		ClientSecret: clientSecret,
-
-		EnableAuthenticatingUsingClientSecret: true,
+	// clientSecret = ""
+	var err error
+	var authorizer auth.Authorizer
+	var users []User
+	if clientSecret == "" {
+		var ia *interactiveAuthorizer
+		if ia, err = newInteractiveAuthorizer(ctx, clientID, tenantID, redirectURI, mailReadWriteScopes, "graph-tokens.json"); err == nil {
+			authorizer = ia
+			if _, err = ia.Token(ctx, nil); err == nil {
+				// logger.Warn("Token", "ia", ia, "accounts", ia.Accounts)
+				a := ia.Accounts[0]
+				// logger.Info("got", "Account", a, "a", fmt.Sprintf("%#v", a))
+				u := User{
+					DisplayName:       &a.Name,
+					UserPrincipalName: &a.PreferredUsername,
+				}
+				u.Id = &a.LocalAccountID
+				users = append(users[:0], u)
+			}
+		}
+	} else {
+		credentials := auth.Credentials{
+			Environment:                           *env,
+			TenantID:                              tenantID,
+			ClientID:                              clientID,
+			ClientSecret:                          clientSecret,
+			EnableAuthenticatingUsingClientSecret: true,
+		}
+		authorizer, err = auth.NewAuthorizerFromCredentials(ctx, credentials, env.MicrosoftGraph)
 	}
-	// https://learn.microsoft.com/hu-hu/azure/active-directory/develop/quickstart-register-app#add-a-certificate
-	authorizer, err := auth.NewAuthorizerFromCredentials(ctx, credentials, env.MicrosoftGraph)
 	if err != nil {
-		return GraphMailClient{}, err
+		return GraphMailClient{}, nil, err
 	}
 	client := msgraph.NewUsersClient()
 	client.BaseClient.Authorizer = authorizer
@@ -91,7 +119,7 @@ func NewGraphMailClient(ctx context.Context, tenantID, clientID, clientSecret st
 
 	if logger.Enabled(ctx, slog.LevelDebug) {
 		requestLogger := func(req *http.Request) (*http.Request, error) {
-			if req != nil {
+			if req != nil && logger.Enabled(req.Context(), slog.LevelDebug) {
 				dump, _ := httputil.DumpRequestOut(req, false)
 				logger.Debug("request", "method", req.Method, "URL", req.URL.String(), "body", string(dump))
 			}
@@ -99,7 +127,7 @@ func NewGraphMailClient(ctx context.Context, tenantID, clientID, clientSecret st
 		}
 
 		responseLogger := func(req *http.Request, resp *http.Response) (*http.Response, error) {
-			if resp != nil {
+			if resp != nil && logger.Enabled(req.Context(), slog.LevelDebug) {
 				dump, _ := httputil.DumpResponse(resp, false)
 				logger.Debug("response", "URL", resp.Request.URL.String(), "body", string(dump))
 			}
@@ -110,7 +138,14 @@ func NewGraphMailClient(ctx context.Context, tenantID, clientID, clientSecret st
 		client.BaseClient.ResponseMiddlewares = &[]msgraph.ResponseMiddleware{responseLogger}
 	}
 
-	return GraphMailClient{BaseClient: client.BaseClient}, nil
+	cl := GraphMailClient{BaseClient: client.BaseClient}
+	if len(users) == 0 {
+		if _, err := cl.Users(ctx); err != nil {
+			return GraphMailClient{}, users, fmt.Errorf("%w", err)
+		}
+	}
+
+	return cl, users, nil
 }
 
 func (g GraphMailClient) Users(ctx context.Context) ([]msgraph.User, error) {
@@ -573,4 +608,176 @@ type Folder struct {
 	TotalItemCount   int    `json:"totalItemCount"`
 	SizeInBytes      int    `json:"sizeInBytes"`
 	Hidden           bool   `json:"isHidden"`
+}
+
+type interactiveAuthorizer struct {
+	RedirectURI string
+	Scopes      []string
+	client      msal.Client
+	Accounts    []msal.Account
+	cache       cache.ExportReplace
+}
+
+var _ auth.Authorizer = (*interactiveAuthorizer)(nil)
+
+func newInteractiveAuthorizer(ctx context.Context, clientID, tenantID, redirectURI string, scopes []string, cacheFileName string) (*interactiveAuthorizer, error) {
+	ia := interactiveAuthorizer{RedirectURI: redirectURI, Scopes: scopes}
+	if cacheFileName != "" {
+		if strings.IndexByte(cacheFileName, filepath.Separator) >= 0 {
+			if cd, err := os.UserCacheDir(); err == nil {
+				cacheFileName = filepath.Join(cd, cacheFileName)
+			}
+			ia.cache = &tokenCache{FileName: cacheFileName}
+		}
+	}
+
+	opts := []msal.Option{msal.WithAuthority("https://login.microsoftonline.com/" + tenantID), nil}[:1]
+	if ia.cache != nil {
+		opts = append(opts, msal.WithCache(ia.cache))
+	}
+	var err error
+	if ia.client, err = msal.New(clientID, opts...); err != nil {
+		return nil, fmt.Errorf("msal.New: %w", err)
+	}
+	if ia.Accounts, err = ia.client.Accounts(ctx); err != nil {
+		return nil, fmt.Errorf("Accounts: %w", err)
+	}
+	return &ia, nil
+}
+
+// Token obtains a new access token for the configured tenant
+func (ia *interactiveAuthorizer) Token(ctx context.Context, request *http.Request) (*oauth2.Token, error) {
+	// https://github.com/MicrosoftDocs/azure-docs/issues/61446
+	logger := zlog.SFromContext(ctx)
+	var err error
+	if ia.Accounts, err = ia.client.Accounts(ctx); err != nil {
+		return nil, fmt.Errorf("Accounts: %w", err)
+	}
+	var result msal.AuthResult
+	if len(ia.Accounts) > 0 {
+		// There may be more accounts; here we assume the first one is wanted.
+		// AcquireTokenSilent returns a non-nil error when it can't provide a token.
+		if result, err = ia.client.AcquireTokenSilent(ctx, ia.Scopes, msal.WithSilentAccount(ia.Accounts[0])); err != nil {
+			logger.Warn("AcquireTokenSilent", "error", err)
+			return nil, fmt.Errorf("AcquireTokenSilet: %w", err)
+		}
+	}
+	if result.AccessToken == "" {
+		// cache miss, authenticate a user with another AcquireToken* method
+		shortCtx, shortCancel := context.WithTimeout(ctx, time.Minute)
+		result, err = ia.client.AcquireTokenInteractive(shortCtx,
+			ia.Scopes,
+			msal.WithRedirectURI(nvl(ia.RedirectURI, "http://localhost")),
+		)
+		shortCancel()
+		if err != nil {
+			return nil, fmt.Errorf("AcquireTokenInteractive: %w", err)
+		}
+	}
+	if result.Account.IsZero() {
+		return nil, fmt.Errorf("AcquireTokenInteractive returned empty token: %+v", result)
+	}
+	ia.Accounts = append(ia.Accounts[:0], result.Account)
+	return &oauth2.Token{
+		AccessToken:  result.AccessToken,
+		RefreshToken: result.IDToken.RawToken,
+	}, nil
+}
+
+// AuxiliaryTokens obtains new access tokens for the configured auxiliary tenants
+func (ia *interactiveAuthorizer) AuxiliaryTokens(ctx context.Context, request *http.Request) ([]*oauth2.Token, error) {
+	return nil, nil
+}
+
+func nvl[T comparable](a T, b ...T) T {
+	var zero T
+	if a != zero {
+		return a
+	}
+	for _, a := range b {
+		if a != zero {
+			return a
+		}
+	}
+	return a
+}
+
+type tokenCache struct {
+	FileName     string
+	mu           sync.Mutex
+	m            map[string]json.RawMessage
+	lastModified time.Time
+}
+
+var _ cache.ExportReplace = (*tokenCache)(nil)
+
+// Replace replaces the cache with what is in external storage. Implementors should honor
+// Context cancellations and return context.Canceled or context.DeadlineExceeded in those cases.
+func (c *tokenCache) Replace(ctx context.Context, um cache.Unmarshaler, hints cache.ReplaceHints) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.lastModified.IsZero() {
+		if fi, err := os.Stat(c.FileName); err == nil && c.lastModified.Equal(fi.ModTime()) {
+			if err = um.Unmarshal(c.m[hints.PartitionKey]); err != nil {
+				err = fmt.Errorf("unmarshal %q: %w", c.m[hints.PartitionKey], err)
+			}
+			return err
+		}
+	}
+	if b, err := os.ReadFile(c.FileName); err != nil {
+		if c.m == nil {
+			c.m = make(map[string]json.RawMessage)
+		}
+	} else if len(b) != 0 {
+		if fi, err := os.Stat(c.FileName); err == nil {
+			c.lastModified = fi.ModTime()
+		}
+		var mm map[string]json.RawMessage
+		if err = json.Unmarshal(b, &mm); err == nil {
+			c.m = mm
+		} else {
+			return fmt.Errorf("unmarshal %+v: %w", b, err)
+		}
+	}
+	if b := c.m[hints.PartitionKey]; len(b) != 0 {
+		return um.Unmarshal(b)
+	}
+	return nil
+}
+
+// Export writes the binary representation of the cache (cache.Marshal()) to external storage.
+// This is considered opaque. Context cancellations should be honored as in Replace.
+func (c *tokenCache) Export(ctx context.Context, m cache.Marshaler, hints cache.ExportHints) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	fi, err := os.Stat(c.FileName)
+	if err != nil {
+		os.Remove(c.FileName)
+	} else if c.lastModified.Before(fi.ModTime()) {
+		var mm map[string]json.RawMessage
+		if b, err := os.ReadFile(c.FileName); err != nil {
+			os.Remove(c.FileName)
+		} else if err = json.Unmarshal(b, &mm); err == nil {
+			c.m = mm
+		}
+	}
+	if b, err := m.Marshal(); err != nil {
+		return fmt.Errorf("marshal: %w", err)
+	} else {
+		if c.m == nil {
+			c.m = make(map[string]json.RawMessage)
+		}
+		c.m[hints.PartitionKey] = b
+	}
+	if b, err := json.Marshal(c.m); err != nil {
+		return fmt.Errorf("marshal map: %w", err)
+	} else if err = os.WriteFile(c.FileName, b, 0600); err != nil {
+		return fmt.Errorf("write file %q: %w", c.FileName, err)
+	}
+	fi, err = os.Stat(c.FileName)
+	if err != nil {
+		return fmt.Errorf("stat %q: %w", c.FileName, err)
+	}
+	c.lastModified = fi.ModTime()
+	return nil
 }

@@ -17,8 +17,8 @@ import (
 	"github.com/tgulacsi/imapclient/graph"
 )
 
-func NewProxy(ctx context.Context, clientID string) *proxy {
-	P := proxy{ctx: ctx, clientID: clientID}
+func NewProxy(ctx context.Context, clientID, redirectURI string) *proxy {
+	P := proxy{ctx: ctx, clientID: clientID, redirectURI: redirectURI}
 	logger := P.logger()
 
 	var token struct{}
@@ -103,7 +103,7 @@ type proxy struct {
 	srv *imapserver.Server
 	// client                           *graph.GraphMailClient
 	//tenantID string
-	clientID string
+	clientID, redirectURI string
 
 	mu      sync.Mutex
 	clients map[string]clientUsers
@@ -125,19 +125,12 @@ func (P *proxy) connect(ctx context.Context, tenantID, clientSecret string) (gra
 	if clu, ok := P.clients[key]; ok {
 		return clu.Client, clu.Users, nil
 	}
-	cl, err := graph.NewGraphMailClient(ctx, tenantID, P.clientID, clientSecret)
+	cl, users, err := graph.NewGraphMailClient(ctx, tenantID, P.clientID, clientSecret, P.redirectURI)
 	if err != nil {
 		logger.Error("NewGraphMailClient", "dur", time.Since(start).String(), "error", err)
 		return graph.GraphMailClient{}, nil, err
 	}
-	logger.Debug("NewGraphMailClient", "dur", time.Since(start).String())
-	start = time.Now()
-	users, err := cl.Users(ctx)
-	if err != nil {
-		logger.Error("Users", "dur", time.Since(start).String(), "error", err)
-	} else {
-		logger.Debug("Users", "dur", time.Since(start).String())
-	}
+	logger.Debug("NewGraphMailClient", "users", users, "dur", time.Since(start).String())
 	if P.clients == nil {
 		P.clients = make(map[string]clientUsers)
 	}

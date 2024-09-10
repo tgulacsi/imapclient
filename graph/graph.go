@@ -80,7 +80,6 @@ var mailReadWriteScopes = []string{"https://graph.microsoft.com/Mail.ReadWrite",
 func NewGraphMailClient(ctx context.Context, tenantID, clientID, clientSecret, redirectURI string) (GraphMailClient, []User, error) {
 	logger := zlog.SFromContext(ctx)
 	env := environments.AzurePublic()
-	// clientSecret = ""
 	var err error
 	var authorizer auth.Authorizer
 	var users []User

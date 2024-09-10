@@ -82,7 +82,7 @@ func (s *session) Login(username, password string) error {
 	}
 	clientSecret := password
 	logger := s.logger().With("username", username, "password", password,
-		"user", user, "tenantID", tenantID, "clientID", s.p.clientID, "clientSecretLen", len("clientSecret"))
+		"user", user, "tenantID", tenantID, "clientID", s.p.clientID, "clientSecretLen", len(clientSecret))
 	s.userID = ""
 	ctx, cancel := context.WithTimeout(s.p.ctx, time.Minute)
 	defer cancel()

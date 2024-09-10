@@ -118,13 +118,14 @@ func (P *proxy) logger() *slog.Logger {
 
 func (P *proxy) connect(ctx context.Context, tenantID, clientSecret string) (graph.GraphMailClient, []graph.User, error) {
 	logger := P.logger().With("tenantID", tenantID, "clientID", P.clientID, "clientSecretLen", len(clientSecret))
-	start := time.Now()
 	P.mu.Lock()
 	defer P.mu.Unlock()
 	key := tenantID + "\t" + clientSecret
 	if clu, ok := P.clients[key]; ok {
+		logger.Debug("client cached")
 		return clu.Client, clu.Users, nil
 	}
+	start := time.Now()
 	cl, users, err := graph.NewGraphMailClient(ctx, tenantID, P.clientID, clientSecret, P.redirectURI)
 	if err != nil {
 		logger.Error("NewGraphMailClient", "dur", time.Since(start).String(), "error", err)

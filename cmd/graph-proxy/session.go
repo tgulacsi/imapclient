@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"log/slog"
 	"net/mail"
@@ -150,20 +151,21 @@ func (s *session) Select(mailbox string, options *imap.SelectOptions) (*imap.Sel
 		}
 		root = s.folders[key]
 	}
-	s.folderID = root.ID
+	s.folderID, s.mboxDeltaLink = root.ID, ""
 
 	total := uint32(root.TotalItemCount)
 	unread := uint32(root.UnreadItemCount)
+	uidNext := s.idm.uidNext(root.ID)
 	return &imap.SelectData{
 		NumMessages: total,
-		UIDValidity: s.idm.uidValidity, UIDNext: s.idm.uidNext(),
+		UIDValidity: s.idm.uidValidity, UIDNext: uidNext,
 		List: &imap.ListData{
 			Delim: delim, Mailbox: root.DisplayName,
 			Status: &imap.StatusData{
 				Mailbox:     root.DisplayName,
 				NumMessages: &total,
 				NumUnseen:   &unread,
-				UIDNext:     s.idm.uidNext(), UIDValidity: s.idm.uidValidity,
+				UIDNext:     uidNext, UIDValidity: s.idm.uidValidity,
 			}},
 	}, nil
 }
@@ -302,7 +304,24 @@ func (s *session) Rename(mailbox, newName string) error {
 }
 
 func (s *session) Poll(w *imapserver.UpdateWriter, allowExpunge bool) error {
-	changes, deltaLink, err := s.cl.DeltaMailFolders(s.p.ctx, s.userID, s.mboxDeltaLink)
+	logger := s.logger()
+	logger.Info("Poll", "allowExpunge", allowExpunge)
+	ctx, cancel := context.WithTimeout(s.p.ctx, time.Minute)
+	defer cancel()
+	if s.folderID == "" {
+		logger.Warn("POLL before SELECT")
+		return nil
+	}
+	f := s.folders[s.folderID]
+	if f == nil {
+		if err := s.fetchMailboxes(ctx, nil, false); err != nil {
+			return err
+		}
+		if f = s.folders[s.folderID]; f == nil {
+			return fmt.Errorf("folderID %q not found", s.folderID)
+		}
+	}
+	changes, deltaLink, err := s.cl.DeltaMails(s.p.ctx, s.userID, f.ID, s.mboxDeltaLink)
 	if err != nil {
 		return err
 	}
@@ -318,7 +337,8 @@ func (s *session) Poll(w *imapserver.UpdateWriter, allowExpunge bool) error {
 		if c.Read {
 			flags = append(flags, imap.FlagSeen)
 		}
-		if err := w.WriteMessageFlags(uint32(s.idm.uidOf(c.ID)), s.idm.uidOf(c.ID), flags); err != nil {
+		uid := s.idm.uidOf(f.ID, c.ID)
+		if err := w.WriteMessageFlags(uint32(uid), uid, flags); err != nil {
 			return err
 		}
 	}
@@ -444,7 +464,7 @@ func (s *session) List(w *imapserver.ListWriter, ref string, patterns []string, 
 			Mailbox:     names[f.ID],
 			NumMessages: &total,
 			NumUnseen:   &unread,
-			UIDNext:     s.idm.uidNext(),
+			UIDNext:     s.idm.uidNext(f.ID),
 			UIDValidity: s.idm.uidValidity,
 		}
 		logger.Debug("list", "data", data)
@@ -487,7 +507,7 @@ func (s *session) Status(mailbox string, options *imap.StatusOptions) (*imap.Sta
 			Mailbox:     mailbox,
 			NumMessages: &total,
 			NumUnseen:   &unread,
-			UIDNext:     s.idm.uidNext(),
+			UIDNext:     s.idm.uidNext(f.ID),
 			// A good UIDVALIDITY value to use is a 32-bit representation of the current date/time when the value is assigned:
 			UIDValidity: s.idm.uidValidity,
 		}, err
@@ -522,7 +542,7 @@ func (s *session) Append(mailbox string, r imap.LiteralReader, options *imap.App
 	if err != nil {
 		return nil, err
 	}
-	return &imap.AppendData{UIDValidity: s.idm.uidValidity, UID: s.idm.uidOf(msg.ID)}, nil
+	return &imap.AppendData{UIDValidity: s.idm.uidValidity, UID: s.idm.uidOf(s.folderID, msg.ID)}, nil
 }
 
 // Selected state
@@ -532,10 +552,10 @@ func (s *session) Move(w *imapserver.MoveWriter, numSet imap.NumSet, dest string
 	defer cancel()
 	var sourceUIDs, destUIDs imap.UIDSet
 	err := forNumSet(numSet, true, nil, func(msgID imap.UID) error {
-		msg, err := s.cl.MoveMessage(ctx, s.userID, s.folderID, s.idm.idOf(msgID), destFolderID)
+		msg, err := s.cl.MoveMessage(ctx, s.userID, s.folderID, s.idm.idOf(destFolderID, msgID), destFolderID)
 		if msg.ID != "" {
 			sourceUIDs.AddNum(msgID)
-			destUIDs.AddNum(s.idm.uidOf(msg.ID))
+			destUIDs.AddNum(s.idm.uidOf(destFolderID, msg.ID))
 		}
 		return err
 	})
@@ -558,7 +578,7 @@ func (s *session) Expunge(w *imapserver.ExpungeWriter, uids *imap.UIDSet) error 
 	ctx, cancel := context.WithTimeout(s.p.ctx, 5*time.Minute)
 	defer cancel()
 	return forNumSet(*uids, true, s.fetcherFor(ctx, s.folderID), func(msgID imap.UID) error {
-		err := s.cl.DeleteMessage(ctx, s.userID, s.folderID, s.idm.idOf(msgID))
+		err := s.cl.DeleteMessage(ctx, s.userID, s.folderID, s.idm.idOf(s.folderID, msgID))
 		if wErr := w.WriteExpunge(uint32(msgID)); wErr != nil && err == nil {
 			err = wErr
 		}
@@ -684,7 +704,7 @@ func (s *session) Search(kind imapserver.NumKind, criteria *imap.SearchCriteria,
 	var nums imap.UIDSet
 	sd := imap.SearchData{UID: true, Count: uint32(len(msgs))}
 	for i, m := range msgs {
-		uid := s.idm.uidOf(m.ID)
+		uid := s.idm.uidOf(s.folderID, m.ID)
 		if u := uint32(uid); i == 0 {
 			sd.Min, sd.Max = u, u
 		} else {
@@ -708,7 +728,7 @@ func (s *session) fetcherFor(ctx context.Context, folderID string) func() ([]ima
 		uids := make([]imap.UID, 0, len(msgs))
 		for _, m := range msgs {
 			if m.ID != "" {
-				uids = append(uids, s.idm.uidOf(m.ID))
+				uids = append(uids, s.idm.uidOf(folderID, m.ID))
 			}
 		}
 		return uids, err
@@ -729,23 +749,27 @@ func (s *session) Fetch(w *imapserver.FetchWriter, numSet imap.NumSet, options *
 				return err
 			}
 			logger := s.logger().With("uid", msgID)
+			id := s.idm.idOf(s.folderID, msgID)
+			if id == "" {
+				return fmt.Errorf("no msgID for UID=%q", msgID)
+			}
 			type gmErr struct {
 				Message graph.Message
 				Err     error
 			}
 			mCh := make(chan gmErr, 1)
 			go func() {
-				gm, err := s.cl.GetMessage(ctx, s.userID, s.idm.idOf(msgID), qry)
+				gm, err := s.cl.GetMessage(ctx, s.userID, id, qry)
 				mCh <- gmErr{Message: gm, Err: err}
 			}()
 			buf.Reset()
-			length, err := s.cl.GetMIMEMessage(ctx, &buf, s.userID, s.idm.idOf(msgID))
+			length, err := s.cl.GetMIMEMessage(ctx, &buf, s.userID, id)
 			if err != nil {
 				logger.Error("GetMIMEMessage", "error", err)
 				return err
 			}
 
-			logger.Debug("GetMIMEMessage", "id", s.idm.idOf(msgID), "length", length)
+			logger.Debug("GetMIMEMessage", "id", s.idm.idOf(s.folderID, msgID), "length", length)
 			msg := message{uid: msgID, buf: buf.Bytes(), flags: make(map[imap.Flag]struct{}, 2)}
 			gm := <-mCh
 			if gm.Err != nil {
@@ -797,18 +821,18 @@ func (s *session) Store(w *imapserver.FetchWriter, numSet imap.NumSet, flags *im
 			if err != nil {
 				return err
 			}
-			msg, err := s.cl.UpdateMessage(ctx, s.userID, s.idm.idOf(msgID), json.RawMessage(upd))
+			msg, err := s.cl.UpdateMessage(ctx, s.userID, s.idm.idOf(s.folderID, msgID), json.RawMessage(upd))
 			if err != nil {
 				return err
 			}
 			if tbd {
-				if err := s.cl.DeleteMessage(ctx, s.userID, s.folderID, s.idm.idOf(msgID)); err != nil {
+				if err := s.cl.DeleteMessage(ctx, s.userID, s.folderID, s.idm.idOf(s.folderID, msgID)); err != nil {
 					return err
 				}
 			}
 			mw := w.CreateMessage(uint32(msgID))
 			mw.WriteFlags(flags.Flags)
-			mw.WriteUID(s.idm.uidOf(msg.ID))
+			mw.WriteUID(s.idm.uidOf(s.folderID, msg.ID))
 			return mw.Close()
 		})
 }
@@ -820,10 +844,10 @@ func (s *session) Copy(numSet imap.NumSet, dest string) (*imap.CopyData, error) 
 	defer cancel()
 	result := imap.CopyData{UIDValidity: s.idm.uidValidity}
 	err := forNumSet(numSet, true, nil, func(msgID imap.UID) error {
-		msg, err := s.cl.CopyMessage(ctx, s.userID, s.folderID, s.idm.idOf(msgID), destFolderID)
+		msg, err := s.cl.CopyMessage(ctx, s.userID, s.folderID, s.idm.idOf(s.folderID, msgID), destFolderID)
 		if msg.ID != "" {
 			result.SourceUIDs.AddNum(msgID)
-			result.DestUIDs.AddNum(s.idm.uidOf(msg.ID))
+			result.DestUIDs.AddNum(s.idm.uidOf(destFolderID, msg.ID))
 		}
 		return err
 	})
@@ -831,27 +855,26 @@ func (s *session) Copy(numSet imap.NumSet, dest string) (*imap.CopyData, error) 
 }
 
 type uidMap struct {
-	id2uid      map[string]imap.UID
-	uid2id      map[imap.UID]string
+	uid2id      map[string]map[imap.UID]string
 	mu          sync.RWMutex
 	uidValidity uint32
 }
 
 func newUIDMap() *uidMap {
-	m := &uidMap{id2uid: make(map[string]imap.UID), uid2id: make(map[imap.UID]string)}
+	m := &uidMap{uid2id: make(map[string]map[imap.UID]string)}
 	m.resetUidValidity()
 	return m
 }
-func (m *uidMap) uidNext() imap.UID {
+func (m *uidMap) uidNext(folderID string) imap.UID {
 	m.mu.RLock()
-	n := len(m.id2uid)
+	n := len(m.uid2id[folderID])
 	m.mu.RUnlock()
 	return imap.UID(n)
 }
 
-func (m *uidMap) idOf(uid imap.UID) string {
+func (m *uidMap) idOf(folderID string, uid imap.UID) string {
 	m.mu.RLock()
-	s := m.uid2id[uid]
+	s := m.uid2id[folderID][uid]
 	m.mu.RUnlock()
 	return s
 }
@@ -859,31 +882,35 @@ func (m *uidMap) idOf(uid imap.UID) string {
 func (m *uidMap) Reset() {
 	m.mu.Lock()
 	clear(m.uid2id)
-	clear(m.id2uid)
 	m.resetUidValidity()
 	m.mu.Unlock()
 }
 func (m *uidMap) resetUidValidity() {
 	const epoch = 1725625771 // 2024-09-0614:29:31
 	// A good UIDVALIDITY value to use is a 32-bit representation of the current date/time when the value is assigned:
-	m.uidValidity = uint32(time.Now().Unix() - epoch)
+	// m.uidValidity = uint32(time.Now().Unix() - epoch)
+	m.uidValidity = 0
 }
 
-func (m *uidMap) uidOf(s string) imap.UID {
+func (m *uidMap) uidOf(folderID, msgID string) imap.UID {
+	hsh := fnv.New32()
+	hsh.Write([]byte(msgID))
+	uid := imap.UID(hsh.Sum32())
 	m.mu.RLock()
-	uid, ok := m.id2uid[s]
+	_, ok := m.uid2id[folderID][uid]
 	m.mu.RUnlock()
 	if ok {
 		return uid
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if uid, ok = m.id2uid[s]; ok {
+	if _, ok = m.uid2id[folderID][uid]; ok {
 		return uid
 	}
-	uid = imap.UID(len(m.id2uid) + 1)
-	m.id2uid[s] = uid
-	m.uid2id[uid] = s
+	if m.uid2id[folderID] == nil {
+		m.uid2id[folderID] = make(map[imap.UID]string)
+	}
+	m.uid2id[folderID][uid] = msgID
 	return uid
 }
 

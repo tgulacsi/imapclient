@@ -592,12 +592,57 @@ func (g GraphMailClient) DeltaMailFolders(ctx context.Context, userID, deltaLink
 	return data.Changes, data.Delta, err
 }
 
+func (g GraphMailClient) DeltaMails(ctx context.Context, userID, folderID, deltaLink string) ([]Change, string, error) {
+	var err error
+	if deltaLink == "" {
+		var data struct {
+			Delta string `json:"@odata.deltaLink"`
+		}
+		path := "/users/" + url.PathEscape(userID) + "/mailFolders/" + url.PathEscape(folderID) + "/messages/delta"
+		if err = g.get(ctx, &data, path, Query{Select: []string{"parentFolderId"}}); err == nil {
+			deltaLink = data.Delta
+		}
+	}
+	if deltaLink == "" {
+		return nil, "", err
+	}
+	var data struct {
+		Delta   string   `json:"@odata.deltaLink"`
+		Changes []Change `json:"value"`
+	}
+	req := msgraph.GetHttpRequestInput{
+		ConsistencyFailureFunc: msgraph.RetryOn404ConsistencyFailureFunc,
+		ValidStatusCodes:       []int{http.StatusOK},
+	}
+	// set unexported rawUri
+	rs := reflect.ValueOf(&req).Elem()
+	rf := rs.FieldByName("rawUri")
+	// rf can't be read or set.
+	rf = reflect.NewAt(rf.Type(), unsafe.Pointer(rf.UnsafeAddr())).Elem()
+	// Now rf can be read and set.
+	rf.SetString(deltaLink)
+	logger := zlog.SFromContext(ctx)
+	// logger.Warn("Delta", "req", fmt.Sprintf("%#v", req))
+	resp, _, _, err := g.BaseClient.Get(ctx, req)
+	if err == nil {
+		err = json.NewDecoder(resp.Body).Decode(&data)
+		resp.Body.Close()
+	}
+	if err != nil {
+		logger.Error("delta", "data", data, "error", err)
+	} else {
+		logger.Debug("delta", "data", data)
+	}
+	return data.Changes, data.Delta, err
+}
+
 type Change struct {
-	Type    string          `json:"@odata.type"`
-	ETag    string          `json:"@odata.etag"`
-	ID      string          `json:"id"`
-	Removed json.RawMessage `json:"removed"`
-	Read    bool            `json:"isRead"`
+	Type           string          `json:"@odata.type"`
+	ETag           string          `json:"@odata.etag"`
+	ID             string          `json:"id"`
+	ParentFolderID string          `json:"parentFolderId"`
+	Removed        json.RawMessage `json:"removed"`
+	Read           bool            `json:"isRead"`
 }
 
 type Folder struct {

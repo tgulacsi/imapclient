@@ -24,14 +24,15 @@ import (
 	"github.com/emersion/go-imap/v2/imapserver"
 	gomessage "github.com/emersion/go-message"
 	"github.com/tgulacsi/imapclient/graph"
+	"golang.org/x/exp/maps"
 )
 
 func (p *proxy) newSession(conn *imapserver.Conn) (imapserver.Session, *imapserver.GreetingData, error) {
 	folders := make(map[string]*Folder)
 	for k, vv := range graph.WellKnownFolders {
-		folders[k] = &Folder{Folder: graph.Folder{WellKnownName: k, DisplayName: k}}
+		folders[cleanMailbox(k)] = &Folder{Folder: graph.Folder{WellKnownName: k, DisplayName: k}}
 		for _, v := range vv {
-			folders[v] = &Folder{Folder: graph.Folder{WellKnownName: k, DisplayName: v}}
+			folders[cleanMailbox(v)] = &Folder{Folder: graph.Folder{WellKnownName: k, DisplayName: v}}
 		}
 	}
 	return &session{
@@ -78,7 +79,9 @@ func (s *session) Close() error {
 func (s *session) Login(username, password string) error {
 	user, tenantID, ok := strings.Cut(username, "\x0A")
 	if !ok {
-		return fmt.Errorf("%w: username is missing \\x00tenantID: %q", imapserver.ErrAuthFailed, username)
+		if user, tenantID, ok = strings.Cut(username, ","); !ok {
+			return fmt.Errorf("%w: username is missing \\x00tenantID: %q", imapserver.ErrAuthFailed, username)
+		}
 	}
 	clientSecret := password
 	logger := s.logger().With("username", username, "password", password,
@@ -108,7 +111,10 @@ func (s *session) Login(username, password string) error {
 		s.userID = *s.users[0].ID()
 	}
 	logger.Info("Login succeeded", "userID", s.userID)
-	return nil
+	start := time.Now()
+	err = s.fetchMailboxes(ctx, nil, false)
+	logger.Info("fetchMailboxes", "dur", time.Since(start).String(), "count", len(s.folders))
+	return err
 }
 
 // Authenticated state
@@ -119,53 +125,30 @@ func (s *session) Namespace() (*imap.NamespaceData, error) {
 	return &imap.NamespaceData{Personal: []imap.NamespaceDescriptor{{Prefix: "", Delim: delim}}}, nil
 }
 
-func (s *session) Select(mailbox string, options *imap.SelectOptions) (*imap.SelectData, error) {
-	s.logger().Debug("Select", "mailbox", mailbox, "options", options)
-
-	dirs := strings.Split(path.Clean(mailbox), delimS)
-	ctx, cancel := context.WithTimeout(s.p.ctx, time.Minute)
-	defer cancel()
-	qry := graph.Query{Select: []string{
-		"displayName", "ID", "parentFolderId", "wellKnownName",
-		"totalItemCount", "unreadItemCount",
-	}}
-	folders, err := s.cl.ListMailFolders(ctx, s.userID, qry)
-	if err != nil {
-		return nil, err
+func cleanMailbox(s string) string {
+	if len(s) == 36 && strings.Count(s, "-") == 4 && strings.IndexFunc(s, func(r rune) bool { return !('0' <= r && r <= '9' || r == '-' || 'a' <= r && r <= 'f') }) < 0 {
+		return s
 	}
-	var root graph.Folder
+	return strings.ToLower(strings.Trim(s, delimS))
+}
+func (s *session) Select(mailbox string, options *imap.SelectOptions) (*imap.SelectData, error) {
+	logger := s.logger().With("mailbox", mailbox)
+	logger.Info("Select", "options", options)
+
 	dn, _ := path.Split(mailbox)
 	if dn != "" {
 		dn += delimS
 	}
-	for _, f := range folders {
-		F := Folder{Folder: f, Mailbox: dn + f.DisplayName}
-		s.folders[F.Mailbox] = &F
-		s.folders[F.ID] = &F
-		if root.ID == "" && (f.DisplayName == dirs[0] || strings.EqualFold(f.WellKnownName, dirs[0])) {
-			root = f
-		}
-	}
-	if root.ID == "" {
-		return nil, fmt.Errorf("%q not found in %+v", dirs[0], folders)
-	}
-	for i, d := range dirs[1:] {
-		if folders, err = s.cl.ListChildFolders(ctx, s.userID, root.ID, false, qry); err != nil {
+	dirs := strings.Split(path.Clean(mailbox), delimS)
+	ctx, cancel := context.WithTimeout(s.p.ctx, time.Minute)
+	defer cancel()
+	key := cleanMailbox(mailbox)
+	root := s.folders[key]
+	if root == nil || root.ID == "" || root.TotalItemCount == 0 {
+		if err := s.fetchMailboxes(ctx, dirs, true); err != nil {
 			return nil, err
 		}
-		key := strings.Join(dirs[:i+1], delimS) + delimS
-		var found bool
-		for _, f := range folders {
-			F := Folder{Folder: f, Mailbox: key + f.DisplayName}
-			s.folders[key+f.DisplayName] = &F
-			s.folders[f.ID] = &F
-			if !found && (f.DisplayName == d || strings.EqualFold(f.WellKnownName, d)) {
-				root, found = f, true
-			}
-		}
-		if !found {
-			return nil, fmt.Errorf("%q not found in %+v", d, folders)
-		}
+		root = s.folders[key]
 	}
 	s.folderID = root.ID
 
@@ -185,42 +168,125 @@ func (s *session) Select(mailbox string, options *imap.SelectOptions) (*imap.Sel
 	}, nil
 }
 
-func (s *session) Create(mailbox string, options *imap.CreateOptions) error {
-	if s.folders[mailbox].ID != "" {
-		return fmt.Errorf("%q already exist", mailbox)
+func (s *session) fetchMailboxes(ctx context.Context, dirs []string, count bool) error {
+	slcts := []string{
+		"displayName", "ID", "parentFolderId", "wellKnownName",
+		"totalItemCount", "unreadItemCount",
 	}
-	dirs := strings.Split(path.Clean(mailbox), "/")
-	ctx, cancel := context.WithTimeout(s.p.ctx, time.Minute)
-	defer cancel()
-	folder, err := s.cl.CreateFolder(ctx, s.userID, dirs[0])
-	if err == nil {
-		F := Folder{Folder: folder, Mailbox: dirs[0]}
-		s.folders[dirs[0]] = &F
+	if !count {
+		slcts = slcts[:len(slcts)-2]
+	}
+	qry := graph.Query{Select: slcts}
+	folders, err := s.cl.ListMailFolders(ctx, s.userID, qry)
+	if err != nil {
+		return err
+	}
+	var fetchSubfolders func(Folder, []string) error
+	fetchSubfolders = func(parent Folder, dirs []string) error {
+		folders, err := s.cl.ListChildFolders(ctx, s.userID, parent.ID, false, qry)
+		if err != nil {
+			return err
+		} else if len(folders) == 0 {
+			return nil
+		}
+		key := cleanMailbox(parent.Mailbox) + delimS
+		for _, f := range folders {
+			f.ParentFolderID = parent.ID
+			F := Folder{Folder: f, Mailbox: key + f.DisplayName}
+			s.folders[key+cleanMailbox(f.DisplayName)] = &F
+			s.folders[f.ID] = &F
+
+			if len(dirs) == 0 ||
+				(strings.EqualFold(f.DisplayName, dirs[0]) ||
+					strings.EqualFold(f.WellKnownName, dirs[0])) && len(dirs) > 1 {
+				dirs := dirs
+				if len(dirs) != 0 {
+					dirs = dirs[1:]
+				}
+				if err = fetchSubfolders(F, dirs); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+
+	for _, f := range folders {
+		F := Folder{Folder: f, Mailbox: f.DisplayName}
+		s.folders[cleanMailbox(F.Mailbox)] = &F
 		s.folders[F.ID] = &F
-		parent := folder
-		for i, d := range dirs {
-			if folder, err = s.cl.CreateChildFolder(ctx, s.userID, parent.ID, d); err != nil {
+		if len(dirs) == 0 ||
+			f.DisplayName == dirs[0] || strings.EqualFold(f.WellKnownName, dirs[0]) {
+			dirs := dirs
+			if len(dirs) != 0 {
+				dirs = dirs[1:]
+			}
+			if err = fetchSubfolders(F, dirs); err != nil {
 				return err
 			}
-			F := Folder{Folder: folder, Mailbox: strings.Join(dirs[:i+1], delimS)}
-			s.folders[strings.Join(dirs[:i+1], delimS)] = &F
-			s.folders[F.ID] = &F
-			parent = folder
 		}
 	}
-	if folder.ID != "" {
-		F := Folder{Folder: folder, Mailbox: mailbox}
-		s.folders[mailbox] = &F
-		s.folders[F.ID] = &F
+	return nil
+}
+
+func (s *session) Create(mailbox string, options *imap.CreateOptions) error {
+	logger := s.logger().With("mailbox", mailbox)
+	if s.folders[cleanMailbox(mailbox)] != nil {
+		logger.Warn("already exist")
+		return nil
 	}
-	return err
+	ctx, cancel := context.WithTimeout(s.p.ctx, time.Minute)
+	defer cancel()
+	dirs := strings.Split(path.Clean(mailbox), "/")
+	var parent graph.Folder
+	for i := range dirs {
+		dir := cleanMailbox(strings.Join(dirs[:i+1], delimS))
+		if F := s.folders[dir]; F != nil && F.ID != "" {
+			parent = F.Folder
+			continue
+		}
+		if i == 0 {
+			folder, err := s.cl.CreateFolder(ctx, s.userID, dirs[0])
+			if err == nil {
+				F := Folder{Folder: folder, Mailbox: dirs[0]}
+				s.folders[dir] = &F
+				s.folders[F.ID] = &F
+			} else if strings.Contains(err.Error(), "ErrorFolderExists") {
+				// folder = s.folders[dir].Folder
+				logger.Error("ERR already exist", "dir", dirs[:i+1], "id", folder.ID, "have", maps.Keys(s.folders))
+				return s.fetchMailboxes(ctx, nil, false)
+			} else {
+				return err
+			}
+			parent = folder
+			continue
+		}
+		if parent.ID == "" {
+			return fmt.Errorf("nil parent for %q; have: %q", dirs[:i+1], maps.Keys(s.folders))
+		}
+		folder, err := s.cl.CreateChildFolder(
+			ctx, s.userID, parent.ID, dirs[i],
+		)
+		if err == nil {
+			F := Folder{Folder: folder, Mailbox: strings.Join(dirs[:i+1], delimS)}
+			s.folders[dir] = &F
+			s.folders[F.ID] = &F
+		} else if strings.Contains(err.Error(), "ErrorFolderExists") {
+			logger.Warn("already exists", "dir", dir)
+			folder = s.folders[dir].Folder
+		} else {
+			return err
+		}
+		parent = folder
+	}
+	return nil
 }
 
 func (s *session) Delete(mailbox string) error {
 	ctx, cancel := context.WithTimeout(s.p.ctx, time.Minute)
-	err := s.cl.DeleteFolder(ctx, s.userID, s.folders[mailbox].ID)
+	err := s.cl.DeleteFolder(ctx, s.userID, s.folders[cleanMailbox(mailbox)].ID)
 	if err != nil {
-		err = s.cl.DeleteChildFolder(ctx, s.userID, s.folders[path.Dir(mailbox)].ID, s.folders[mailbox].ID)
+		err = s.cl.DeleteChildFolder(ctx, s.userID, s.folders[path.Dir(cleanMailbox(mailbox))].ID, s.folders[cleanMailbox(mailbox)].ID)
 	}
 	cancel()
 	return err
@@ -230,7 +296,7 @@ var ErrNotImplemented = errors.New("not implemented")
 
 func (s *session) Rename(mailbox, newName string) error {
 	ctx, cancel := context.WithTimeout(s.p.ctx, time.Minute)
-	err := s.cl.RenameFolder(ctx, s.userID, s.folders[mailbox].ID, newName)
+	err := s.cl.RenameFolder(ctx, s.userID, s.folders[cleanMailbox(mailbox)].ID, newName)
 	cancel()
 	return err
 }
@@ -280,7 +346,7 @@ func (s *session) Unsubscribe(mailbox string) error                            {
 // The returned mailbox names will be in the interpreted form, which we call a "canonical LIST pattern": the canonical pattern constructed internally by the server from the reference and mailbox name arguments.
 func (s *session) List(w *imapserver.ListWriter, ref string, patterns []string, options *imap.ListOptions) error {
 	logger := s.logger().With("ref", ref, "patterns", patterns)
-	logger.Debug("List", "options", options)
+	logger.Info("List", "options", options)
 	zero := imap.ListData{Delim: delim}
 	data := zero
 	ref = strings.Trim(ref, delimS)
@@ -308,14 +374,12 @@ func (s *session) List(w *imapserver.ListWriter, ref string, patterns []string, 
 			}
 		}
 	} else {
-		dirs := strings.Split(ref, delimS)
-		for i, d := range dirs {
-			if d == "" {
-				continue
-			}
-			if folder := s.folders[d]; folder.ID == "" {
+		dirs := strings.Split(cleanMailbox(ref), delimS)
+		for i := range dirs {
+			dir := strings.Join(dirs[:i+1], delimS)
+			if folder := s.folders[dir]; folder.ID == "" {
 				qry := qry
-				ed := graph.EscapeSingleQuote(d)
+				ed := graph.EscapeSingleQuote(dirs[i])
 				qry.Filter = "displayName:" + ed + " OR wellKnownName:" + ed
 				var folders []graph.Folder
 				var err error
@@ -328,7 +392,7 @@ func (s *session) List(w *imapserver.ListWriter, ref string, patterns []string, 
 					return err
 				}
 				if len(folders) == 0 {
-					return fmt.Errorf("no %q folder under %q", d, strings.Join(dirs[:i], delimS))
+					return fmt.Errorf("no %q folder under %q", dirs[i], strings.Join(dirs[:i], delimS))
 				}
 				parentID = folders[0].ID
 			}
@@ -394,7 +458,7 @@ func (s *session) List(w *imapserver.ListWriter, ref string, patterns []string, 
 
 func (s *session) Status(mailbox string, options *imap.StatusOptions) (*imap.StatusData, error) {
 	logger := s.logger().With("mailbox", mailbox)
-	logger.Debug("Status", "options", options)
+	logger.Info("Status", "options", options)
 	dn, bn := path.Split(mailbox)
 	qry := graph.Query{Select: []string{
 		"id", "displayName", "totalItemCount", "unreadItemCount",
@@ -405,11 +469,11 @@ func (s *session) Status(mailbox string, options *imap.StatusOptions) (*imap.Sta
 	if dn == "" {
 		folders, err = s.cl.ListMailFolders(ctx, s.userID, qry)
 	} else {
-		folders, err = s.cl.ListChildFolders(ctx, s.userID, s.folders[path.Dir(mailbox)].ID, false, qry)
+		folders, err = s.cl.ListChildFolders(ctx, s.userID, s.folders[path.Dir(cleanMailbox(mailbox))].ID, false, qry)
 	}
 	cancel()
 	if err != nil {
-		s.logger().Error("Select", "qry", qry, "error", err)
+		logger.Error("Select", "qry", qry, "error", err)
 		return nil, err
 	}
 	for _, f := range folders {
@@ -463,11 +527,11 @@ func (s *session) Append(mailbox string, r imap.LiteralReader, options *imap.App
 
 // Selected state
 func (s *session) Move(w *imapserver.MoveWriter, numSet imap.NumSet, dest string) error {
-	destFolderID := s.folders[dest].ID
+	destFolderID := s.folders[cleanMailbox(dest)].ID
 	ctx, cancel := context.WithTimeout(s.p.ctx, 5*time.Minute)
 	defer cancel()
 	var sourceUIDs, destUIDs imap.UIDSet
-	err := forNumSet(numSet, true, func(msgID imap.UID) error {
+	err := forNumSet(numSet, true, nil, func(msgID imap.UID) error {
 		msg, err := s.cl.MoveMessage(ctx, s.userID, s.folderID, s.idm.idOf(msgID), destFolderID)
 		if msg.ID != "" {
 			sourceUIDs.AddNum(msgID)
@@ -493,7 +557,7 @@ func (s *session) Expunge(w *imapserver.ExpungeWriter, uids *imap.UIDSet) error 
 	}
 	ctx, cancel := context.WithTimeout(s.p.ctx, 5*time.Minute)
 	defer cancel()
-	return forNumSet(*uids, true, func(msgID imap.UID) error {
+	return forNumSet(*uids, true, s.fetcherFor(ctx, s.folderID), func(msgID imap.UID) error {
 		err := s.cl.DeleteMessage(ctx, s.userID, s.folderID, s.idm.idOf(msgID))
 		if wErr := w.WriteExpunge(uint32(msgID)); wErr != nil && err == nil {
 			err = wErr
@@ -575,10 +639,10 @@ func encodeCriteria(criteria imap.SearchCriteria, slctSorted []string) (filter, 
 	}
 	for _, h := range criteria.Header {
 		if strings.EqualFold(h.Key, "subject") || strings.EqualFold(h.Key, "body") {
-			need(strings.ToLower(h.Key))
+			need(cleanMailbox(h.Key))
 			srch = append(srch, graph.EscapeSingleQuote(h.Value))
 		} else {
-			srch = append(srch, need(strings.ToLower(h.Key))+":"+graph.EscapeSingleQuote(h.Value))
+			srch = append(srch, need(cleanMailbox(h.Key))+":"+graph.EscapeSingleQuote(h.Value))
 		}
 	}
 
@@ -638,108 +702,124 @@ func (s *session) Search(kind imapserver.NumKind, criteria *imap.SearchCriteria,
 	return &sd, err
 }
 
+func (s *session) fetcherFor(ctx context.Context, folderID string) func() ([]imap.UID, error) {
+	return func() ([]imap.UID, error) {
+		msgs, err := s.cl.ListMessages(ctx, s.userID, s.folderID, graph.Query{Select: []string{"id"}})
+		uids := make([]imap.UID, 0, len(msgs))
+		for _, m := range msgs {
+			if m.ID != "" {
+				uids = append(uids, s.idm.uidOf(m.ID))
+			}
+		}
+		return uids, err
+	}
+}
+
 func (s *session) Fetch(w *imapserver.FetchWriter, numSet imap.NumSet, options *imap.FetchOptions) error {
-	s.logger().Debug("Fetch", "numSet", numSet, "options", options, "folderID", s.folderID, "folder", s.folders[s.folderID].Mailbox)
+	s.logger().Info("Fetch", "numSet", numSet, "numset", fmt.Sprintf("%#v", numSet), "options", options, "folderID", s.folderID, "folder", s.folders[s.folderID].Mailbox)
 	ctx, cancel := context.WithTimeout(s.p.ctx, 5*time.Minute)
 	defer cancel()
 
 	qry := graph.Query{Select: []string{"flag", "isRead", "id", "importance"}}
 	var buf bytes.Buffer
-	return forNumSet(numSet, true, func(msgID imap.UID) error {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		logger := s.logger().With("uid", msgID)
-		type gmErr struct {
-			Message graph.Message
-			Err     error
-		}
-		mCh := make(chan gmErr, 1)
-		go func() {
-			gm, err := s.cl.GetMessage(ctx, s.userID, s.idm.idOf(msgID), qry)
-			mCh <- gmErr{Message: gm, Err: err}
-		}()
-		buf.Reset()
-		length, err := s.cl.GetMIMEMessage(ctx, &buf, s.userID, s.idm.idOf(msgID))
-		if err != nil {
-			logger.Error("GetMIMEMessage", "error", err)
-			return err
-		}
+	return forNumSet(numSet, true,
+		s.fetcherFor(ctx, s.folderID),
+		func(msgID imap.UID) error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			logger := s.logger().With("uid", msgID)
+			type gmErr struct {
+				Message graph.Message
+				Err     error
+			}
+			mCh := make(chan gmErr, 1)
+			go func() {
+				gm, err := s.cl.GetMessage(ctx, s.userID, s.idm.idOf(msgID), qry)
+				mCh <- gmErr{Message: gm, Err: err}
+			}()
+			buf.Reset()
+			length, err := s.cl.GetMIMEMessage(ctx, &buf, s.userID, s.idm.idOf(msgID))
+			if err != nil {
+				logger.Error("GetMIMEMessage", "error", err)
+				return err
+			}
 
-		logger.Debug("GetMIMEMessage", "id", s.idm.idOf(msgID), "length", length)
-		msg := message{uid: msgID, buf: buf.Bytes(), flags: make(map[imap.Flag]struct{}, 2)}
-		gm := <-mCh
-		if gm.Err != nil {
-			logger.Error("getMessage", "error", gm.Err)
-			return gm.Err
-		}
-		logger.Debug("GetMessage", "messages", gm)
-		if gm.Message.Flag.Status == "flagged" {
-			msg.flags[imap.FlagFlagged] = struct{}{}
-		}
-		if gm.Message.Read {
-			msg.flags[imap.FlagSeen] = struct{}{}
-		}
-		mw := w.CreateMessage(uint32(msgID))
-		if err := msg.fetch(mw, options); err != nil {
-			mw.Close()
-			return err
-		}
-		return nil
-	})
+			logger.Debug("GetMIMEMessage", "id", s.idm.idOf(msgID), "length", length)
+			msg := message{uid: msgID, buf: buf.Bytes(), flags: make(map[imap.Flag]struct{}, 2)}
+			gm := <-mCh
+			if gm.Err != nil {
+				logger.Error("getMessage", "error", gm.Err)
+				return gm.Err
+			}
+			logger.Debug("GetMessage", "messages", gm)
+			if gm.Message.Flag.Status == "flagged" {
+				msg.flags[imap.FlagFlagged] = struct{}{}
+			}
+			if gm.Message.Read {
+				msg.flags[imap.FlagSeen] = struct{}{}
+			}
+			mw := w.CreateMessage(uint32(msgID))
+			if err := msg.fetch(mw, options); err != nil {
+				mw.Close()
+				return err
+			}
+			return nil
+		})
 }
 
 func (s *session) Store(w *imapserver.FetchWriter, numSet imap.NumSet, flags *imap.StoreFlags, options *imap.StoreOptions) error {
-	s.logger().Debug("Store", "numSet", numSet, "flags", flags)
+	s.logger().Info("Store", "numSet", numSet, "flags", flags)
 	if flags == nil {
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(s.p.ctx, time.Minute)
 	defer cancel()
-	return forNumSet(numSet, true, func(msgID imap.UID) error {
-		type updateFlags struct {
-			Importance string `json:"importance"`
-			Read       bool   `json:"isRead"`
-		}
-		u := updateFlags{Importance: "normal"}
-		var tbd bool
-		for _, f := range flags.Flags {
-			switch f {
-			case imap.FlagSeen:
-				u.Read = true
-			case imap.FlagFlagged:
-				u.Importance = "high"
-			case imap.FlagDeleted:
-				tbd = true
+	return forNumSet(numSet, true, nil,
+		func(msgID imap.UID) error {
+			type updateFlags struct {
+				Importance string `json:"importance"`
+				Read       bool   `json:"isRead"`
 			}
-		}
-		upd, err := json.Marshal(u)
-		if err != nil {
-			return err
-		}
-		msg, err := s.cl.UpdateMessage(ctx, s.userID, s.idm.idOf(msgID), json.RawMessage(upd))
-		if err != nil {
-			return err
-		}
-		if tbd {
-			if err := s.cl.DeleteMessage(ctx, s.userID, s.folderID, s.idm.idOf(msgID)); err != nil {
+			u := updateFlags{Importance: "normal"}
+			var tbd bool
+			for _, f := range flags.Flags {
+				switch f {
+				case imap.FlagSeen:
+					u.Read = true
+				case imap.FlagFlagged:
+					u.Importance = "high"
+				case imap.FlagDeleted:
+					tbd = true
+				}
+			}
+			upd, err := json.Marshal(u)
+			if err != nil {
 				return err
 			}
-		}
-		mw := w.CreateMessage(uint32(msgID))
-		mw.WriteFlags(flags.Flags)
-		mw.WriteUID(s.idm.uidOf(msg.ID))
-		return mw.Close()
-	})
+			msg, err := s.cl.UpdateMessage(ctx, s.userID, s.idm.idOf(msgID), json.RawMessage(upd))
+			if err != nil {
+				return err
+			}
+			if tbd {
+				if err := s.cl.DeleteMessage(ctx, s.userID, s.folderID, s.idm.idOf(msgID)); err != nil {
+					return err
+				}
+			}
+			mw := w.CreateMessage(uint32(msgID))
+			mw.WriteFlags(flags.Flags)
+			mw.WriteUID(s.idm.uidOf(msg.ID))
+			return mw.Close()
+		})
 }
 
 func (s *session) Copy(numSet imap.NumSet, dest string) (*imap.CopyData, error) {
 	s.logger().Debug("Copy", "numSet", numSet, "dest", dest)
-	destFolderID := s.folders[dest].ID
+	destFolderID := s.folders[cleanMailbox(dest)].ID
 	ctx, cancel := context.WithTimeout(s.p.ctx, time.Minute)
 	defer cancel()
 	result := imap.CopyData{UIDValidity: s.idm.uidValidity}
-	err := forNumSet(numSet, true, func(msgID imap.UID) error {
+	err := forNumSet(numSet, true, nil, func(msgID imap.UID) error {
 		msg, err := s.cl.CopyMessage(ctx, s.userID, s.folderID, s.idm.idOf(msgID), destFolderID)
 		if msg.ID != "" {
 			result.SourceUIDs.AddNum(msgID)
@@ -807,30 +887,76 @@ func (m *uidMap) uidOf(s string) imap.UID {
 	return uid
 }
 
-func forNumSet(numSet imap.NumSet, full bool, f func(imap.UID) error) error {
-	var firstErr error
+func isDynamic(numSet imap.NumSet) bool {
 	if ss, ok := numSet.(imap.SeqSet); ok {
-		nums, _ := ss.Nums()
-		for _, msgID := range nums {
-			if err := f(imap.UID(msgID)); err != nil && firstErr == nil {
-				if !full {
-					return err
-				}
-				firstErr = err
+		return ss.Dynamic()
+	} else if us, ok := numSet.(imap.UIDSet); ok {
+		return us.Dynamic()
+	}
+	return false
+}
+
+func forNumSet(numSet imap.NumSet, full bool, fetch func() ([]imap.UID, error), f func(imap.UID) error) error {
+	var firstErr error
+	var next func() (imap.UID, bool)
+	var dyn bool
+	if ss, ok := numSet.(imap.SeqSet); ok {
+		if dyn = ss.Dynamic(); !dyn {
+			nums, _ := ss.Nums()
+			next = func() (imap.UID, bool) {
+				n := nums[0]
+				nums = nums[1:]
+				return imap.UID(n), len(nums) != 0
 			}
 		}
 	} else if us, ok := numSet.(imap.UIDSet); ok {
-		for _, ur := range us {
-			for msgID := ur.Start; msgID <= ur.Stop; msgID++ {
-				if err := f(msgID); err != nil && firstErr == nil {
-					if !full {
-						return err
+		if dyn = us.Dynamic(); !dyn {
+			ur := us[0]
+			us = us[1:]
+			first := true
+			var msgID imap.UID
+			next = func() (imap.UID, bool) {
+				cont := true
+				if first {
+					msgID = ur.Start
+					first = false
+				} else if msgID >= ur.Stop {
+					if len(us) == 0 {
+						cont = false
+					} else {
+						ur = us[0]
+						us = us[1:]
+						first = true
 					}
-					firstErr = err
+				} else {
+					msgID++
 				}
+				return msgID, cont
 			}
 		}
 	}
+
+	if dyn && fetch != nil {
+		if uids, err := fetch(); err != nil {
+			return err
+		} else {
+			next = func() (imap.UID, bool) {
+				u := uids[0]
+				uids = uids[1:]
+				return imap.UID(u), len(uids) != 0
+			}
+		}
+	}
+
+	for msgID, cont := next(); cont; msgID, cont = next() {
+		if err := f(msgID); err != nil && firstErr == nil {
+			if !full {
+				return err
+			}
+			firstErr = err
+		}
+	}
+
 	return firstErr
 }
 

@@ -15,12 +15,14 @@ import (
 	"io"
 	"log/slog"
 	"net/mail"
+	"os"
 	"path"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/UNO-SOFT/filecache"
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapserver"
 	gomessage "github.com/emersion/go-message"
@@ -737,7 +739,7 @@ func (s *session) fetcherFor(ctx context.Context, folderID string) func() ([]str
 				ids = append(ids, m.ID)
 			}
 		}
-		logger.Info("fetch", "folderID", folderID, "uids", len(ids))
+		logger.Debug("fetch", "folderID", folderID, "uids", len(ids))
 		return ids, err
 	}
 }
@@ -766,14 +768,59 @@ func (s *session) Fetch(w *imapserver.FetchWriter, numSet imap.NumSet, options *
 				mCh <- gmErr{Message: gm, Err: err}
 			}()
 			buf.Reset()
-			length, err := s.cl.GetMIMEMessage(ctx, &buf, s.userID, msgID)
-			if err != nil {
-				logger.Error("GetMIMEMessage", "error", err)
-				return err
+			var aID filecache.ActionID
+			if s.p.cache != nil {
+				aID = filecache.NewActionID([]byte(msgID))
+				cacheFn, _, err := s.p.cache.GetFile(aID)
+				if err != nil {
+					lvl := slog.LevelWarn
+					if os.IsNotExist(err) {
+						lvl = slog.LevelDebug
+					}
+					logger.Log(ctx, lvl, "cache.GetFile", "actionID", aID, "error", err)
+				} else if fh, err := os.Open(cacheFn); err != nil {
+					logger.Debug("cache.GetFile", "actionID", aID, "fi;e", cacheFn, "error", err)
+				} else {
+					_, err = io.Copy(&buf, fh)
+					fh.Close()
+					if err != nil {
+						logger.Error("read cache", "file", cacheFn, "error", err)
+						buf.Reset()
+					}
+				}
+			}
+			if buf.Len() == 0 {
+				start := time.Now()
+				length, err := s.cl.GetMIMEMessage(ctx, &buf, s.userID, msgID)
+				dur := time.Since(start)
+				if err != nil {
+					logger.Error("GetMIMEMessage", "error", err)
+					return err
+				}
+
+				lvl := slog.LevelDebug
+				if dur > time.Second {
+					lvl = slog.LevelInfo
+				}
+				if logger.Enabled(ctx, lvl) {
+					logger.Log(ctx, lvl,
+						"GetMIMEMessage", "id", msgID,
+						"length", length, "dur", dur,
+						"speedKiBs", float64(length>>10)/float64(dur/time.Second),
+					)
+				}
+				if s.p.cache != nil {
+					if _, _, err = s.p.cache.Put(aID, bytes.NewReader(buf.Bytes())); err != nil {
+						logger.Warn("cache message", "actionID", aID, "error", err)
+					}
+				}
 			}
 
-			logger.Debug("GetMIMEMessage", "id", msgID, "length", length)
-			msg := message{uid: s.idm.uidOf(s.folderID, msgID), buf: buf.Bytes(), flags: make(map[imap.Flag]struct{}, 2)}
+			msg := message{
+				uid:   s.idm.uidOf(s.folderID, msgID),
+				buf:   buf.Bytes(),
+				flags: make(map[imap.Flag]struct{}, 2),
+			}
 			gm := <-mCh
 			if gm.Err != nil {
 				logger.Error("getMessage", "error", gm.Err)

@@ -8,9 +8,12 @@ import (
 	"context"
 	"log/slog"
 	"net"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
+	"github.com/UNO-SOFT/filecache"
 	"github.com/UNO-SOFT/zlog/v2"
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapserver"
@@ -20,6 +23,19 @@ import (
 func NewProxy(ctx context.Context, clientID, redirectURI string) *proxy {
 	P := proxy{ctx: ctx, clientID: clientID, redirectURI: redirectURI}
 	logger := P.logger()
+	cd, err := os.UserCacheDir()
+	if err != nil {
+		logger.Warn("UserCacheDir", "error", err)
+	} else {
+		dn := filepath.Join(cd, "graph-proxy")
+		os.MkdirAll(dn, 0750)
+		if P.cache, err = filecache.Open(
+			dn,
+			filecache.WithMaxSize(128<<20),
+		); err != nil {
+			logger.Error("open cache", "dir", dn, "error", err)
+		}
+	}
 
 	var token struct{}
 	opts := imapserver.Options{
@@ -104,6 +120,7 @@ type proxy struct {
 	// client                           *graph.GraphMailClient
 	//tenantID string
 	clientID, redirectURI string
+	cache                 *filecache.Cache
 
 	mu      sync.Mutex
 	clients map[string]clientUsers

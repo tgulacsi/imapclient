@@ -17,6 +17,7 @@ require (
 )
 
 require (
+	github.com/UNO-SOFT/filecache v0.3.3 // indirect
 	github.com/dgryski/go-linebreak v0.0.0-20180812204043-d8f37254e7d3 // indirect
 	github.com/emersion/go-message v0.18.1 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
@@ -30,6 +31,7 @@ require (
 	github.com/hashicorp/go-version v1.7.0 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
+	github.com/rogpeppe/go-internal v1.12.0 // indirect
 	golang.org/x/crypto v0.26.0 // indirect
 	golang.org/x/exp v0.0.0-20240823005443-9b4947da3948 // indirect
 	golang.org/x/sys v0.24.0 // indirect

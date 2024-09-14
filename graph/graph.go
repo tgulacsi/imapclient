@@ -117,7 +117,7 @@ func NewGraphMailClient(ctx context.Context, tenantID, clientID, clientSecret, r
 	}
 	client := msgraph.NewUsersClient()
 	client.BaseClient.Authorizer = authorizer
-	client.BaseClient.DisableRetries = true // race
+	// client.BaseClient.DisableRetries = true // race
 	client.BaseClient.RetryableClient.RetryMax = 3
 
 	if logger.Enabled(ctx, slog.LevelDebug) {

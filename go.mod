@@ -17,7 +17,7 @@ require (
 )
 
 require (
-	github.com/UNO-SOFT/filecache v0.3.3 // indirect
+	github.com/UNO-SOFT/filecache v0.3.4-0.20240914115330-d578d0111eb2 // indirect
 	github.com/dgryski/go-linebreak v0.0.0-20180812204043-d8f37254e7d3 // indirect
 	github.com/emersion/go-message v0.18.1 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect

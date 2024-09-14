@@ -154,6 +154,9 @@ func (s *session) Select(mailbox string, options *imap.SelectOptions) (*imap.Sel
 		}
 		root = s.folders[key]
 	}
+	if root == nil {
+		return nil, nil
+	}
 	s.folderID, s.mboxDeltaLink = root.ID, ""
 
 	total := uint32(root.TotalItemCount)
@@ -929,6 +932,9 @@ func (m *uidMap) uidNext(folderID string) imap.UID {
 	m.mu.RLock()
 	n := len(m.uid2id[folderID])
 	m.mu.RUnlock()
+	if n == 0 {
+		return imap.UID(1<<32 - 1)
+	}
 	return imap.UID(n)
 }
 
@@ -987,71 +993,113 @@ func isDynamic(numSet imap.NumSet) bool {
 }
 
 func (m *uidMap) forNumSet(ctx context.Context, folderID string, numSet imap.NumSet, full bool, fetch func() ([]string, error), f func(string) error) error {
-	var firstErr error
+	if fetch != nil {
+		m.mu.RLock()
+		fetched := m.uid2id[folderID] != nil
+		m.mu.RUnlock()
+		if !fetched {
+			if _, err := fetch(); err != nil {
+				return err
+			}
+		}
+	}
 	var next func() (string, bool)
-	var dyn bool
-	if ss, ok := numSet.(imap.SeqSet); ok {
-		if dyn = ss.Dynamic(); !dyn {
-			nums, _ := ss.Nums()
-			next = func() (string, bool) {
-				for len(nums) != 0 {
-					n := nums[0]
-					nums = nums[1:]
-					if id := m.idOf(folderID, imap.UID(n)); id != "" {
-						return id, len(nums) != 0
-					}
-				}
-				return "", false
-			}
-		}
-	} else if us, ok := numSet.(imap.UIDSet); ok {
-		if dyn = us.Dynamic(); !dyn {
-			ur := us[0]
-			us = us[1:]
-			first := true
-			var msgID imap.UID
-			next = func() (string, bool) {
-				cont := true
-				for cont {
-					if first {
-						msgID = ur.Start
-						first = false
-					} else if msgID >= ur.Stop {
-						if len(us) == 0 {
-							cont = false
-						} else {
-							ur = us[0]
-							us = us[1:]
-							first = true
-						}
-					} else {
-						msgID++
-					}
-					if id := m.idOf(folderID, msgID); id != "" {
-						return id, cont
-					}
-				}
-				return "", false
-			}
-		}
-	}
-
 	m.mu.RLock()
-	folderUnknown := m.uid2id[folderID] == nil
+	ids := m.uid2id[folderID]
 	m.mu.RUnlock()
-	fetched := fetch == nil
-	if !fetched && (dyn || folderUnknown) {
-		if ids, err := fetch(); err != nil {
-			return err
-		} else {
-			fetched = true
-			next = func() (string, bool) {
-				id := ids[0]
-				ids = ids[1:]
-				return id, len(ids) != 0
+	if ids != nil {
+		var Contains func(imap.UID) bool
+		if ss, ok := numSet.(imap.SeqSet); ok {
+			Contains = func(uid imap.UID) bool { return ss.Contains(uint32(uid)) }
+		} else if us, ok := numSet.(imap.UIDSet); ok {
+			Contains = us.Contains
+		}
+		keys := maps.Keys(ids)
+		next = func() (string, bool) {
+			for len(keys) != 0 {
+				uid := keys[0]
+				keys = keys[1:]
+				if Contains(uid) {
+					return ids[uid], len(keys) != 0
+				}
+			}
+			return "", false
+		}
+	} else {
+		var dyn bool
+		if ss, ok := numSet.(imap.SeqSet); ok {
+			if dyn = ss.Dynamic(); !dyn {
+				nums, _ := ss.Nums()
+				next = func() (string, bool) {
+					for len(nums) != 0 {
+						n := nums[0]
+						nums = nums[1:]
+						if id := m.idOf(folderID, imap.UID(n)); id != "" {
+							return id, len(nums) != 0
+						}
+					}
+					return "", false
+				}
+			}
+		} else if us, ok := numSet.(imap.UIDSet); ok {
+			if dyn = us.Dynamic(); !dyn {
+				for _, ur := range us {
+					if ur.Stop-ur.Start > 1<<31 {
+						dyn = true
+						break
+					}
+				}
+				ur := us[0]
+				us = us[1:]
+				first := true
+				var msgID imap.UID
+				next = func() (string, bool) {
+					cont := true
+					for cont {
+						if first {
+							msgID = ur.Start
+							first = false
+						} else if msgID >= ur.Stop {
+							if len(us) == 0 {
+								cont = false
+							} else {
+								ur = us[0]
+								us = us[1:]
+								first = true
+							}
+						} else {
+							msgID++
+						}
+						if id := m.idOf(folderID, msgID); id != "" {
+							return id, cont
+						}
+					}
+					return "", false
+				}
+			}
+		}
+
+		m.mu.RLock()
+		folderUnknown := m.uid2id[folderID] == nil
+		m.mu.RUnlock()
+		fetched := fetch == nil
+		if !fetched && (dyn || folderUnknown) {
+			if ids, err := fetch(); err != nil {
+				return err
+			} else {
+				fetched = true
+				next = func() (string, bool) {
+					if len(ids) == 0 {
+						return "", false
+					}
+					id := ids[0]
+					ids = ids[1:]
+					return id, len(ids) != 0
+				}
 			}
 		}
 	}
+	var firstErr error
 
 	for id, cont := next(); cont; id, cont = next() {
 		if id == "" {

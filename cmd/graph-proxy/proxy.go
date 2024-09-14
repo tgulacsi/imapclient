@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"net"
 	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -20,20 +19,25 @@ import (
 	"github.com/tgulacsi/imapclient/graph"
 )
 
-func NewProxy(ctx context.Context, clientID, redirectURI string) *proxy {
+func NewProxy(ctx context.Context,
+	clientID, redirectURI,
+	cacheDir string, cacheSizeMiB int,
+) *proxy {
 	P := proxy{ctx: ctx, clientID: clientID, redirectURI: redirectURI}
 	logger := P.logger()
-	cd, err := os.UserCacheDir()
-	if err != nil {
-		logger.Warn("UserCacheDir", "error", err)
-	} else {
-		dn := filepath.Join(cd, "graph-proxy")
-		os.MkdirAll(dn, 0750)
+	if cacheDir != "" {
+		os.MkdirAll(cacheDir, 0750)
+		if cacheSizeMiB < 1 {
+			cacheSizeMiB = 512
+		}
+		var err error
 		if P.cache, err = filecache.Open(
-			dn,
-			filecache.WithMaxSize(128<<20),
+			cacheDir,
+			filecache.WithMaxSize(int64(cacheSizeMiB)<<20),
+			filecache.WithLogger(slog.New(
+				zlog.NewLevelHandler(slog.LevelError, logger.Handler()))),
 		); err != nil {
-			logger.Error("open cache", "dir", dn, "error", err)
+			logger.Error("open cache", "dir", cacheDir, "error", err)
 		}
 	}
 

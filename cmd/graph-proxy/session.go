@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -770,16 +771,17 @@ func (s *session) Fetch(w *imapserver.FetchWriter, numSet imap.NumSet, options *
 			buf.Reset()
 			var aID filecache.ActionID
 			if s.p.cache != nil {
-				aID = filecache.NewActionID([]byte(msgID))
+				aID = filecache.NewActionID([]byte(msgID + "/GetMIMEMEssage"))
+				logger = logger.With("actionID", base64.URLEncoding.EncodeToString(aID[:]))
 				cacheFn, _, err := s.p.cache.GetFile(aID)
 				if err != nil {
 					lvl := slog.LevelWarn
-					if os.IsNotExist(err) {
+					if os.IsNotExist(err) || strings.Contains(err.Error(), "entry not found") {
 						lvl = slog.LevelDebug
 					}
-					logger.Log(ctx, lvl, "cache.GetFile", "actionID", aID, "error", err)
+					logger.Log(ctx, lvl, "cache.GetFile", "error", err)
 				} else if fh, err := os.Open(cacheFn); err != nil {
-					logger.Debug("cache.GetFile", "actionID", aID, "fi;e", cacheFn, "error", err)
+					logger.Debug("cache.GetFile", "file", cacheFn, "error", err)
 				} else {
 					_, err = io.Copy(&buf, fh)
 					fh.Close()
@@ -811,7 +813,7 @@ func (s *session) Fetch(w *imapserver.FetchWriter, numSet imap.NumSet, options *
 				}
 				if s.p.cache != nil {
 					if _, _, err = s.p.cache.Put(aID, bytes.NewReader(buf.Bytes())); err != nil {
-						logger.Warn("cache message", "actionID", aID, "error", err)
+						logger.Warn("cache message", "error", err)
 					}
 				}
 			}

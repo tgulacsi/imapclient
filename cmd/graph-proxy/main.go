@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/UNO-SOFT/zlog/v2"
@@ -25,6 +26,14 @@ func main() {
 func Main() error {
 	var verbose zlog.VerboseVar
 	logger := zlog.NewLogger(zlog.MaybeConsoleHandler(&verbose, os.Stderr)).SLog()
+	cd, err := os.UserCacheDir()
+	if err != nil {
+		logger.Error("UserCacheDir", "error", err)
+	} else {
+		cd = filepath.Join(cd, "graph-proxy")
+	}
+	flagCacheDir := flag.String("cache-dir", cd, "cache directory")
+	flagCacheSize := flag.Int("cache-max-mb", 512, "cache max size in MiB")
 	flagClientID := flag.String("client-id", nvl(os.Getenv("AZURE_CLIENT_ID"), "34f2c0c1-b509-43c5-aae8-56c10fa19ed7"), "ClientID")
 	// flagRedirectURI := flag.String("redirect-uri", "http://localhost:19414/auth-repsonse", "The redirect URI you send in the request to the login server")
 	// flagClientSecret := flag.String("client-secret", "", "ClientSecret")
@@ -41,6 +50,7 @@ func Main() error {
 	return NewProxy(
 		zlog.NewSContext(ctx, logger),
 		*flagClientID, *flagRedirectURI,
+		*flagCacheDir, *flagCacheSize,
 	).ListenAndServe(flag.Arg(0))
 }
 

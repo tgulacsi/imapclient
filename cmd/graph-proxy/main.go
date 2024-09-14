@@ -37,6 +37,7 @@ func Main() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGKILL)
 	defer cancel()
 
+	logger.Info("Listen", "addr", flag.Arg(0))
 	return NewProxy(
 		zlog.NewSContext(ctx, logger),
 		*flagClientID, *flagRedirectURI,

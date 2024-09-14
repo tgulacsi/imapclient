@@ -551,10 +551,10 @@ func (s *session) Move(w *imapserver.MoveWriter, numSet imap.NumSet, dest string
 	ctx, cancel := context.WithTimeout(s.p.ctx, 5*time.Minute)
 	defer cancel()
 	var sourceUIDs, destUIDs imap.UIDSet
-	err := forNumSet(numSet, true, nil, func(msgID imap.UID) error {
-		msg, err := s.cl.MoveMessage(ctx, s.userID, s.folderID, s.idm.idOf(destFolderID, msgID), destFolderID)
+	err := s.idm.forNumSet(ctx, s.folderID, numSet, true, nil, func(msgID string) error {
+		msg, err := s.cl.MoveMessage(ctx, s.userID, s.folderID, msgID, destFolderID)
 		if msg.ID != "" {
-			sourceUIDs.AddNum(msgID)
+			sourceUIDs.AddNum(s.idm.uidOf(s.folderID, msgID))
 			destUIDs.AddNum(s.idm.uidOf(destFolderID, msg.ID))
 		}
 		return err
@@ -577,13 +577,17 @@ func (s *session) Expunge(w *imapserver.ExpungeWriter, uids *imap.UIDSet) error 
 	}
 	ctx, cancel := context.WithTimeout(s.p.ctx, 5*time.Minute)
 	defer cancel()
-	return forNumSet(*uids, true, s.fetcherFor(ctx, s.folderID), func(msgID imap.UID) error {
-		err := s.cl.DeleteMessage(ctx, s.userID, s.folderID, s.idm.idOf(s.folderID, msgID))
-		if wErr := w.WriteExpunge(uint32(msgID)); wErr != nil && err == nil {
-			err = wErr
-		}
-		return err
-	})
+	return s.idm.forNumSet(ctx, s.folderID, *uids, true,
+		s.fetcherFor(ctx, s.folderID),
+		func(msgID string) error {
+			err := s.cl.DeleteMessage(ctx, s.userID, s.folderID, msgID)
+			if wErr := w.WriteExpunge(uint32(s.idm.uidOf(
+				s.folderID, msgID,
+			))); wErr != nil && err == nil {
+				err = wErr
+			}
+			return err
+		})
 }
 
 func encodeCriteria(criteria imap.SearchCriteria, slctSorted []string) (filter, search string, slct []string) {
@@ -691,7 +695,7 @@ func (s *session) Search(kind imapserver.NumKind, criteria *imap.SearchCriteria,
 		qry.OrderBy = graph.OrderBy{Field: "createdDateTime", Direction: graph.Ascending}
 	}
 
-	logger := s.logger().With("qry", qry, "folderID", s.folderID, "folder", s.folders[s.folderID].DisplayName, "mbox", s.folders[s.folderID].Mailbox)
+	logger := s.logger().With("qry", qry, "folderID", s.folderID, "folder", s.folders[s.folderID].Mailbox)
 	logger.Info("Search", "criteria", criteria, "qry", qry)
 	ctx, cancel := context.WithTimeout(s.p.ctx, time.Minute)
 	msgs, err := s.cl.ListMessages(ctx, s.userID, s.folderID, qry)
@@ -722,55 +726,54 @@ func (s *session) Search(kind imapserver.NumKind, criteria *imap.SearchCriteria,
 	return &sd, err
 }
 
-func (s *session) fetcherFor(ctx context.Context, folderID string) func() ([]imap.UID, error) {
-	return func() ([]imap.UID, error) {
-		msgs, err := s.cl.ListMessages(ctx, s.userID, s.folderID, graph.Query{Select: []string{"id"}})
-		uids := make([]imap.UID, 0, len(msgs))
+func (s *session) fetcherFor(ctx context.Context, folderID string) func() ([]string, error) {
+	return func() ([]string, error) {
+		logger := s.logger()
+		msgs, err := s.cl.ListMessages(ctx, s.userID, folderID, graph.Query{Select: []string{"id"}})
+		ids := make([]string, 0, len(msgs))
 		for _, m := range msgs {
 			if m.ID != "" {
-				uids = append(uids, s.idm.uidOf(folderID, m.ID))
+				_ = s.idm.uidOf(folderID, m.ID) // cache it
+				ids = append(ids, m.ID)
 			}
 		}
-		return uids, err
+		logger.Info("fetch", "folderID", folderID, "uids", len(ids))
+		return ids, err
 	}
 }
 
 func (s *session) Fetch(w *imapserver.FetchWriter, numSet imap.NumSet, options *imap.FetchOptions) error {
-	s.logger().Info("Fetch", "numSet", numSet, "numset", fmt.Sprintf("%#v", numSet), "options", options, "folderID", s.folderID, "folder", s.folders[s.folderID].Mailbox)
+	s.logger().Info("Fetch", "numSet", numSet, "numset", fmt.Sprintf("%#v", numSet), "folder", s.folders[s.folderID].Mailbox, "options", options)
 	ctx, cancel := context.WithTimeout(s.p.ctx, 5*time.Minute)
 	defer cancel()
 
 	qry := graph.Query{Select: []string{"flag", "isRead", "id", "importance"}}
 	var buf bytes.Buffer
-	return forNumSet(numSet, true,
+	return s.idm.forNumSet(ctx, s.folderID, numSet, true,
 		s.fetcherFor(ctx, s.folderID),
-		func(msgID imap.UID) error {
+		func(msgID string) error {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			logger := s.logger().With("uid", msgID)
-			id := s.idm.idOf(s.folderID, msgID)
-			if id == "" {
-				return fmt.Errorf("no msgID for UID=%q", msgID)
-			}
+			logger := s.logger().With("id", msgID)
 			type gmErr struct {
 				Message graph.Message
 				Err     error
 			}
 			mCh := make(chan gmErr, 1)
 			go func() {
-				gm, err := s.cl.GetMessage(ctx, s.userID, id, qry)
+				gm, err := s.cl.GetMessage(ctx, s.userID, msgID, qry)
 				mCh <- gmErr{Message: gm, Err: err}
 			}()
 			buf.Reset()
-			length, err := s.cl.GetMIMEMessage(ctx, &buf, s.userID, id)
+			length, err := s.cl.GetMIMEMessage(ctx, &buf, s.userID, msgID)
 			if err != nil {
 				logger.Error("GetMIMEMessage", "error", err)
 				return err
 			}
 
-			logger.Debug("GetMIMEMessage", "id", s.idm.idOf(s.folderID, msgID), "length", length)
-			msg := message{uid: msgID, buf: buf.Bytes(), flags: make(map[imap.Flag]struct{}, 2)}
+			logger.Debug("GetMIMEMessage", "id", msgID, "length", length)
+			msg := message{uid: s.idm.uidOf(s.folderID, msgID), buf: buf.Bytes(), flags: make(map[imap.Flag]struct{}, 2)}
 			gm := <-mCh
 			if gm.Err != nil {
 				logger.Error("getMessage", "error", gm.Err)
@@ -783,7 +786,7 @@ func (s *session) Fetch(w *imapserver.FetchWriter, numSet imap.NumSet, options *
 			if gm.Message.Read {
 				msg.flags[imap.FlagSeen] = struct{}{}
 			}
-			mw := w.CreateMessage(uint32(msgID))
+			mw := w.CreateMessage(uint32(msg.uid))
 			if err := msg.fetch(mw, options); err != nil {
 				mw.Close()
 				return err
@@ -792,6 +795,8 @@ func (s *session) Fetch(w *imapserver.FetchWriter, numSet imap.NumSet, options *
 		})
 }
 
+var errWrongUID = errors.New("wrong UID")
+
 func (s *session) Store(w *imapserver.FetchWriter, numSet imap.NumSet, flags *imap.StoreFlags, options *imap.StoreOptions) error {
 	s.logger().Info("Store", "numSet", numSet, "flags", flags)
 	if flags == nil {
@@ -799,8 +804,8 @@ func (s *session) Store(w *imapserver.FetchWriter, numSet imap.NumSet, flags *im
 	}
 	ctx, cancel := context.WithTimeout(s.p.ctx, time.Minute)
 	defer cancel()
-	return forNumSet(numSet, true, nil,
-		func(msgID imap.UID) error {
+	return s.idm.forNumSet(ctx, s.folderID, numSet, true, nil,
+		func(msgID string) error {
 			type updateFlags struct {
 				Importance string `json:"importance"`
 				Read       bool   `json:"isRead"`
@@ -821,18 +826,19 @@ func (s *session) Store(w *imapserver.FetchWriter, numSet imap.NumSet, flags *im
 			if err != nil {
 				return err
 			}
-			msg, err := s.cl.UpdateMessage(ctx, s.userID, s.idm.idOf(s.folderID, msgID), json.RawMessage(upd))
+			msg, err := s.cl.UpdateMessage(ctx, s.userID, msgID, json.RawMessage(upd))
 			if err != nil {
 				return err
 			}
 			if tbd {
-				if err := s.cl.DeleteMessage(ctx, s.userID, s.folderID, s.idm.idOf(s.folderID, msgID)); err != nil {
+				if err := s.cl.DeleteMessage(ctx, s.userID, s.folderID, msgID); err != nil {
 					return err
 				}
 			}
-			mw := w.CreateMessage(uint32(msgID))
+			uid := s.idm.uidOf(s.folderID, msg.ID)
+			mw := w.CreateMessage(uint32(uid))
 			mw.WriteFlags(flags.Flags)
-			mw.WriteUID(s.idm.uidOf(s.folderID, msg.ID))
+			mw.WriteUID(uid)
 			return mw.Close()
 		})
 }
@@ -843,10 +849,10 @@ func (s *session) Copy(numSet imap.NumSet, dest string) (*imap.CopyData, error) 
 	ctx, cancel := context.WithTimeout(s.p.ctx, time.Minute)
 	defer cancel()
 	result := imap.CopyData{UIDValidity: s.idm.uidValidity}
-	err := forNumSet(numSet, true, nil, func(msgID imap.UID) error {
-		msg, err := s.cl.CopyMessage(ctx, s.userID, s.folderID, s.idm.idOf(s.folderID, msgID), destFolderID)
+	err := s.idm.forNumSet(ctx, s.folderID, numSet, true, nil, func(msgID string) error {
+		msg, err := s.cl.CopyMessage(ctx, s.userID, s.folderID, msgID, destFolderID)
 		if msg.ID != "" {
-			result.SourceUIDs.AddNum(msgID)
+			result.SourceUIDs.AddNum(s.idm.uidOf(s.folderID, msgID))
 			result.DestUIDs.AddNum(s.idm.uidOf(destFolderID, msg.ID))
 		}
 		return err
@@ -854,6 +860,11 @@ func (s *session) Copy(numSet imap.NumSet, dest string) (*imap.CopyData, error) 
 	return &result, err
 }
 
+// uidMap is a per-folder UID->msgID map
+//
+// The other way (msgID->UID) is the fnv1 hash of the msgID.
+// So the UIDs won't change, but may collide - that's why
+// we use a per-folder map, to minimize this risk.
 type uidMap struct {
 	uid2id      map[string]map[imap.UID]string
 	mu          sync.RWMutex
@@ -874,6 +885,9 @@ func (m *uidMap) uidNext(folderID string) imap.UID {
 
 func (m *uidMap) idOf(folderID string, uid imap.UID) string {
 	m.mu.RLock()
+	if m.uid2id[folderID] == nil {
+		panic("no folderID=" + folderID + "seen yet")
+	}
 	s := m.uid2id[folderID][uid]
 	m.mu.RUnlock()
 	return s
@@ -923,17 +937,22 @@ func isDynamic(numSet imap.NumSet) bool {
 	return false
 }
 
-func forNumSet(numSet imap.NumSet, full bool, fetch func() ([]imap.UID, error), f func(imap.UID) error) error {
+func (m *uidMap) forNumSet(ctx context.Context, folderID string, numSet imap.NumSet, full bool, fetch func() ([]string, error), f func(string) error) error {
 	var firstErr error
-	var next func() (imap.UID, bool)
+	var next func() (string, bool)
 	var dyn bool
 	if ss, ok := numSet.(imap.SeqSet); ok {
 		if dyn = ss.Dynamic(); !dyn {
 			nums, _ := ss.Nums()
-			next = func() (imap.UID, bool) {
-				n := nums[0]
-				nums = nums[1:]
-				return imap.UID(n), len(nums) != 0
+			next = func() (string, bool) {
+				for len(nums) != 0 {
+					n := nums[0]
+					nums = nums[1:]
+					if id := m.idOf(folderID, imap.UID(n)); id != "" {
+						return id, len(nums) != 0
+					}
+				}
+				return "", false
 			}
 		}
 	} else if us, ok := numSet.(imap.UIDSet); ok {
@@ -942,41 +961,54 @@ func forNumSet(numSet imap.NumSet, full bool, fetch func() ([]imap.UID, error), 
 			us = us[1:]
 			first := true
 			var msgID imap.UID
-			next = func() (imap.UID, bool) {
+			next = func() (string, bool) {
 				cont := true
-				if first {
-					msgID = ur.Start
-					first = false
-				} else if msgID >= ur.Stop {
-					if len(us) == 0 {
-						cont = false
+				for cont {
+					if first {
+						msgID = ur.Start
+						first = false
+					} else if msgID >= ur.Stop {
+						if len(us) == 0 {
+							cont = false
+						} else {
+							ur = us[0]
+							us = us[1:]
+							first = true
+						}
 					} else {
-						ur = us[0]
-						us = us[1:]
-						first = true
+						msgID++
 					}
-				} else {
-					msgID++
+					if id := m.idOf(folderID, msgID); id != "" {
+						return id, cont
+					}
 				}
-				return msgID, cont
+				return "", false
 			}
 		}
 	}
 
-	if dyn && fetch != nil {
-		if uids, err := fetch(); err != nil {
+	m.mu.RLock()
+	folderUnknown := m.uid2id[folderID] == nil
+	m.mu.RUnlock()
+	fetched := fetch == nil
+	if !fetched && (dyn || folderUnknown) {
+		if ids, err := fetch(); err != nil {
 			return err
 		} else {
-			next = func() (imap.UID, bool) {
-				u := uids[0]
-				uids = uids[1:]
-				return imap.UID(u), len(uids) != 0
+			fetched = true
+			next = func() (string, bool) {
+				id := ids[0]
+				ids = ids[1:]
+				return id, len(ids) != 0
 			}
 		}
 	}
 
-	for msgID, cont := next(); cont; msgID, cont = next() {
-		if err := f(msgID); err != nil && firstErr == nil {
+	for id, cont := next(); cont; id, cont = next() {
+		if id == "" {
+			continue
+		}
+		if err := f(id); err != nil && firstErr == nil {
 			if !full {
 				return err
 			}

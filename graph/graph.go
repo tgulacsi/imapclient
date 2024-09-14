@@ -117,6 +117,7 @@ func NewGraphMailClient(ctx context.Context, tenantID, clientID, clientSecret, r
 	}
 	client := msgraph.NewUsersClient()
 	client.BaseClient.Authorizer = authorizer
+	client.BaseClient.DisableRetries = true // race
 	client.BaseClient.RetryableClient.RetryMax = 3
 
 	if logger.Enabled(ctx, slog.LevelDebug) {
@@ -660,6 +661,7 @@ type Folder struct {
 type interactiveAuthorizer struct {
 	RedirectURI string
 	Scopes      []string
+	mu          sync.Mutex
 	client      msal.Client
 	Accounts    []msal.Account
 	cache       cache.ExportReplace
@@ -697,6 +699,8 @@ func newInteractiveAuthorizer(ctx context.Context, clientID, tenantID, redirectU
 func (ia *interactiveAuthorizer) Token(ctx context.Context, request *http.Request) (*oauth2.Token, error) {
 	// https://github.com/MicrosoftDocs/azure-docs/issues/61446
 	logger := zlog.SFromContext(ctx)
+	ia.mu.Lock()
+	defer ia.mu.Unlock()
 	var err error
 	if ia.Accounts, err = ia.client.Accounts(ctx); err != nil {
 		return nil, fmt.Errorf("Accounts: %w", err)

@@ -36,6 +36,7 @@ import (
 	"github.com/hashicorp/go-azure-sdk/sdk/environments"
 	"github.com/hashicorp/go-azure-sdk/sdk/odata"
 	"github.com/manicminer/hamilton/msgraph"
+	"golang.org/x/time/rate"
 	// "github.com/microsoftgraph/msgraph-sdk-go"
 )
 
@@ -75,7 +76,8 @@ var WellKnownFolders = map[string][]string{
 }
 
 type GraphMailClient struct {
-	BaseClient msgraph.Client
+	client  msgraph.Client
+	limiter *rate.Limiter
 }
 
 var mailReadWriteScopes = []string{"https://graph.microsoft.com/Mail.ReadWrite", "https://graph.microsoft.com/Mail.Send", "https://graph.microsoft.com/MailboxFolder.ReadWrite"}
@@ -141,7 +143,10 @@ func NewGraphMailClient(ctx context.Context, tenantID, clientID, clientSecret, r
 		client.BaseClient.ResponseMiddlewares = &[]msgraph.ResponseMiddleware{responseLogger}
 	}
 
-	cl := GraphMailClient{BaseClient: client.BaseClient}
+	cl := GraphMailClient{
+		client:  client.BaseClient,
+		limiter: rate.NewLimiter(25, 1),
+	}
 	if len(users) == 0 {
 		if _, err := cl.Users(ctx); err != nil {
 			return GraphMailClient{}, users, fmt.Errorf("%w", err)
@@ -152,17 +157,23 @@ func NewGraphMailClient(ctx context.Context, tenantID, clientID, clientSecret, r
 }
 
 func (g GraphMailClient) Users(ctx context.Context) ([]msgraph.User, error) {
-	users, _, err := (&msgraph.UsersClient{BaseClient: g.BaseClient}).List(ctx, odata.Query{})
+	if err := g.limiter.Wait(ctx); err != nil {
+		return nil, err
+	}
+	users, _, err := (&msgraph.UsersClient{BaseClient: g.client}).List(ctx, odata.Query{})
 	if err != nil {
 		return nil, err
 	}
 	if users == nil {
-		return nil, fmt.Errorf("bad API response, nil result received")
+		return nil, fmt.Errorf("Users: bad API response, nil result received")
 	}
 	return *users, nil
 }
 func (g GraphMailClient) get(ctx context.Context, dest interface{}, entity string, query odata.Query) error {
-	resp, status, _, err := g.BaseClient.Get(ctx, msgraph.GetHttpRequestInput{
+	if err := g.limiter.Wait(ctx); err != nil {
+		return err
+	}
+	resp, status, _, err := g.client.Get(ctx, msgraph.GetHttpRequestInput{
 		ConsistencyFailureFunc: msgraph.RetryOn404ConsistencyFailureFunc,
 		DisablePaging:          query.Top != 0,
 		OData:                  query,
@@ -176,7 +187,7 @@ func (g GraphMailClient) get(ctx context.Context, dest interface{}, entity strin
 		if errors.Is(err, context.Canceled) || ctx.Err() != nil {
 			return nil
 		}
-		return fmt.Errorf("BaseClient.Get(%q): [%d] - %v", entity, status, err)
+		return fmt.Errorf("get(%q): [%d] - %v", entity, status, err)
 	}
 	defer resp.Body.Close()
 	var buf strings.Builder
@@ -191,7 +202,10 @@ func (g GraphMailClient) get(ctx context.Context, dest interface{}, entity strin
 
 func (g GraphMailClient) UpdateMessage(ctx context.Context, userID, messageID string, update json.RawMessage) (Message, error) {
 	entity := "/users/" + url.PathEscape(userID) + "/messages/" + url.PathEscape(messageID)
-	resp, status, _, err := g.BaseClient.Patch(ctx, msgraph.PatchHttpRequestInput{
+	if err := g.limiter.Wait(ctx); err != nil {
+		return Message{}, err
+	}
+	resp, status, _, err := g.client.Patch(ctx, msgraph.PatchHttpRequestInput{
 		Body:                   []byte(update),
 		ConsistencyFailureFunc: msgraph.RetryOn404ConsistencyFailureFunc,
 		OData:                  odata.Query{},
@@ -202,7 +216,7 @@ func (g GraphMailClient) UpdateMessage(ctx context.Context, userID, messageID st
 		},
 	})
 	if err != nil {
-		return Message{}, fmt.Errorf("BaseClient.Get(%q): [%d] - %v", entity, status, err)
+		return Message{}, fmt.Errorf("UpdateMessage(%q): [%d] - %v", entity, status, err)
 	}
 	defer resp.Body.Close()
 	respBody, err := io.ReadAll(resp.Body)
@@ -216,7 +230,10 @@ func (g GraphMailClient) UpdateMessage(ctx context.Context, userID, messageID st
 
 func (g GraphMailClient) GetMIMEMessage(ctx context.Context, w io.Writer, userID, messageID string) (int64, error) {
 	entity := "/users/" + url.PathEscape(userID) + "/messages/" + url.PathEscape(messageID) + "/$value"
-	resp, status, _, err := g.BaseClient.Get(ctx, msgraph.GetHttpRequestInput{
+	if err := g.limiter.Wait(ctx); err != nil {
+		return 0, err
+	}
+	resp, status, _, err := g.client.Get(ctx, msgraph.GetHttpRequestInput{
 		ConsistencyFailureFunc: msgraph.RetryOn404ConsistencyFailureFunc,
 		DisablePaging:          true,
 		ValidStatusCodes:       []int{http.StatusOK},
@@ -226,7 +243,7 @@ func (g GraphMailClient) GetMIMEMessage(ctx context.Context, w io.Writer, userID
 		},
 	})
 	if err != nil {
-		return 0, fmt.Errorf("BaseClient.Get(%q): [%d] - %v", entity, status, err)
+		return 0, fmt.Errorf("GetMIMEMessage(%q): [%d] - %v", entity, status, err)
 	}
 	defer resp.Body.Close()
 	return io.Copy(w, resp.Body)
@@ -264,7 +281,10 @@ func (g GraphMailClient) ListMessages(ctx context.Context, userID, folderID stri
 
 func (g GraphMailClient) CreateFolder(ctx context.Context, userID, displayName string) (Folder, error) {
 	entity := "/users/" + url.PathEscape(userID) + "/mailFolders"
-	resp, status, _, err := g.BaseClient.Post(ctx, msgraph.PostHttpRequestInput{
+	if err := g.limiter.Wait(ctx); err != nil {
+		return Folder{}, err
+	}
+	resp, status, _, err := g.client.Post(ctx, msgraph.PostHttpRequestInput{
 		Body:                   []byte(`{"displayName":` + strconv.Quote(displayName) + "}"),
 		ConsistencyFailureFunc: msgraph.RetryOn404ConsistencyFailureFunc,
 		ValidStatusCodes:       []int{http.StatusOK, http.StatusCreated},
@@ -274,7 +294,7 @@ func (g GraphMailClient) CreateFolder(ctx context.Context, userID, displayName s
 		},
 	})
 	if err != nil {
-		return Folder{}, fmt.Errorf("BaseClient.Get(%q): [%d] - %v", entity, status, err)
+		return Folder{}, fmt.Errorf("CreateFolder(%q): [%d] - %v", entity, status, err)
 	}
 	defer resp.Body.Close()
 	respBody, err := io.ReadAll(resp.Body)
@@ -287,7 +307,10 @@ func (g GraphMailClient) CreateFolder(ctx context.Context, userID, displayName s
 }
 func (g GraphMailClient) CreateChildFolder(ctx context.Context, userID, parentID, displayName string) (Folder, error) {
 	entity := "/users/" + url.PathEscape(userID) + "/mailFolders/" + url.PathEscape(parentID) + "/childFolders"
-	resp, status, _, err := g.BaseClient.Post(ctx, msgraph.PostHttpRequestInput{
+	if err := g.limiter.Wait(ctx); err != nil {
+		return Folder{}, err
+	}
+	resp, status, _, err := g.client.Post(ctx, msgraph.PostHttpRequestInput{
 		Body:                   []byte(`{"displayName":` + strconv.Quote(displayName) + "}"),
 		ConsistencyFailureFunc: msgraph.RetryOn404ConsistencyFailureFunc,
 		ValidStatusCodes:       []int{http.StatusOK, http.StatusCreated},
@@ -297,7 +320,7 @@ func (g GraphMailClient) CreateChildFolder(ctx context.Context, userID, parentID
 		},
 	})
 	if err != nil {
-		return Folder{}, fmt.Errorf("BaseClient.Get(%q): [%d] - %v", entity, status, err)
+		return Folder{}, fmt.Errorf("CreateChildFolder(%q): [%d] - %v", entity, status, err)
 	}
 	defer resp.Body.Close()
 	respBody, err := io.ReadAll(resp.Body)
@@ -315,7 +338,10 @@ func (g GraphMailClient) CreateMessage(ctx context.Context, userID, folderID str
 	if err != nil {
 		return Message{}, err
 	}
-	resp, status, _, err := g.BaseClient.Post(ctx, msgraph.PostHttpRequestInput{
+	if err := g.limiter.Wait(ctx); err != nil {
+		return Message{}, err
+	}
+	resp, status, _, err := g.client.Post(ctx, msgraph.PostHttpRequestInput{
 		Body:                   b,
 		ConsistencyFailureFunc: msgraph.RetryOn404ConsistencyFailureFunc,
 		ValidStatusCodes:       []int{http.StatusOK, http.StatusCreated},
@@ -325,7 +351,7 @@ func (g GraphMailClient) CreateMessage(ctx context.Context, userID, folderID str
 		},
 	})
 	if err != nil {
-		return Message{}, fmt.Errorf("BaseClient.Get(%q): [%d] - %v", entity, status, err)
+		return Message{}, fmt.Errorf("CreateMessage(%q): [%d] - %v", entity, status, err)
 	}
 	defer resp.Body.Close()
 	respBody, err := io.ReadAll(resp.Body)
@@ -350,7 +376,10 @@ func (g GraphMailClient) copyOrMoveMessage(ctx context.Context, userID, srcFolde
 	} else {
 		entity += "/copy"
 	}
-	resp, status, _, err := g.BaseClient.Post(ctx, msgraph.PostHttpRequestInput{
+	if err := g.limiter.Wait(ctx); err != nil {
+		return Message{}, err
+	}
+	resp, status, _, err := g.client.Post(ctx, msgraph.PostHttpRequestInput{
 		Body:                   []byte(`{"destinationId":` + strconv.Quote(destFolderID) + "}"),
 		ConsistencyFailureFunc: msgraph.RetryOn404ConsistencyFailureFunc,
 		ValidStatusCodes:       []int{http.StatusOK, http.StatusCreated},
@@ -375,7 +404,10 @@ func (g GraphMailClient) RenameFolder(ctx context.Context, userID, folderID, dis
 	entity := "/users/" + url.PathEscape(userID) + "/mailFolders/" + url.PathEscape(folderID)
 	var buf bytes.Buffer
 	fmt.Fprintf(&buf, `{"displayName":%q}`, displayName)
-	resp, status, _, err := g.BaseClient.Patch(ctx, msgraph.PatchHttpRequestInput{
+	if err := g.limiter.Wait(ctx); err != nil {
+		return err
+	}
+	resp, status, _, err := g.client.Patch(ctx, msgraph.PatchHttpRequestInput{
 		Body:                   buf.Bytes(),
 		ConsistencyFailureFunc: msgraph.RetryOn404ConsistencyFailureFunc,
 		ValidStatusCodes:       []int{http.StatusOK, http.StatusCreated},
@@ -385,7 +417,7 @@ func (g GraphMailClient) RenameFolder(ctx context.Context, userID, folderID, dis
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("BaseClient.Patch(%q): [%d] - %v", entity, status, err)
+		return fmt.Errorf("RenameFolder(%q): [%d] - %v", entity, status, err)
 	}
 	defer resp.Body.Close()
 	return nil
@@ -393,7 +425,10 @@ func (g GraphMailClient) RenameFolder(ctx context.Context, userID, folderID, dis
 
 func (g GraphMailClient) DeleteFolder(ctx context.Context, userID, folderID string) error {
 	entity := "/users/" + url.PathEscape(userID) + "/mailFolders/" + url.PathEscape(folderID)
-	resp, status, _, err := g.BaseClient.Delete(ctx, msgraph.DeleteHttpRequestInput{
+	if err := g.limiter.Wait(ctx); err != nil {
+		return err
+	}
+	resp, status, _, err := g.client.Delete(ctx, msgraph.DeleteHttpRequestInput{
 		ConsistencyFailureFunc: msgraph.RetryOn404ConsistencyFailureFunc,
 		ValidStatusCodes:       []int{http.StatusOK, http.StatusAccepted, http.StatusNoContent},
 		Uri: msgraph.Uri{
@@ -402,7 +437,7 @@ func (g GraphMailClient) DeleteFolder(ctx context.Context, userID, folderID stri
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("BaseClient.Delete(%q): [%d] - %v", entity, status, err)
+		return fmt.Errorf("DeleteFolder(%q): [%d] - %v", entity, status, err)
 	}
 	defer resp.Body.Close()
 	return nil
@@ -410,7 +445,10 @@ func (g GraphMailClient) DeleteFolder(ctx context.Context, userID, folderID stri
 
 func (g GraphMailClient) DeleteChildFolder(ctx context.Context, userID, parentID, folderID string) error {
 	entity := "/users/" + url.PathEscape(userID) + "/mailFolders/" + url.PathEscape(parentID) + "/childFolders/" + url.PathEscape(folderID)
-	resp, status, _, err := g.BaseClient.Delete(ctx, msgraph.DeleteHttpRequestInput{
+	if err := g.limiter.Wait(ctx); err != nil {
+		return err
+	}
+	resp, status, _, err := g.client.Delete(ctx, msgraph.DeleteHttpRequestInput{
 		ConsistencyFailureFunc: msgraph.RetryOn404ConsistencyFailureFunc,
 		ValidStatusCodes:       []int{http.StatusOK, http.StatusCreated},
 		Uri: msgraph.Uri{
@@ -427,7 +465,10 @@ func (g GraphMailClient) DeleteChildFolder(ctx context.Context, userID, parentID
 
 func (g GraphMailClient) DeleteMessage(ctx context.Context, userID, folderID, msgID string) error {
 	entity := "/users/" + url.PathEscape(userID) + "/mailFolders/" + url.PathEscape(folderID) + "/messages/" + url.PathEscape(msgID)
-	resp, status, _, err := g.BaseClient.Delete(ctx, msgraph.DeleteHttpRequestInput{
+	if err := g.limiter.Wait(ctx); err != nil {
+		return err
+	}
+	resp, status, _, err := g.client.Delete(ctx, msgraph.DeleteHttpRequestInput{
 		ConsistencyFailureFunc: msgraph.RetryOn404ConsistencyFailureFunc,
 		ValidStatusCodes:       []int{http.StatusOK, http.StatusAccepted, http.StatusNoContent},
 		Uri: msgraph.Uri{
@@ -436,7 +477,7 @@ func (g GraphMailClient) DeleteMessage(ctx context.Context, userID, folderID, ms
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("BaseClient.Delete(%q): [%d] - %v", entity, status, err)
+		return fmt.Errorf("DeleteMessage(%q): [%d] - %v", entity, status, err)
 	}
 	defer resp.Body.Close()
 	return nil
@@ -578,7 +619,10 @@ func (g GraphMailClient) DeltaMailFolders(ctx context.Context, userID, deltaLink
 	rf.SetString(deltaLink)
 	logger := zlog.SFromContext(ctx)
 	// logger.Warn("Delta", "req", fmt.Sprintf("%#v", req))
-	resp, _, _, err := g.BaseClient.Get(ctx, req)
+	if err := g.limiter.Wait(ctx); err != nil {
+		return data.Changes, data.Delta, err
+	}
+	resp, _, _, err := g.client.Get(ctx, req)
 	if err == nil {
 		err = json.NewDecoder(resp.Body).Decode(&data)
 		resp.Body.Close()
@@ -622,7 +666,10 @@ func (g GraphMailClient) DeltaMails(ctx context.Context, userID, folderID, delta
 	rf.SetString(deltaLink)
 	logger := zlog.SFromContext(ctx)
 	// logger.Warn("Delta", "req", fmt.Sprintf("%#v", req))
-	resp, _, _, err := g.BaseClient.Get(ctx, req)
+	if err := g.limiter.Wait(ctx); err != nil {
+		return data.Changes, data.Delta, err
+	}
+	resp, _, _, err := g.client.Get(ctx, req)
 	if err == nil {
 		err = json.NewDecoder(resp.Body).Decode(&data)
 		resp.Body.Close()

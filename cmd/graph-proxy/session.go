@@ -1132,7 +1132,7 @@ func (m *uidMap) forNumSet(ctx context.Context,
 	if !full {
 		grp, ctx = errgroup.WithContext(ctx)
 	}
-	grp.SetLimit(2)
+	grp.SetLimit(16)
 	for id, cont := next(); cont; id, cont = next() {
 		if id != "" {
 			grp.Go(func() error {

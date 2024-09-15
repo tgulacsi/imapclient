@@ -47,11 +47,11 @@ type session struct {
 	p             *proxy
 	conn          *imapserver.Conn
 	idm           *uidMap
+	folders       map[string]*Folder
 	folderID      string
 	userID        string
 	mboxDeltaLink string
 	users         []graph.User
-	folders       map[string]*Folder
 }
 
 func (s *session) Folder(mailbox string, clean bool) *Folder {

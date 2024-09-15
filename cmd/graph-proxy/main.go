@@ -16,6 +16,8 @@ import (
 	"github.com/UNO-SOFT/zlog/v2"
 )
 
+var concurrency int = 8
+
 func main() {
 	if err := Main(); err != nil {
 		slog.Error("Main", "error", err)
@@ -32,6 +34,8 @@ func Main() error {
 	} else {
 		cd = filepath.Join(cd, "graph-proxy")
 	}
+	flag.IntVar(&concurrency, "concurrency", concurrency, "concurrency")
+	flagRateLimit := flag.Float64("rate-limit", 10, "mas number of http calls per second")
 	flagCacheDir := flag.String("cache-dir", cd, "cache directory")
 	flagCacheSize := flag.Int("cache-max-mb", 512, "cache max size in MiB")
 	flagClientID := flag.String("client-id", nvl(os.Getenv("AZURE_CLIENT_ID"), "34f2c0c1-b509-43c5-aae8-56c10fa19ed7"), "ClientID")
@@ -50,7 +54,7 @@ func Main() error {
 	return NewProxy(
 		zlog.NewSContext(ctx, logger),
 		*flagClientID, *flagRedirectURI,
-		*flagCacheDir, *flagCacheSize,
+		*flagCacheDir, *flagCacheSize, *flagRateLimit,
 	).ListenAndServe(flag.Arg(0))
 }
 

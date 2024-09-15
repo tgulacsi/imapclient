@@ -82,7 +82,10 @@ type GraphMailClient struct {
 
 var mailReadWriteScopes = []string{"https://graph.microsoft.com/Mail.ReadWrite", "https://graph.microsoft.com/Mail.Send", "https://graph.microsoft.com/MailboxFolder.ReadWrite"}
 
-func NewGraphMailClient(ctx context.Context, tenantID, clientID, clientSecret, redirectURI string) (GraphMailClient, []User, error) {
+func NewGraphMailClient(
+	ctx context.Context,
+	tenantID, clientID, clientSecret, redirectURI string,
+) (GraphMailClient, []User, error) {
 	logger := zlog.SFromContext(ctx)
 	env := environments.AzurePublic()
 	var err error
@@ -145,7 +148,7 @@ func NewGraphMailClient(ctx context.Context, tenantID, clientID, clientSecret, r
 
 	cl := GraphMailClient{
 		client:  client.BaseClient,
-		limiter: rate.NewLimiter(25, 1),
+		limiter: rate.NewLimiter(12, 1),
 	}
 	if len(users) == 0 {
 		if _, err := cl.Users(ctx); err != nil {
@@ -155,6 +158,7 @@ func NewGraphMailClient(ctx context.Context, tenantID, clientID, clientSecret, r
 
 	return cl, users, nil
 }
+func (g GraphMailClient) SetLimit(limit rate.Limit) { g.limiter.SetLimit(limit) }
 
 func (g GraphMailClient) Users(ctx context.Context) ([]msgraph.User, error) {
 	if err := g.limiter.Wait(ctx); err != nil {
@@ -704,12 +708,12 @@ type Folder struct {
 }
 
 type interactiveAuthorizer struct {
+	client      msal.Client
+	cache       cache.ExportReplace
 	RedirectURI string
 	Scopes      []string
-	mu          sync.Mutex
-	client      msal.Client
 	Accounts    []msal.Account
-	cache       cache.ExportReplace
+	mu          sync.Mutex
 }
 
 var _ auth.Authorizer = (*interactiveAuthorizer)(nil)
@@ -799,11 +803,11 @@ func nvl[T comparable](a T, b ...T) T {
 }
 
 type tokenCache struct {
-	FileName     string
-	mu           sync.Mutex
-	m            map[string]json.RawMessage
 	lastModified time.Time
 	hasher       hash.Hash
+	m            map[string]json.RawMessage
+	FileName     string
+	mu           sync.Mutex
 	hsh          [sha512.Size224]byte
 }
 

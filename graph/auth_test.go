@@ -20,7 +20,14 @@ func TestAuthTokenInteractive(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	token, err := (&interactiveAuthorizer{ClientID: *flagClientID, TenantID: *flagTenantID, RedirectURI: *flagRedirectURI, Scopes: mailReadWriteScopes}).Token(ctx, nil)
+	ia, err := newInteractiveAuthorizer(
+		ctx, *flagClientID, *flagTenantID,
+		*flagRedirectURI, mailReadWriteScopes, "",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, err := ia.Token(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

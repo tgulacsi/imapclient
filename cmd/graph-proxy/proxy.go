@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/time/rate"
+
 	"github.com/UNO-SOFT/filecache"
 	"github.com/UNO-SOFT/zlog/v2"
 	"github.com/emersion/go-imap/v2"
@@ -22,10 +24,12 @@ import (
 func NewProxy(ctx context.Context,
 	clientID, redirectURI,
 	cacheDir string, cacheSizeMiB int,
+	rateLimit float64,
 ) *proxy {
 	P := proxy{
 		ctx: ctx, clientID: clientID, redirectURI: redirectURI,
 		folders: make(map[string]map[string]*Folder),
+		limit:   rate.Limit(rateLimit),
 	}
 	logger := P.logger()
 	if cacheDir != "" {
@@ -122,16 +126,17 @@ type Folder struct {
 }
 
 type proxy struct {
-	ctx context.Context
-	srv *imapserver.Server
+	ctx     context.Context
+	srv     *imapserver.Server
+	cache   *filecache.Cache
+	clients map[string]clientUsers
+	folders map[string]map[string]*Folder
 	// client                           *graph.GraphMailClient
 	//tenantID string
 	clientID, redirectURI string
-	cache                 *filecache.Cache
+	limit                 rate.Limit
 
-	mu      sync.RWMutex
-	clients map[string]clientUsers
-	folders map[string]map[string]*Folder
+	mu sync.RWMutex
 }
 
 func (P *proxy) logger() *slog.Logger {
@@ -162,6 +167,7 @@ func (P *proxy) connect(ctx context.Context, tenantID, clientSecret string) (gra
 		logger.Error("NewGraphMailClient", "dur", time.Since(start).String(), "error", err)
 		return graph.GraphMailClient{}, nil, nil, err
 	}
+	cl.SetLimit(P.limit)
 	logger.Debug("NewGraphMailClient", "users", users, "dur", time.Since(start).String())
 	if P.clients == nil {
 		P.clients = make(map[string]clientUsers)

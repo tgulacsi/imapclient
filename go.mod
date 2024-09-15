@@ -22,6 +22,7 @@ require (
 )
 
 require (
+	github.com/dchest/siphash v1.2.3 // indirect
 	github.com/dgryski/go-linebreak v0.0.0-20180812204043-d8f37254e7d3 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/golang-jwt/jwt/v5 v5.2.1 // indirect

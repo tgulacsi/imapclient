@@ -240,12 +240,8 @@ func (g GraphMailClient) GetMessage(ctx context.Context, userID, messageID strin
 }
 
 func (g GraphMailClient) GetMessageHeaders(ctx context.Context, userID, messageID string, query odata.Query) (map[string][]string, error) {
-	type kv struct {
-		Name  string `json:"name"`
-		Value string `json:"value"`
-	}
 	var data struct {
-		Headers []kv `json:"internetMessageHeaders"`
+		Headers []imh `json:"internetMessageHeaders"`
 	}
 	query.Select = append(query.Select, "internetMessageHeaders")
 	err := g.get(ctx, &data, "/users/"+url.PathEscape(userID)+"/messages/"+url.PathEscape(messageID), query)
@@ -446,6 +442,11 @@ func (g GraphMailClient) DeleteMessage(ctx context.Context, userID, folderID, ms
 	return nil
 }
 
+type imh struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
 type Message struct {
 	Created        time.Time      `json:"createdDateTime,omitempty"`
 	Modified       time.Time      `json:"lastModifiedDateTime,omitempty"`
@@ -464,20 +465,17 @@ type Message struct {
 	Flag           struct {
 		Status string `json:"flagStatus,omitempty"`
 	} `json:"flag,omitempty"`
-	Importance string         `json:"importance,omitempty"`
-	MessageID  string         `json:"internetMessageId,omitempty"`
-	FolderID   string         `json:"parentFolderId,omitempty"`
-	WebLink    string         `json:"webLink,omitempty"`
-	To         []EmailAddress `json:"toRecipients,omitempty"`
-	Cc         []EmailAddress `json:"bccRecipients,omitempty"`
-	Bcc        []EmailAddress `json:"ccRecipients,omitempty"`
-	Headers    []struct {
-		Name  string `json:"name"`
-		Value string `json:"value"`
-	} `json:"internetMessageHeaders,omitempty"`
-	HasAttachments bool `json:"hasAttachments,omitempty"`
-	Draft          bool `json:"isDraft",omitempty`
-	Read           bool `json:"isRead,omitempty"`
+	Importance     string         `json:"importance,omitempty"`
+	MessageID      string         `json:"internetMessageId,omitempty"`
+	FolderID       string         `json:"parentFolderId,omitempty"`
+	WebLink        string         `json:"webLink,omitempty"`
+	To             []EmailAddress `json:"toRecipients,omitempty"`
+	Cc             []EmailAddress `json:"bccRecipients,omitempty"`
+	Bcc            []EmailAddress `json:"ccRecipients,omitempty"`
+	Headers        []imh          `json:"internetMessageHeaders,omitempty"`
+	HasAttachments bool           `json:"hasAttachments,omitempty"`
+	Draft          bool           `json:"isDraft",omitempty`
+	Read           bool           `json:"isRead,omitempty"`
 }
 type Content struct {
 	ContentType string `json:"contentType"`

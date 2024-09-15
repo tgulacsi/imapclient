@@ -23,7 +23,10 @@ func NewProxy(ctx context.Context,
 	clientID, redirectURI,
 	cacheDir string, cacheSizeMiB int,
 ) *proxy {
-	P := proxy{ctx: ctx, clientID: clientID, redirectURI: redirectURI}
+	P := proxy{
+		ctx: ctx, clientID: clientID, redirectURI: redirectURI,
+		folders: make(map[string]map[string]*Folder),
+	}
 	logger := P.logger()
 	if cacheDir != "" {
 		os.MkdirAll(cacheDir, 0750)
@@ -126,8 +129,9 @@ type proxy struct {
 	clientID, redirectURI string
 	cache                 *filecache.Cache
 
-	mu      sync.Mutex
+	mu      sync.RWMutex
 	clients map[string]clientUsers
+	folders map[string]map[string]*Folder
 }
 
 func (P *proxy) logger() *slog.Logger {
@@ -137,27 +141,33 @@ func (P *proxy) logger() *slog.Logger {
 	return slog.Default()
 }
 
-func (P *proxy) connect(ctx context.Context, tenantID, clientSecret string) (graph.GraphMailClient, []graph.User, error) {
+func (P *proxy) connect(ctx context.Context, tenantID, clientSecret string) (graph.GraphMailClient, []graph.User, map[string]*Folder, error) {
 	logger := P.logger().With("tenantID", tenantID, "clientID", P.clientID, "clientSecretLen", len(clientSecret))
 	P.mu.Lock()
 	defer P.mu.Unlock()
 	key := tenantID + "\t" + clientSecret
+	if P.folders == nil {
+		P.folders = make(map[string]map[string]*Folder)
+	}
+	if P.folders[key] == nil {
+		P.folders[key] = make(map[string]*Folder)
+	}
 	if clu, ok := P.clients[key]; ok {
 		logger.Debug("client cached")
-		return clu.Client, clu.Users, nil
+		return clu.Client, clu.Users, P.folders[key], nil
 	}
 	start := time.Now()
 	cl, users, err := graph.NewGraphMailClient(ctx, tenantID, P.clientID, clientSecret, P.redirectURI)
 	if err != nil {
 		logger.Error("NewGraphMailClient", "dur", time.Since(start).String(), "error", err)
-		return graph.GraphMailClient{}, nil, err
+		return graph.GraphMailClient{}, nil, nil, err
 	}
 	logger.Debug("NewGraphMailClient", "users", users, "dur", time.Since(start).String())
 	if P.clients == nil {
 		P.clients = make(map[string]clientUsers)
 	}
 	P.clients[key] = clientUsers{Client: cl, Users: users}
-	return cl, users, err
+	return cl, users, P.folders[key], err
 }
 
 type clientUsers struct {

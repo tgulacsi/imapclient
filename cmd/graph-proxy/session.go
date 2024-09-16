@@ -834,7 +834,7 @@ func (s *session) getMIMEMessage(ctx context.Context, msgID string) ([]byte, err
 	length, err := s.cl.GetMIMEMessage(ctx, &buf, s.userID, msgID)
 	dur := time.Since(start)
 	if err != nil {
-		logger.Error("GetMIMEMessage", "error", err)
+		logger.Error("GetMIMEMessage", "dur", dur.String(), "error", err)
 		return nil, err
 	}
 
@@ -844,8 +844,7 @@ func (s *session) getMIMEMessage(ctx context.Context, msgID string) ([]byte, err
 	}
 	if logger.Enabled(ctx, lvl) {
 		logger.Log(ctx, lvl,
-			"GetMIMEMessage", "id", msgID,
-			"length", length, "dur", dur,
+			"GetMIMEMessage", "length", length, "dur", dur,
 			"speedKiBs", float64(length>>10)/float64(dur/time.Second),
 		)
 	}

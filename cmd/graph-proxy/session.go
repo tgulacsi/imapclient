@@ -1018,7 +1018,11 @@ func (m *uidMap) resetUidValidity() {
 
 func (m *uidMap) uidOf(folderID, msgID string) imap.UID {
 	hsh := fnv.New32()
-	hsh.Write([]byte(msgID))
+	if x, err := base64.URLEncoding.AppendDecode(nil, []byte(msgID)); err == nil {
+		hsh.Write(x)
+	} else {
+		hsh.Write([]byte(msgID))
+	}
 	uid := imap.UID(hsh.Sum32())
 	m.mu.RLock()
 	old, ok := m.uid2id[folderID][uid]

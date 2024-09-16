@@ -296,6 +296,11 @@ func getEnvelope(h textproto.Header) (*imap.Envelope, error) {
 	date, _ := mh.Date()
 	inReplyTo, _ := mh.MsgIDList("In-Reply-To")
 	messageID, err := mh.MessageID()
+	if err != nil {
+		slog.Warn("MessageID", "msgID", messageID, "error", err, "headers", mh)
+		messageID, _, _ = strings.Cut(messageID, " ")
+		err = nil
+	}
 	// messageID, _, _ = strings.Cut(messageID, " ")
 	return &imap.Envelope{
 		Date:      date,

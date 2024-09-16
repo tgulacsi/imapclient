@@ -1022,9 +1022,12 @@ func (m *uidMap) uidOf(folderID, msgID string) imap.UID {
 	hsh.Write([]byte(msgID))
 	uid := imap.UID(hsh.Sum32())
 	m.mu.RLock()
-	_, ok := m.uid2id[folderID][uid]
+	old, ok := m.uid2id[folderID][uid]
 	m.mu.RUnlock()
 	if ok {
+		if old != msgID {
+			panic(fmt.Errorf("hash collision: %q = %d = %q", old, uid, msgID))
+		}
 		return uid
 	}
 	m.mu.Lock()

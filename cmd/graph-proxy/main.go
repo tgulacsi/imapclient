@@ -8,6 +8,8 @@ import (
 	"context"
 	"flag"
 	"log/slog"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -45,17 +47,26 @@ func Main() error {
 	// flagUserID := flag.String("user-id", "", "UserID")
 	flagRedirectURI := flag.String("redirect-uri", "http://localhost", "redirectURI (if client secret is empty)")
 	flag.Var(&verbose, "v", "verbosity")
+	flagPprofURL := flag.String("pprof", "", "pprof URL to listen on")
 	flag.Parse()
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGKILL)
 	defer cancel()
 
-	logger.Info("Listen", "addr", flag.Arg(0))
+	if *flagPprofURL != "" {
+		go http.ListenAndServe(*flagPprofURL, nil)
+	}
+
+	addr := ":1143"
+	if flag.NArg() != 0 {
+		addr = flag.Arg(0)
+	}
+	logger.Info("Listen", "addr", addr)
 	return NewProxy(
 		zlog.NewSContext(ctx, logger),
 		*flagClientID, *flagRedirectURI,
 		*flagCacheDir, *flagCacheSize, *flagRateLimit,
-	).ListenAndServe(flag.Arg(0))
+	).ListenAndServe(addr)
 }
 
 func nvl[T comparable](a T, b ...T) T {

@@ -830,6 +830,9 @@ func (s *session) getMIMEMessage(ctx context.Context, msgID string) ([]byte, err
 		return buf.Bytes(), nil
 	}
 
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	start := time.Now()
 	length, err := s.cl.GetMIMEMessage(ctx, &buf, s.userID, msgID)
 	dur := time.Since(start)

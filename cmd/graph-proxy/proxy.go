@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net"
 	"os"
@@ -25,27 +26,29 @@ func NewProxy(ctx context.Context,
 	clientID, redirectURI,
 	cacheDir string, cacheSizeMiB int,
 	rateLimit float64,
-) *proxy {
+) (*proxy, error) {
 	P := proxy{
 		ctx: ctx, clientID: clientID, redirectURI: redirectURI,
 		folders: make(map[string]map[string]*Folder),
 		limit:   rate.Limit(rateLimit),
 	}
 	logger := P.logger()
-	if cacheDir != "" {
-		os.MkdirAll(cacheDir, 0750)
-		if cacheSizeMiB < 1 {
-			cacheSizeMiB = 512
-		}
-		var err error
-		if P.cache, err = filecache.Open(
-			cacheDir,
-			filecache.WithMaxSize(int64(cacheSizeMiB)<<20),
-			filecache.WithLogger(slog.New(
-				zlog.NewLevelHandler(slog.LevelError, logger.Handler()))),
-		); err != nil {
-			logger.Error("open cache", "dir", cacheDir, "error", err)
-		}
+	os.MkdirAll(cacheDir, 0750)
+	if cacheSizeMiB < 1 {
+		cacheSizeMiB = 512
+	}
+	var err error
+	if P.cache, err = filecache.Open(
+		cacheDir,
+		filecache.WithMaxSize(int64(cacheSizeMiB)<<20),
+		filecache.WithLogger(slog.New(
+			zlog.NewLevelHandler(slog.LevelError, logger.Handler()))),
+	); err != nil {
+		return nil, fmt.Errorf("open cache %q: %w", cacheDir, err)
+	}
+
+	if P.idm, err = newUIDMap(ctx, cacheDir+".db"); err != nil {
+		return nil, fmt.Errorf("open uidMap %q: %w", cacheDir+".db", err)
 	}
 
 	var token struct{}
@@ -89,7 +92,7 @@ func NewProxy(ctx context.Context,
 	}
 
 	P.srv = imapserver.New(&opts)
-	return &P
+	return &P, nil
 }
 
 func (P *proxy) ListenAndServe(addr string) error {
@@ -133,10 +136,20 @@ type proxy struct {
 	folders map[string]map[string]*Folder
 	// client                           *graph.GraphMailClient
 	//tenantID string
+	idm                   *uidMap
 	clientID, redirectURI string
 	limit                 rate.Limit
 
 	mu sync.RWMutex
+}
+
+func (P *proxy) Close() error {
+	um := P.idm
+	P.idm = nil
+	if um != nil {
+		return um.Close()
+	}
+	return nil
 }
 
 func (P *proxy) logger() *slog.Logger {

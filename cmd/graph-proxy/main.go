@@ -62,11 +62,16 @@ func Main() error {
 		addr = flag.Arg(0)
 	}
 	logger.Info("Listen", "addr", addr)
-	return NewProxy(
+	p, err := NewProxy(
 		zlog.NewSContext(ctx, logger),
 		*flagClientID, *flagRedirectURI,
 		*flagCacheDir, *flagCacheSize, *flagRateLimit,
-	).ListenAndServe(addr)
+	)
+	if err != nil {
+		return err
+	}
+	defer p.Close()
+	return p.ListenAndServe(addr)
 }
 
 func nvl[T comparable](a T, b ...T) T {

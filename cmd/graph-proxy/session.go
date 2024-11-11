@@ -12,7 +12,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"hash/fnv"
 	"io"
 	"log/slog"
 	"net/mail"
@@ -20,11 +19,9 @@ import (
 	"path"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"golang.org/x/exp/maps"
-	"golang.org/x/sync/errgroup"
 
 	"github.com/UNO-SOFT/filecache"
 	"github.com/emersion/go-imap/v2"
@@ -36,7 +33,7 @@ import (
 func (p *proxy) newSession(conn *imapserver.Conn) (imapserver.Session, *imapserver.GreetingData, error) {
 	return &session{
 			p:    p,
-			conn: conn, idm: newUIDMap(),
+			conn: conn, idm: p.idm,
 		},
 		&imapserver.GreetingData{PreAuth: false},
 		nil
@@ -46,9 +43,9 @@ type session struct {
 	cl            graph.GraphMailClient
 	p             *proxy
 	conn          *imapserver.Conn
-	idm           *uidMap
 	folders       map[string]*Folder
 	folderID      string
+	idm           *uidMap
 	userID        string
 	mboxDeltaLink string
 	users         []graph.User
@@ -618,7 +615,11 @@ func (s *session) Move(w *imapserver.MoveWriter, numSet imap.NumSet, dest string
 	})
 }
 
-func (s *session) Unselect() error { s.folderID = ""; s.idm.Reset(); return nil }
+func (s *session) Unselect() error {
+	s.folderID = ""
+	//s.idm.Reset();
+	return nil
+}
 
 func (s *session) Expunge(w *imapserver.ExpungeWriter, uids *imap.UIDSet) error {
 	if uids == nil {
@@ -968,86 +969,6 @@ func (s *session) Copy(numSet imap.NumSet, dest string) (*imap.CopyData, error) 
 	return &result, err
 }
 
-// uidMap is a per-folder UID->msgID map
-//
-// The other way (msgID->UID) is the fnv1 hash of the msgID.
-// So the UIDs won't change, but may collide - that's why
-// we use a per-folder map, to minimize this risk.
-//
-// No collision for under 32k mailboxes.
-type uidMap struct {
-	uid2id      map[string]map[imap.UID]string
-	mu          sync.RWMutex
-	uidValidity uint32
-}
-
-func newUIDMap() *uidMap {
-	m := &uidMap{uid2id: make(map[string]map[imap.UID]string)}
-	m.resetUidValidity()
-	return m
-}
-func (m *uidMap) uidNext(folderID string) imap.UID {
-	m.mu.RLock()
-	n := len(m.uid2id[folderID])
-	m.mu.RUnlock()
-	if n == 0 {
-		return imap.UID(1<<32 - 1)
-	}
-	return imap.UID(n)
-}
-
-func (m *uidMap) idOf(folderID string, uid imap.UID) string {
-	m.mu.RLock()
-	if m.uid2id[folderID] == nil {
-		panic("no folderID=" + folderID + "seen yet")
-	}
-	s := m.uid2id[folderID][uid]
-	m.mu.RUnlock()
-	return s
-}
-
-func (m *uidMap) Reset() {
-	m.mu.Lock()
-	clear(m.uid2id)
-	m.resetUidValidity()
-	m.mu.Unlock()
-}
-func (m *uidMap) resetUidValidity() {
-	const epoch = 1725625771 // 2024-09-0614:29:31
-	// A good UIDVALIDITY value to use is a 32-bit representation of the current date/time when the value is assigned:
-	// m.uidValidity = uint32(time.Now().Unix() - epoch)
-	m.uidValidity = 0
-}
-
-func (m *uidMap) uidOf(folderID, msgID string) imap.UID {
-	hsh := fnv.New32()
-	if x, err := base64.URLEncoding.AppendDecode(nil, []byte(msgID)); err == nil {
-		hsh.Write(x)
-	} else {
-		hsh.Write([]byte(msgID))
-	}
-	uid := imap.UID(hsh.Sum32())
-	m.mu.RLock()
-	old, ok := m.uid2id[folderID][uid]
-	m.mu.RUnlock()
-	if ok {
-		if old != msgID {
-			panic(fmt.Errorf("hash collision: %q = %d = %q", old, uid, msgID))
-		}
-		return uid
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if _, ok = m.uid2id[folderID][uid]; ok {
-		return uid
-	}
-	if m.uid2id[folderID] == nil {
-		m.uid2id[folderID] = make(map[imap.UID]string)
-	}
-	m.uid2id[folderID][uid] = msgID
-	return uid
-}
-
 func isDynamic(numSet imap.NumSet) bool {
 	if ss, ok := numSet.(imap.SeqSet); ok {
 		return ss.Dynamic()
@@ -1055,106 +976,6 @@ func isDynamic(numSet imap.NumSet) bool {
 		return us.Dynamic()
 	}
 	return false
-}
-
-func (m *uidMap) forNumSet(ctx context.Context,
-	folderID string, numSet imap.NumSet, full bool,
-	fetchFolder func(context.Context) error,
-	f func(context.Context, string) error,
-) error {
-	if fetchFolder != nil {
-		m.mu.RLock()
-		fetched := m.uid2id[folderID] != nil
-		m.mu.RUnlock()
-		if !fetched {
-			if err := fetchFolder(ctx); err != nil {
-				return err
-			}
-		}
-	}
-	var next func() (string, bool)
-	m.mu.RLock()
-	ids := m.uid2id[folderID]
-	m.mu.RUnlock()
-	if ids != nil {
-		var Contains func(imap.UID) bool
-		if ss, ok := numSet.(imap.SeqSet); ok {
-			Contains = func(uid imap.UID) bool { return ss.Contains(uint32(uid)) }
-		} else if us, ok := numSet.(imap.UIDSet); ok {
-			Contains = us.Contains
-		}
-		keys := maps.Keys(ids)
-		next = func() (string, bool) {
-			for len(keys) != 0 {
-				uid := keys[0]
-				keys = keys[1:]
-				if Contains(uid) {
-					return ids[uid], len(keys) != 0
-				}
-			}
-			return "", false
-		}
-	} else {
-		if ss, ok := numSet.(imap.SeqSet); ok {
-			nums, _ := ss.Nums()
-			next = func() (string, bool) {
-				for len(nums) != 0 {
-					n := nums[0]
-					nums = nums[1:]
-					if id := m.idOf(folderID, imap.UID(n)); id != "" {
-						return id, len(nums) != 0
-					}
-				}
-				return "", false
-			}
-		} else if us, ok := numSet.(imap.UIDSet); ok {
-			ur := us[0]
-			us = us[1:]
-			first := true
-			var msgID imap.UID
-			next = func() (string, bool) {
-				cont := true
-				for cont {
-					if first {
-						msgID = ur.Start
-						first = false
-					} else if msgID >= ur.Stop {
-						if len(us) == 0 {
-							cont = false
-						} else {
-							ur = us[0]
-							us = us[1:]
-							first = true
-						}
-					} else {
-						msgID++
-					}
-					if id := m.idOf(folderID, msgID); id != "" {
-						return id, cont
-					}
-				}
-				return "", false
-			}
-		}
-
-	}
-
-	grp := new(errgroup.Group)
-	if !full {
-		grp, ctx = errgroup.WithContext(ctx)
-	}
-	grp.SetLimit(16)
-	for id, cont := next(); cont; id, cont = next() {
-		if id != "" {
-			grp.Go(func() error {
-				return f(ctx, id)
-			})
-		}
-		if !cont {
-			break
-		}
-	}
-	return grp.Wait()
 }
 
 func graphAddressList(it gomessage.HeaderFields) ([]graph.EmailAddress, error) {

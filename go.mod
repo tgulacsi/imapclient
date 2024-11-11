@@ -15,6 +15,7 @@ require (
 	github.com/peterbourgon/ff/v3 v3.4.0
 	github.com/tgulacsi/go v0.27.6
 	github.com/tgulacsi/oauth2client v0.1.0
+	go.etcd.io/bbolt v1.3.11
 	golang.org/x/exp v0.0.0-20241009180824-f66d83c29e7c
 	golang.org/x/net v0.28.0
 	golang.org/x/oauth2 v0.23.0

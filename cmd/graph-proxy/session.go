@@ -876,6 +876,11 @@ func (s *session) Fetch(w *imapserver.FetchWriter, numSet imap.NumSet, options *
 			logger := s.logger().With("id", msgID)
 			gm, err := s.cl.GetMessage(ctx, s.userID, msgID, qry)
 			if err != nil {
+				if errS := err.Error(); strings.Contains(errS, "NotFound") || strings.Contains(errS, "not found") {
+					logger.Warn("not found", "msgID", msgID, "error", err)
+					return nil
+				}
+				logger.Error("GetMessage", "msgID", msgID, "error", err)
 				return err
 			}
 			logger.Debug("GetMessage", "messages", gm)

@@ -896,8 +896,12 @@ func (c *tokenCache) Export(ctx context.Context, m cache.Marshaler, hints cache.
 	if err != nil {
 		logger.Error("marshal", "error", err)
 		return fmt.Errorf("marshal map: %w", err)
-	} else if true || c.hasher != nil {
-		c.hasher.Reset()
+	} else {
+		if c.hasher == nil {
+			c.hasher = sha512.New512_224()
+		} else {
+			c.hasher.Reset()
+		}
 		c.hasher.Write(b)
 		old := c.hsh
 		c.hasher.Sum(c.hsh[:0])

@@ -1,8 +1,8 @@
 module github.com/tgulacsi/imapclient
 
 require (
-	github.com/AzureAD/microsoft-authentication-library-for-go v1.3.1
-	github.com/UNO-SOFT/filecache v0.3.4-0.20240914115330-d578d0111eb2
+	github.com/AzureAD/microsoft-authentication-library-for-go v1.3.2
+	github.com/UNO-SOFT/filecache v0.4.0
 	github.com/UNO-SOFT/zlog v0.8.3
 	github.com/dchest/siphash v1.2.3
 	github.com/emersion/go-imap v1.2.1
@@ -13,15 +13,15 @@ require (
 	github.com/hashicorp/go-azure-sdk v0.20240125.1100331
 	github.com/manicminer/hamilton v0.72.0
 	github.com/peterbourgon/ff/v3 v3.4.0
-	github.com/tgulacsi/go v0.27.6
+	github.com/tgulacsi/go v0.27.7-0.20241126105246-43f36a11adc5
 	github.com/tgulacsi/oauth2client v0.1.0
 	go.etcd.io/bbolt v1.3.11
-	golang.org/x/exp v0.0.0-20241009180824-f66d83c29e7c
-	golang.org/x/net v0.28.0
-	golang.org/x/oauth2 v0.23.0
-	golang.org/x/sync v0.8.0
-	golang.org/x/text v0.19.0
-	golang.org/x/time v0.7.0
+	golang.org/x/exp v0.0.0-20250106191152-7588d65b2ba8
+	golang.org/x/net v0.34.0
+	golang.org/x/oauth2 v0.25.0
+	golang.org/x/sync v0.10.0
+	golang.org/x/text v0.21.0
+	golang.org/x/time v0.9.0
 )
 
 require (
@@ -37,9 +37,9 @@ require (
 	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
 	github.com/rogpeppe/go-internal v1.13.1 // indirect
-	golang.org/x/crypto v0.28.0 // indirect
-	golang.org/x/sys v0.26.0 // indirect
-	golang.org/x/term v0.25.0 // indirect
+	golang.org/x/crypto v0.32.0 // indirect
+	golang.org/x/sys v0.29.0 // indirect
+	golang.org/x/term v0.28.0 // indirect
 	software.sslmate.com/src/go-pkcs12 v0.5.0 // indirect
 )
 

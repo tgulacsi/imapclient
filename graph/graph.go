@@ -707,6 +707,13 @@ type Folder struct {
 	Hidden           bool   `json:"isHidden"`
 }
 
+func (f Folder) Name() string {
+	if f.WellKnownName != "" {
+		return f.WellKnownName
+	}
+	return f.DisplayName
+}
+
 type interactiveAuthorizer struct {
 	client      msal.Client
 	cache       cache.ExportReplace
@@ -819,17 +826,18 @@ func (c *tokenCache) Replace(ctx context.Context, um cache.Unmarshaler, hints ca
 	logger := zlog.SFromContext(ctx)
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	var fresh bool
 	if c.m != nil && !c.lastModified.IsZero() {
-		if fi, err := os.Stat(c.FileName); err == nil && !c.lastModified.Before(fi.ModTime()) {
-			if err = um.Unmarshal(c.m[hints.PartitionKey]); err != nil {
-				logger.Error("Replace", "error", err)
-				return fmt.Errorf("unmarshal %q: %w", c.m[hints.PartitionKey], err)
-			}
+		if fi, err := os.Stat(c.FileName); err == nil &&
+			!c.lastModified.Before(fi.ModTime()) {
+			fresh = true
 		}
 	}
-	if err := c.readFile(ctx); err != nil {
-		logger.Error("readFile", "error", err)
-		return err
+	if !fresh {
+		if err := c.readFile(ctx); err != nil {
+			logger.Error("readFile", "error", err)
+			return err
+		}
 	}
 	b := c.m[hints.PartitionKey]
 	if len(b) == 0 {
@@ -843,9 +851,11 @@ func (c *tokenCache) Replace(ctx context.Context, um cache.Unmarshaler, hints ca
 
 func (c *tokenCache) readFile(ctx context.Context) error {
 	logger := zlog.SFromContext(ctx)
-	c.lastModified = time.Now()
 	var mm map[string]json.RawMessage
-	if b, err := os.ReadFile(c.FileName); err != nil {
+	fi, err := os.Stat(c.FileName)
+	if err != nil {
+		return nil
+	} else if b, err := os.ReadFile(c.FileName); err != nil {
 		logger.Warn("read", "file", c.FileName, "error", err)
 		os.Remove(c.FileName)
 	} else if err = json.Unmarshal(b, &mm); err != nil {
@@ -860,6 +870,7 @@ func (c *tokenCache) readFile(ctx context.Context) error {
 		c.hasher.Sum(c.hsh[:0])
 		logger.Debug("successfully read", "file", c.FileName, "mtime", c.lastModified, "hash", c.hsh[:])
 		c.m = mm
+		c.lastModified = fi.ModTime()
 	}
 	return nil
 }
@@ -875,6 +886,7 @@ func (c *tokenCache) Export(ctx context.Context, m cache.Marshaler, hints cache.
 		logger.Warn("stat", "file", c.FileName, "error", err)
 		os.Remove(c.FileName)
 	} else if c.m == nil || c.lastModified.Before(fi.ModTime()) {
+		logger.Info("Export.readFile", "lastModified", c.lastModified, "fi.ModTime", fi.ModTime())
 		if err = c.readFile(ctx); err != nil {
 			logger.Error("readFile", "error", err)
 			return err
@@ -917,7 +929,11 @@ func (c *tokenCache) Export(ctx context.Context, m cache.Marshaler, hints cache.
 		logger.Error("write", "file", c.FileName, "error", err)
 		return fmt.Errorf("write file %q: %w", c.FileName, err)
 	}
-	c.lastModified = time.Now()
+	if fi, err := os.Stat(c.FileName); err != nil {
+		return err
+	} else {
+		c.lastModified = fi.ModTime()
+	}
 	// logger.Info("saved", "lastModified", c.lastModified)
 	return nil
 }

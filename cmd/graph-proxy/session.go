@@ -186,9 +186,9 @@ func (s *session) Select(mailbox string, options *imap.SelectOptions) (*imap.Sel
 		NumMessages: total,
 		UIDValidity: s.idm.uidValidity, UIDNext: uidNext,
 		List: &imap.ListData{
-			Delim: delim, Mailbox: root.DisplayName,
+			Delim: delim, Mailbox: root.Name(),
 			Status: &imap.StatusData{
-				Mailbox:     root.DisplayName,
+				Mailbox:     root.Name(),
 				NumMessages: &total,
 				NumUnseen:   &unread,
 				UIDNext:     uidNext, UIDValidity: s.idm.uidValidity,
@@ -220,9 +220,9 @@ func (s *session) fetchMailboxes(ctx context.Context, dirs []string, count bool)
 		key := cleanMailbox(parent.Mailbox) + delimS
 		for _, f := range folders {
 			f.ParentFolderID = parent.ID
-			F := Folder{Folder: f, Mailbox: key + f.DisplayName}
+			F := Folder{Folder: f, Mailbox: key + f.Name()}
 			s.p.mu.Lock()
-			s.folders[key+cleanMailbox(f.DisplayName)] = &F
+			s.folders[key+cleanMailbox(f.Name())] = &F
 			s.folders[f.ID] = &F
 			s.p.mu.Unlock()
 
@@ -242,7 +242,7 @@ func (s *session) fetchMailboxes(ctx context.Context, dirs []string, count bool)
 	}
 
 	for _, f := range folders {
-		F := Folder{Folder: f, Mailbox: f.DisplayName}
+		F := Folder{Folder: f, Mailbox: f.Name()}
 		s.p.mu.Lock()
 		s.folders[cleanMailbox(F.Mailbox)] = &F
 		s.folders[F.ID] = &F
@@ -434,7 +434,7 @@ func (s *session) List(w *imapserver.ListWriter, ref string, patterns []string, 
 		}
 		for _, f := range folders {
 			for _, pat := range patterns {
-				if imapserver.MatchList(f.DisplayName, delim, ref, pat) {
+				if imapserver.MatchList(f.Name(), delim, ref, pat) {
 					found = append(found, f)
 				}
 			}
@@ -469,37 +469,55 @@ func (s *session) List(w *imapserver.ListWriter, ref string, patterns []string, 
 		}
 		for _, f := range folders {
 			for _, pat := range patterns {
-				if name := ref + delimS + f.DisplayName; imapserver.MatchList(name, delim, ref, pat) {
+				if name := ref + delimS + f.Name(); imapserver.MatchList(name, delim, ref, pat) {
 					found = append(found, f)
 				}
 			}
 		}
 	}
 
-	names := make(map[string]string)
-	rest := len(found)
-	for rest > 0 {
-		rest = 0
-		for _, f := range found {
-			if names[f.ID] != "" {
-				continue
-			} else if f.ParentFolderID == "" {
-				names[f.ID] = f.DisplayName
-			} else if parent, ok := names[f.ParentFolderID]; ok {
-				if parent == "" {
-					names[f.ID] = f.DisplayName
-				} else {
-					names[f.ID] = parent + delimS + f.DisplayName
-				}
-			} else if strings.EqualFold(f.DisplayName, "Inbox") {
-				names[f.ParentFolderID] = ""
-				names[f.ID] = f.DisplayName
-			} else {
-				rest++
-			}
-			logger.Debug("found", "displayName", f.DisplayName, "name", names[f.ID], "parentID", f.ParentFolderID)
-		}
+	folders := make(map[string]*graph.Folder, len(found))
+	for i, f := range found {
+		folders[f.ID] = &found[i]
 	}
+	names := make(map[string]string)
+	var parts []string
+	for _, f := range found {
+		if names[f.ID] != "" {
+			continue
+		}
+		if f.ParentFolderID == "" || strings.EqualFold(f.Name(), "Inbox") {
+			names[f.ID] = f.Name()
+			continue
+		}
+		if parent := names[f.ParentFolderID]; parent != "" {
+			names[f.ID] = parent + delimS + f.Name()
+			continue
+		}
+		parts = append(parts[:0], f.Name())
+		for p := folders[f.ParentFolderID]; p != nil; p = folders[p.ParentFolderID] {
+			if p == nil {
+				break
+			}
+			if nm := names[p.ID]; nm != "" {
+				parts = append(parts, nm)
+				break
+			}
+			parts = append(parts, p.Name())
+			logger.Info("p", p.ID, parts)
+			if p.ParentFolderID == "" {
+				break
+			}
+		}
+		if len(parts) == 1 {
+			names[f.ID] = parts[0]
+			continue
+		}
+		logger.Info("name", "f", f.ID, "parts", parts)
+		slices.Reverse(parts)
+		names[f.ID] = strings.Join(parts, delimS)
+	}
+
 	// s.logger().Debug("found", "n", len(found), "m", len(names), "names", names)
 	for _, f := range found {
 		total := uint32(f.TotalItemCount)
@@ -543,8 +561,8 @@ func (s *session) Status(mailbox string, options *imap.StatusOptions) (*imap.Sta
 		return nil, err
 	}
 	for _, f := range folders {
-		if !strings.EqualFold(f.DisplayName, bn) {
-			logger.Debug("skip", "folder", f.DisplayName)
+		if !strings.EqualFold(f.DisplayName, bn) && !strings.EqualFold(f.WellKnownName, bn) {
+			logger.Debug("skip", "folder", f.Name())
 			continue
 		}
 		total := uint32(folders[0].TotalItemCount)

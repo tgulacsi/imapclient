@@ -746,7 +746,7 @@ func newInteractiveAuthorizer(ctx context.Context, clientID, tenantID, redirectU
 		return nil, fmt.Errorf("msal.New: %w", err)
 	}
 	if ia.Accounts, err = ia.client.Accounts(ctx); err != nil {
-		return nil, fmt.Errorf("Accounts: %w", err)
+		return nil, fmt.Errorf("accounts: %w", err)
 	}
 	return &ia, nil
 }
@@ -759,7 +759,7 @@ func (ia *interactiveAuthorizer) Token(ctx context.Context, request *http.Reques
 	defer ia.mu.Unlock()
 	var err error
 	if ia.Accounts, err = ia.client.Accounts(ctx); err != nil {
-		return nil, fmt.Errorf("Accounts: %w", err)
+		return nil, fmt.Errorf("accounts: %w", err)
 	}
 	var result msal.AuthResult
 	if len(ia.Accounts) > 0 {

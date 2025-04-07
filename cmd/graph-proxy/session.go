@@ -926,8 +926,6 @@ func (s *session) Fetch(w *imapserver.FetchWriter, numSet imap.NumSet, options *
 		})
 }
 
-var errWrongUID = errors.New("wrong UID")
-
 func (s *session) Store(w *imapserver.FetchWriter, numSet imap.NumSet, flags *imap.StoreFlags, options *imap.StoreOptions) error {
 	s.logger().Info("Store", "numSet", numSet, "flags", flags)
 	if flags == nil {
@@ -990,15 +988,6 @@ func (s *session) Copy(numSet imap.NumSet, dest string) (*imap.CopyData, error) 
 			return err
 		})
 	return &result, err
-}
-
-func isDynamic(numSet imap.NumSet) bool {
-	if ss, ok := numSet.(imap.SeqSet); ok {
-		return ss.Dynamic()
-	} else if us, ok := numSet.(imap.UIDSet); ok {
-		return us.Dynamic()
-	}
-	return false
 }
 
 func graphAddressList(it gomessage.HeaderFields) ([]graph.EmailAddress, error) {

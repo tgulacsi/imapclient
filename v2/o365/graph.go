@@ -36,17 +36,14 @@ type graphMailClient struct {
 }
 
 func NewGraphMailClient(ctx context.Context, clientID, clientSecret, tenantID, userID string) (*graphMailClient, error) {
-	gmc, err := graph.NewGraphMailClient(ctx, tenantID, clientID, clientSecret)
+	gmc, users, err := graph.NewGraphMailClient(ctx,
+		tenantID, clientID, clientSecret, "")
 	if err != nil {
 		return nil, err
 	}
 
 	logger := slog.Default()
 	if strings.IndexByte(userID, '@') >= 0 {
-		users, err := gmc.Users(ctx)
-		if err != nil {
-			return nil, err
-		}
 		var found bool
 		for _, u := range users {
 			logger.Debug("users", "name", u.DisplayName, "mail", u.Mail)
@@ -215,7 +212,7 @@ func (g *graphMailClient) Delete(ctx context.Context, msgID uint32) error {
 	if err != nil {
 		return err
 	}
-	_, err = g.GraphMailClient.MoveMessage(ctx, g.userID, g.u2s[msgID], mID)
+	_, err = g.GraphMailClient.MoveMessage(ctx, g.userID, "", g.u2s[msgID], mID)
 	return err
 }
 func (g *graphMailClient) Select(ctx context.Context, mbox string) error {
@@ -238,7 +235,7 @@ func (g *graphMailClient) Move(ctx context.Context, msgID uint32, mbox string) e
 	if err != nil {
 		return nil
 	}
-	_, err = g.GraphMailClient.MoveMessage(ctx, g.userID, g.u2s[msgID], mID)
+	_, err = g.GraphMailClient.MoveMessage(ctx, g.userID, "", g.u2s[msgID], mID)
 	return err
 }
 func (g *graphMailClient) Mark(ctx context.Context, msgID uint32, seen bool) error {

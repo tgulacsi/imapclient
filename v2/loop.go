@@ -13,6 +13,7 @@ import (
 	"hash"
 	"io"
 	"log/slog"
+	"math/rand/v2"
 	"sync"
 	"time"
 
@@ -119,6 +120,7 @@ func one(ctx context.Context, c Client, inbox, pattern string, deliver DeliverFu
 
 	var n int
 	hsh := NewHash()
+	rand.Shuffle(len(uids), func(i, j int) { uids[i], uids[j] = uids[j], uids[i] })
 	for _, uid := range uids {
 		if err = ctx.Err(); err != nil {
 			return n, err
@@ -137,7 +139,7 @@ func one(ctx context.Context, c Client, inbox, pattern string, deliver DeliverFu
 		sr, err := iohlp.MakeSectionReader(pr, 1<<20)
 		pr.CloseWithError(err)
 		wg.Wait()
-		if err != nil {
+		if err != nil || sr.Size() == 0 {
 			logger.Error("Read", "error", err)
 			continue
 		}
@@ -149,7 +151,7 @@ func one(ctx context.Context, c Client, inbox, pattern string, deliver DeliverFu
 					logger.Error("move to", "errbox", errbox, "error", err)
 				}
 			}
-			continue
+			return n, err
 		}
 		n++
 		logger.Info("delivered")

@@ -1,4 +1,4 @@
-// Copyright 2017, 2024 Tamás Gulácsi. All rights reserved.
+// Copyright 2017, 2025 Tamás Gulácsi. All rights reserved.
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -13,10 +13,10 @@ import (
 	"hash"
 	"io"
 	"log/slog"
-	"strconv"
+	"sync"
 	"time"
 
-	"github.com/tgulacsi/go/temp"
+	"github.com/tgulacsi/go/iohlp"
 )
 
 var (
@@ -124,17 +124,25 @@ func one(ctx context.Context, c Client, inbox, pattern string, deliver DeliverFu
 			return n, err
 		}
 		logger := logger.With("uid", uid)
+
 		hsh.Reset()
-		body := temp.NewMemorySlurper(strconv.FormatUint(uint64(uid), 10))
-		if _, err = c.ReadTo(ctx, io.MultiWriter(body, hsh), uid); err != nil {
-			body.Close()
+		pr, pw := io.Pipe()
+		var wg sync.WaitGroup
+		wg.Add(1)
+		go func() {
+			_, err = c.ReadTo(ctx, io.MultiWriter(pw, hsh), uid)
+			pw.CloseWithError(err)
+			wg.Done()
+		}()
+		sr, err := iohlp.MakeSectionReader(pr, 1<<20)
+		pr.CloseWithError(err)
+		wg.Wait()
+		if err != nil {
 			logger.Error("Read", "error", err)
 			continue
 		}
 
-		err = deliver(ctx, body, uid, hsh.Array())
-		body.Close()
-		if err != nil {
+		if err = deliver(ctx, sr, uid, hsh.Array()); err != nil {
 			logger.Error("deliver", "error", err)
 			if errbox != "" && !errors.Is(err, ErrSkip) {
 				if err = c.Move(ctx, uid, errbox); err != nil {
@@ -144,6 +152,7 @@ func one(ctx context.Context, c Client, inbox, pattern string, deliver DeliverFu
 			continue
 		}
 		n++
+		logger.Info("delivered")
 
 		if err = c.Mark(ctx, uid, true); err != nil {
 			logger.Error("mark seen", "error", err)

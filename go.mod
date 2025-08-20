@@ -10,8 +10,6 @@ require (
 	github.com/emersion/go-message v0.18.2
 	github.com/emersion/go-sasl v0.0.0-20241020182733-b788ff22d5a6
 	github.com/google/renameio/v2 v2.0.0
-	github.com/hashicorp/go-azure-sdk v0.20240125.1100331
-	github.com/manicminer/hamilton v0.72.0
 	github.com/peterbourgon/ff/v3 v3.4.0
 	github.com/tgulacsi/go v0.28.6
 	github.com/tgulacsi/oauth2client v0.1.0
@@ -30,6 +28,8 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.3.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/hashicorp/go-azure-helpers v0.73.0 // indirect
+	github.com/hashicorp/go-azure-sdk/microsoft-graph v0.20250814.1105543 // indirect
+	github.com/hashicorp/go-azure-sdk/sdk v0.20250814.1105543 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
 	github.com/hashicorp/go-retryablehttp v0.7.8 // indirect
 	github.com/hashicorp/go-uuid v1.0.3 // indirect

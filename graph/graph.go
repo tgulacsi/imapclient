@@ -26,25 +26,29 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/cache"
-	msal "github.com/AzureAD/microsoft-authentication-library-for-go/apps/public"
-	"golang.org/x/oauth2"
-
 	"github.com/UNO-SOFT/zlog/v2"
 	"github.com/google/renameio/v2"
-	"github.com/hashicorp/go-azure-sdk/sdk/auth"
-	"github.com/hashicorp/go-azure-sdk/sdk/environments"
-	"github.com/hashicorp/go-azure-sdk/sdk/odata"
-	"github.com/manicminer/hamilton/msgraph"
+	"golang.org/x/oauth2"
 	"golang.org/x/time/rate"
-	// "github.com/microsoftgraph/msgraph-sdk-go"
+
+	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/cache"
+	msal "github.com/AzureAD/microsoft-authentication-library-for-go/apps/public"
+	"github.com/hashicorp/go-azure-sdk/microsoft-graph/applications/stable/application"
+	"github.com/hashicorp/go-azure-sdk/microsoft-graph/common-types/stable"
+	"github.com/hashicorp/go-azure-sdk/microsoft-graph/users/stable/mailfoldermessage"
+	"github.com/hashicorp/go-azure-sdk/microsoft-graph/users/stable/user"
+	"github.com/hashicorp/go-azure-sdk/sdk/auth"
+	"github.com/hashicorp/go-azure-sdk/sdk/client/msgraph"
+	"github.com/hashicorp/go-azure-sdk/sdk/environments"
+	"github.com/hashicorp/go-azure-sdk/sdk/nullable"
+	"github.com/hashicorp/go-azure-sdk/sdk/odata"
 )
 
 type (
 	// Query is a re-export of odata.Query to save the users of importing that package, too.
 	Query   = odata.Query
 	OrderBy = odata.OrderBy
-	User    = msgraph.User
+	User    = stable.User
 )
 
 const (
@@ -76,8 +80,9 @@ var WellKnownFolders = map[string][]string{
 }
 
 type GraphMailClient struct {
-	client  msgraph.Client
-	limiter *rate.Limiter
+	mailfolder *mailfoldermessage.MailFolderMessageClient
+	users      *user.UserClient
+	limiter    *rate.Limiter
 }
 
 var mailReadWriteScopes = []string{"https://graph.microsoft.com/Mail.ReadWrite", "https://graph.microsoft.com/Mail.Send", "https://graph.microsoft.com/MailboxFolder.ReadWrite"}
@@ -100,8 +105,8 @@ func NewGraphMailClient(
 				a := ia.Accounts[0]
 				// logger.Info("got", "Account", a, "a", fmt.Sprintf("%#v", a))
 				u := User{
-					DisplayName:       &a.Name,
-					UserPrincipalName: &a.PreferredUsername,
+					DisplayName:       nullable.Value(a.Name),
+					UserPrincipalName: nullable.Value(a.PreferredUsername),
 				}
 				u.Id = &a.LocalAccountID
 				users = append(users[:0], u)
@@ -120,10 +125,12 @@ func NewGraphMailClient(
 	if err != nil {
 		return GraphMailClient{}, nil, err
 	}
-	client := msgraph.NewUsersClient()
-	client.BaseClient.Authorizer = authorizer
-	client.BaseClient.DisableRetries = true // race
-	client.BaseClient.RetryableClient.RetryMax = 3
+	app, err := application.NewApplicationClientWithBaseURI(env.MicrosoftGraph)
+	if err != nil {
+		return GraphMailClient{}, nil, err
+	}
+	app.Client.SetAuthorizer(authorizer)
+	app.Client.DisableRetries = true // race
 
 	if logger.Enabled(ctx, slog.LevelDebug) {
 		requestLogger := func(req *http.Request) (*http.Request, error) {
@@ -142,13 +149,18 @@ func NewGraphMailClient(
 			return resp, nil
 		}
 
-		client.BaseClient.RequestMiddlewares = &[]msgraph.RequestMiddleware{requestLogger}
-		client.BaseClient.ResponseMiddlewares = &[]msgraph.ResponseMiddleware{responseLogger}
+		app.Client.AppendRequestMiddleware(requestLogger)
+		app.Client.AppendResponseMiddleware(responseLogger)
 	}
 
 	cl := GraphMailClient{
-		client:  client.BaseClient,
 		limiter: rate.NewLimiter(12, 1),
+	}
+	if cl.mailfolder, err = mailfoldermessage.NewMailFolderMessageClientWithBaseURI(env.MicrosoftGraph); err != nil {
+		return cl, nil, err
+	}
+	if cl.users, err = user.NewUserClientWithBaseURI(env.MicrosoftGraph); err != nil {
+		return cl, nil, err
 	}
 	if len(users) == 0 {
 		if _, err := cl.Users(ctx); err != nil {
@@ -160,70 +172,33 @@ func NewGraphMailClient(
 }
 func (g GraphMailClient) SetLimit(limit rate.Limit) { g.limiter.SetLimit(limit) }
 
-func (g GraphMailClient) Users(ctx context.Context) ([]msgraph.User, error) {
+func (g GraphMailClient) Users(ctx context.Context) ([]stable.User, error) {
 	if err := g.limiter.Wait(ctx); err != nil {
 		return nil, err
 	}
-	users, _, err := (&msgraph.UsersClient{BaseClient: g.client}).List(ctx, odata.Query{})
+	resp, err := g.users.ListUsersComplete(ctx, user.DefaultListUsersOperationOptions())
 	if err != nil {
 		return nil, err
 	}
-	if users == nil {
+	if len(resp.Items) == 0 {
 		return nil, fmt.Errorf("Users: bad API response, nil result received")
 	}
-	return *users, nil
-}
-func (g GraphMailClient) get(ctx context.Context, dest interface{}, entity string, query odata.Query) error {
-	if err := g.limiter.Wait(ctx); err != nil {
-		return err
-	}
-	resp, status, _, err := g.client.Get(ctx, msgraph.GetHttpRequestInput{
-		ConsistencyFailureFunc: msgraph.RetryOn404ConsistencyFailureFunc,
-		DisablePaging:          query.Top != 0,
-		OData:                  query,
-		ValidStatusCodes:       []int{http.StatusOK},
-		Uri: msgraph.Uri{
-			Entity: entity,
-			// HasTenantId: true,
-		},
-	})
-	if err != nil {
-		if errors.Is(err, context.Canceled) || ctx.Err() != nil {
-			return nil
-		}
-		return fmt.Errorf("get(%q): [%d] - %v", entity, status, err)
-	}
-	defer resp.Body.Close()
-	var buf strings.Builder
-	if err := json.NewDecoder(io.TeeReader(resp.Body, &buf)).Decode(dest); err != nil {
-		return fmt.Errorf("json.Unmarshal(%q): %w", buf.String(), err)
-	}
-	if logger := zlog.SFromContext(ctx); logger.Enabled(ctx, slog.LevelDebug) {
-		logger.Debug("get", "URL", resp.Request.URL, "response", buf.String())
-	}
-	return nil
+	return resp.Items, nil
 }
 
-func (g GraphMailClient) UpdateMessage(ctx context.Context, userID, messageID string, update json.RawMessage) (Message, error) {
-	entity := "/users/" + url.PathEscape(userID) + "/messages/" + url.PathEscape(messageID)
+func (g GraphMailClient) UpdateMessage(ctx context.Context, userID, folderID, messageID string, message stable.Message, update *odata.Metadata) (Message, error) {
 	if err := g.limiter.Wait(ctx); err != nil {
 		return Message{}, err
 	}
-	resp, status, _, err := g.client.Patch(ctx, msgraph.PatchHttpRequestInput{
-		Body:                   []byte(update),
-		ConsistencyFailureFunc: msgraph.RetryOn404ConsistencyFailureFunc,
-		OData:                  odata.Query{},
-		ValidStatusCodes:       []int{http.StatusOK},
-		Uri: msgraph.Uri{
-			Entity: entity,
-			// HasTenantId: true,
-		},
-	})
+	resp, err := g.mailfolder.UpdateMailFolderMessage(ctx,
+		stable.NewUserIdMailFolderIdMessageID(userID, folderID, messageID),
+		message,
+		mailfoldermessage.UpdateMailFolderMessageOperationOptions{Metadata: update})
 	if err != nil {
-		return Message{}, fmt.Errorf("UpdateMessage(%q): [%d] - %v", entity, status, err)
+		return Message{}, fmt.Errorf("UpdateMessage(%s/%s): %w", folderID, messageID, err)
 	}
-	defer resp.Body.Close()
-	respBody, err := io.ReadAll(resp.Body)
+	defer resp.HttpResponse.Body.Close()
+	respBody, err := io.ReadAll(resp.HttpResponse.Body)
 	if err != nil {
 		return Message{}, fmt.Errorf("io.ReadAll(): %w", err)
 	}
@@ -232,31 +207,35 @@ func (g GraphMailClient) UpdateMessage(ctx context.Context, userID, messageID st
 	return data, err
 }
 
-func (g GraphMailClient) GetMIMEMessage(ctx context.Context, w io.Writer, userID, messageID string) (int64, error) {
-	entity := "/users/" + url.PathEscape(userID) + "/messages/" + url.PathEscape(messageID) + "/$value"
+func (g GraphMailClient) GetMIMEMessage(ctx context.Context, w io.Writer, userID, folderID, messageID string) (int64, error) {
 	if err := g.limiter.Wait(ctx); err != nil {
 		return 0, err
 	}
-	resp, status, _, err := g.client.Get(ctx, msgraph.GetHttpRequestInput{
-		ConsistencyFailureFunc: msgraph.RetryOn404ConsistencyFailureFunc,
-		DisablePaging:          true,
-		ValidStatusCodes:       []int{http.StatusOK},
-		Uri: msgraph.Uri{
-			Entity: entity,
-			// HasTenantId: true,
-		},
-	})
+	resp, err := g.mailfolder.GetMailFolderMessageValue(ctx,
+		stable.NewUserIdMailFolderIdMessageID(userID, folderID, messageID),
+		mailfoldermessage.GetMailFolderMessageValueOperationOptions{},
+	)
 	if err != nil {
-		return 0, fmt.Errorf("GetMIMEMessage(%q): [%d] - %v", entity, status, err)
+		return 0, fmt.Errorf("GetMIMEMessage(%q): [%d] - %w", err)
 	}
-	defer resp.Body.Close()
-	return io.Copy(w, resp.Body)
+	defer resp.HttpResponse.Body.Close()
+	return io.Copy(w, resp.HttpResponse.Body)
 }
 
-func (g GraphMailClient) GetMessage(ctx context.Context, userID, messageID string, query odata.Query) (Message, error) {
+func (g GraphMailClient) GetMessage(ctx context.Context, userID, folderID, messageID string, query odata.Query) (Message, error) {
 	var data Message
 	// "{\"@odata.context\":\"https://graph.microsoft.com/beta/$metadata#users('ff61c637-79fc-4e94-9d85-13c161b85a93')/messages(flag,isRead,id,importance)/$entity\",\"@odata.etag\":\"W/\\\"CQAAABYAAACo4yIhuSqFRaYgFOcu6OmPAAj5GmpC\\\"\",\"id\":\"AAMkAGJiZjViMTczLTM3Y2MtNDY4ZS1hZWUyLTg3YThiODcwM2IzYQBGAAAAAABiKbJsEoSxRopuDrKLuGHjBwCo4yIhuSqFRaYgFOcu6OmPAAAAAAEMAACo4yIhuSqFRaYgFOcu6OmPAAj7nIpyAAA=\",\"importance\":\"normal\",\"isRead\":true,\"flag\":{\"flagStatus\":\"notFlagged\"}}"
-	err := g.get(ctx, &data, "/users/"+url.PathEscape(userID)+"/messages/"+url.PathEscape(messageID), query)
+	// err := g.get(ctx, &data, "/users/"+url.PathEscape(userID)+"/messages/"+url.PathEscape(messageID), query)
+	resp, err := g.mailfolder.GetMailFolderMessage(ctx,
+		stable.NewUserIdMailFolderIdMessageID(userID, folderID, messageID),
+		mailfoldermessage.GetMailFolderMessageOperationOptions{
+			Select: &[]string{"flag", "isRead", "id"},
+		},
+	)
+	if err != nil {
+		return Message{}, err
+	}
+	err = json.NewDecoder(resp.HttpResponse.Body).Decode(&data)
 	return data, err
 }
 

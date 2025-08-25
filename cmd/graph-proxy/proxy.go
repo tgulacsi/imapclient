@@ -124,8 +124,8 @@ const (
 )
 
 type Folder struct {
-	Mailbox string
 	graph.Folder
+	Mailbox string
 }
 
 type proxy struct {

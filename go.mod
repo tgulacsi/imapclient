@@ -66,4 +66,4 @@ require (
 
 go 1.24.1
 
-replace github.com/emersion/go-imap/v2 => ../../emersion/go-imap/v2
+// replace github.com/emersion/go-imap/v2 => ../../emersion/go-imap/v2

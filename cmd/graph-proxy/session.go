@@ -959,10 +959,6 @@ func (s *session) Store(w *imapserver.FetchWriter, numSet imap.NumSet, flags *im
 	defer cancel()
 	return s.idm.forNumSet(ctx, s.folderID, numSet, true, nil,
 		func(ctx context.Context, msgID string) error {
-			type updateFlags struct {
-				Importance string `json:"importance"`
-				Read       bool   `json:"isRead"`
-			}
 			upd := graph.NewMessage()
 			var tbd bool
 			for _, f := range flags.Flags {

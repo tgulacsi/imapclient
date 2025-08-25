@@ -128,7 +128,7 @@ func NewGraphMailClient(
 	if isDelegated {
 		me, err := client.Me().Get(ctx, nil)
 		if err != nil {
-			return GraphMailClient{}, nil, fmt.Errorf("Me: %w", err)
+			return GraphMailClient{}, nil, fmt.Errorf("get Me: %w", err)
 		}
 		logger.Info("got", "me", JSON{me})
 		if len(users) == 0 {
@@ -172,6 +172,9 @@ func (g GraphMailClient) Users(ctx context.Context) ([]User, error) {
 	users := make([]User, 0, 10)
 	it, err := msgraphcore.NewPageIterator[User](coll, g.client.GetAdapter(),
 		models.CreateUserCollectionResponseFromDiscriminatorValue)
+	if err != nil {
+		return coll.GetValue(), err
+	}
 	err = it.Iterate(ctx, func(u User) bool {
 		users = append(users, u)
 		return true
@@ -187,7 +190,7 @@ func (g GraphMailClient) UpdateMessage(ctx context.Context, userID, messageID st
 		Messages().ByMessageId(messageID).
 		Patch(ctx, update, nil)
 	if err != nil {
-		return nil, fmt.Errorf("UpdateMessage(%q): [%d] - %w", update, err)
+		return nil, fmt.Errorf("updateMessage(%q): %w", update, err)
 	}
 	return msg, err
 }
@@ -201,7 +204,7 @@ func (g GraphMailClient) GetMIMEMessage(ctx context.Context, userID, messageID s
 		Messages().ByMessageId(messageID).
 		Content().Get(ctx, nil)
 	if err != nil {
-		return nil, fmt.Errorf("GetMIMEMessage(%q): [%d] - %w", err)
+		return nil, fmt.Errorf("getMIMEMessage(%q): %w", messageID, err)
 	}
 	return msg, nil
 }
@@ -243,8 +246,8 @@ func (g GraphMailClient) GetMessageHeaders(ctx context.Context, userID, messageI
 }
 
 type Query struct {
-	Select, OrderBy []string
 	Filter, Search  string
+	Select, OrderBy []string
 }
 
 func (q Query) IsZero() bool { return len(q.Select) == 0 && q.Search == "" && q.Filter == "" }
@@ -280,6 +283,9 @@ func (g GraphMailClient) ListMessages(ctx context.Context, userID, folderID stri
 	msgs := make([]Message, 0, requestTop)
 	it, err := msgraphcore.NewPageIterator[Message](resp, g.client.GetAdapter(),
 		models.CreateMessageCollectionResponseFromDiscriminatorValue)
+	if err != nil {
+		return resp.GetValue(), err
+	}
 	err = it.Iterate(ctx, func(m Message) bool {
 		msgs = append(msgs, m)
 		return true
@@ -481,6 +487,9 @@ func (g GraphMailClient) ListChildFolders(ctx context.Context, userID, folderID 
 	folders := make([]Folder, 0, requestTop)
 	it, err := msgraphcore.NewPageIterator[Folder](resp, g.client.GetAdapter(),
 		models.CreateMailFolderCollectionResponseFromDiscriminatorValue)
+	if err != nil {
+		return resp.GetValue(), err
+	}
 	err = it.Iterate(ctx, func(f Folder) bool {
 		folders = append(folders, f)
 		return true
@@ -511,6 +520,9 @@ func (g GraphMailClient) ListMailFolders(ctx context.Context, userID string, que
 	folders := make([]Folder, 0, requestTop)
 	it, err := msgraphcore.NewPageIterator[Folder](resp, g.client.GetAdapter(),
 		models.CreateMailFolderCollectionResponseFromDiscriminatorValue)
+	if err != nil {
+		return resp.GetValue(), err
+	}
 	err = it.Iterate(ctx, func(f Folder) bool {
 		folders = append(folders, f)
 		return true

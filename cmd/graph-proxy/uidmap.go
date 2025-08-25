@@ -208,8 +208,8 @@ func (m *uidMap) forNumSet(ctx context.Context,
 		}
 	}
 	type pair struct {
-		UID   uint32
 		MsgID string
+		UID   uint32
 	}
 	var ids []pair
 	if err := func() error {

@@ -99,6 +99,8 @@ github.com/dgryski/go-linebreak v0.0.0-20180812204043-d8f37254e7d3 h1:/RVgXZkKAn
 github.com/dgryski/go-linebreak v0.0.0-20180812204043-d8f37254e7d3/go.mod h1:FDHdQKtI1NtvxIYsG/y+ymRaIQIsp+LRSTGl7eBKQEU=
 github.com/emersion/go-imap v1.2.1 h1:+s9ZjMEjOB8NzZMVTM3cCenz2JrQIGGo5j1df19WjTA=
 github.com/emersion/go-imap v1.2.1/go.mod h1:Qlx1FSx2FTxjnjWpIlVNEuX+ylerZQNFE5NsmKFSejY=
+github.com/emersion/go-imap/v2 v2.0.0-beta.6 h1:3w7QGUcDEoZXr+okRZR75VBjX0yvvJqkfy3gibbH2yY=
+github.com/emersion/go-imap/v2 v2.0.0-beta.6/go.mod h1:BZTFHsS1hmgBkFlHqbxGLXk2hnRqTItUgwjSSCsYNAk=
 github.com/emersion/go-message v0.15.0/go.mod h1:wQUEfE+38+7EW8p8aZ96ptg6bAb1iwdgej19uXASlE4=
 github.com/emersion/go-message v0.18.2 h1:rl55SQdjd9oJcIoQNhubD2Acs1E6IzlZISRTK7x/Lpg=
 github.com/emersion/go-message v0.18.2/go.mod h1:XpJyL70LwRvq2a8rVbHXikPgKj8+aI0kGdHlg16ibYA=

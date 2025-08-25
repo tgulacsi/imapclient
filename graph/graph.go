@@ -11,12 +11,14 @@ import (
 	"strings"
 
 	"github.com/UNO-SOFT/zlog/v2"
+	"github.com/microsoft/kiota-abstractions-go/serialization"
 	"golang.org/x/time/rate"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity/cache"
 	msgraph "github.com/microsoftgraph/msgraph-sdk-go"
+	msgraphcore "github.com/microsoftgraph/msgraph-sdk-go-core"
 	"github.com/microsoftgraph/msgraph-sdk-go/models"
 	"github.com/microsoftgraph/msgraph-sdk-go/users"
 )
@@ -70,16 +72,22 @@ var WellKnownFolders = map[string][]string{
 }
 
 type GraphMailClient struct {
-	client  *msgraph.GraphServiceClient
-	limiter *rate.Limiter
+	client      *msgraph.GraphServiceClient
+	limiter     *rate.Limiter
+	isDelegated bool
 }
 
-var mailReadWriteScopes = []string{
-	"https://graph.microsoft.com/.default", // either-or
-	// "https://graph.microsoft.com/Mail.ReadWrite",
-	// "https://graph.microsoft.com/Mail.Send",
-	// "https://graph.microsoft.com/MailboxFolder.ReadWrite",
-}
+var (
+	applicationScopes = []string{
+		"https://graph.microsoft.com/.default",
+	}
+	delegatedScopes = []string{
+		"https://graph.microsoft.com/Mail.ReadWrite",
+		// "https://graph.microsoft.com/Mail.Send",
+		"https://graph.microsoft.com/MailboxFolder.ReadWrite",
+		"https://graph.microsoft.com/User.ReadBasic.all",
+	}
+)
 
 func NewGraphMailClient(
 	ctx context.Context,
@@ -92,37 +100,49 @@ func NewGraphMailClient(
 	}
 
 	var cred azcore.TokenCredential
+	var scopes []string
+	var isDelegated bool
 	var users []User
-	if clientSecret == "" {
+	if isDelegated = clientSecret == ""; isDelegated {
 		cred, err = azidentity.NewInteractiveBrowserCredential(&azidentity.InteractiveBrowserCredentialOptions{
-			Cache:    cache,
-			ClientID: clientID,
-			TenantID: tenantID,
+			ClientID: clientID, TenantID: tenantID, Cache: cache,
 		})
+		scopes = delegatedScopes
 	} else {
 		cred, err = azidentity.NewClientSecretCredential(
 			tenantID, clientID, clientSecret,
-			nil,
+			&azidentity.ClientSecretCredentialOptions{Cache: cache},
 		)
+		scopes = applicationScopes
 	}
 	if err != nil {
 		return GraphMailClient{}, nil, fmt.Errorf("azidentity: %w", err)
 	}
 
 	client, err := msgraph.NewGraphServiceClientWithCredentials(
-		cred, mailReadWriteScopes)
+		cred, scopes)
 	if err != nil {
 		return GraphMailClient{}, nil, fmt.Errorf("NewGraphServiceClientWithCredentials: %w", err)
 	}
 
+	if isDelegated {
+		me, err := client.Me().Get(ctx, nil)
+		if err != nil {
+			return GraphMailClient{}, nil, fmt.Errorf("Me: %w", err)
+		}
+		logger.Info("got", "me", JSON{me})
+		if len(users) == 0 {
+			users = []User{me}
+		}
+	}
 	cl := GraphMailClient{
-		client:  client,
-		limiter: rate.NewLimiter(12, 1),
+		client:      client,
+		limiter:     rate.NewLimiter(24, 1),
+		isDelegated: isDelegated,
 	}
 	if len(users) == 0 {
 		if _, err := cl.Users(ctx); err != nil {
-			logger.Error("get users", "error", err)
-			// return GraphMailClient{}, users, fmt.Errorf("Users: %w", err)
+			return GraphMailClient{}, users, fmt.Errorf("Users: %w", err)
 		}
 	}
 
@@ -136,9 +156,27 @@ func (g GraphMailClient) Users(ctx context.Context) ([]User, error) {
 	}
 	coll, err := g.client.Users().Get(ctx, nil)
 	if err != nil {
-		return nil, fmt.Errorf("Users.Get: %w", err)
+		logger := zlog.SFromContext(ctx)
+		logger.Error("get users", "error", err)
+		panic(err)
+		if !g.isDelegated {
+			return nil, err
+		}
+		if u, meErr := g.client.Me().Get(ctx, nil); meErr != nil {
+			logger.Error("users.Me", "error", err)
+			return nil, fmt.Errorf("Users.Get: %w (me: %w)", err, meErr)
+		} else {
+			return []User{u}, nil
+		}
 	}
-	return coll.GetValue(), nil
+	users := make([]User, 0, 10)
+	it, err := msgraphcore.NewPageIterator[User](coll, g.client.GetAdapter(),
+		models.CreateUserCollectionResponseFromDiscriminatorValue)
+	err = it.Iterate(ctx, func(u User) bool {
+		users = append(users, u)
+		return true
+	})
+	return users, err
 }
 
 func (g GraphMailClient) UpdateMessage(ctx context.Context, userID, messageID string, update Message) (Message, error) {
@@ -211,15 +249,18 @@ type Query struct {
 
 func (q Query) IsZero() bool { return len(q.Select) == 0 && q.Search == "" && q.Filter == "" }
 
+var requestTop = int32(64)
+
 func (g GraphMailClient) ListMessages(ctx context.Context, userID, folderID string, query Query) ([]Message, error) {
 	if err := g.limiter.Wait(ctx); err != nil {
 		return nil, err
 	}
-	var qp *users.ItemMessagesRequestBuilderGetQueryParameters
+	qp := users.ItemMailFoldersItemMessagesRequestBuilderGetQueryParameters{
+		Top: &requestTop,
+	}
 	if !query.IsZero() {
-		qp = &users.ItemMessagesRequestBuilderGetQueryParameters{
-			Select: query.Select, Orderby: query.OrderBy,
-		}
+		qp.Select = query.Select
+		qp.Orderby = query.OrderBy
 		if query.Filter != "" {
 			qp.Filter = &query.Filter
 		}
@@ -227,14 +268,23 @@ func (g GraphMailClient) ListMessages(ctx context.Context, userID, folderID stri
 			qp.Search = &query.Search
 		}
 	}
-	msgs, err := g.user(userID).Messages().Get(ctx,
-		&users.ItemMessagesRequestBuilderGetRequestConfiguration{
-			QueryParameters: qp,
+	resp, err := g.user(userID).
+		MailFolders().ByMailFolderId(folderID).
+		Messages().Get(ctx,
+		&users.ItemMailFoldersItemMessagesRequestBuilderGetRequestConfiguration{
+			QueryParameters: &qp,
 		})
 	if err != nil {
 		return nil, err
 	}
-	return msgs.GetValue(), err
+	msgs := make([]Message, 0, requestTop)
+	it, err := msgraphcore.NewPageIterator[Message](resp, g.client.GetAdapter(),
+		models.CreateMessageCollectionResponseFromDiscriminatorValue)
+	err = it.Iterate(ctx, func(m Message) bool {
+		msgs = append(msgs, m)
+		return true
+	})
+	return msgs, err
 }
 
 func (g GraphMailClient) CreateFolder(ctx context.Context, userID, displayName string) (Folder, error) {
@@ -339,12 +389,24 @@ func NewRecipient(name, email string) Recipient {
 }
 
 func NewMessage() Message { return models.NewMessage() }
-func NewFolder(displayName string) Folder {
+
+var ErrNotFound = errors.New("not found")
+
+func (g GraphMailClient) GetFolder(ctx context.Context, displayName string) (Folder, error) {
+	if _, ok := WellKnownFolders[displayName]; ok {
+		f, err := g.user("").MailFolders().ByMailFolderId(displayName).Get(ctx, nil)
+		if err != nil {
+			err = fmt.Errorf("%w: byMailFolderId(%s): %w", ErrNotFound, displayName, err)
+		} else if f.GetId() == nil {
+			f.SetId(&displayName)
+		}
+		return f, err
+	}
 	f := models.NewMailFolder()
 	if displayName != "" {
 		f.SetDisplayName(&displayName)
 	}
-	return f
+	return f, nil
 }
 func NewBody(contentType string, content string) models.ItemBodyable {
 	body := models.NewItemBody()
@@ -407,33 +469,65 @@ func (g GraphMailClient) ListChildFolders(ctx context.Context, userID, folderID 
 	if err := g.limiter.Wait(ctx); err != nil {
 		return nil, err
 	}
-	resp, err := g.user(userID).MailFolders().ByMailFolderId(folderID).ChildFolders().Get(ctx, nil)
+	conf := users.ItemMailFoldersItemChildFoldersRequestBuilderGetRequestConfiguration{
+		QueryParameters: &users.ItemMailFoldersItemChildFoldersRequestBuilderGetQueryParameters{
+			Top: &requestTop,
+		},
+	}
+	resp, err := g.user(userID).MailFolders().ByMailFolderId(folderID).ChildFolders().Get(ctx, &conf)
 	if err != nil {
 		return nil, err
 	}
-	return resp.GetValue(), nil
+	folders := make([]Folder, 0, requestTop)
+	it, err := msgraphcore.NewPageIterator[Folder](resp, g.client.GetAdapter(),
+		models.CreateMailFolderCollectionResponseFromDiscriminatorValue)
+	err = it.Iterate(ctx, func(f Folder) bool {
+		folders = append(folders, f)
+		return true
+	})
+
+	return folders, err
 }
 
 func (g GraphMailClient) ListMailFolders(ctx context.Context, userID string, query Query) ([]Folder, error) {
 	if err := g.limiter.Wait(ctx); err != nil {
 		return nil, err
 	}
-	var conf *users.ItemMailFoldersRequestBuilderGetRequestConfiguration
+	conf := users.ItemMailFoldersRequestBuilderGetRequestConfiguration{
+		QueryParameters: &users.ItemMailFoldersRequestBuilderGetQueryParameters{
+			Top: &requestTop,
+		},
+	}
 	if !query.IsZero() {
-		conf.QueryParameters = &users.ItemMailFoldersRequestBuilderGetQueryParameters{
-			Select: query.Select,
-		}
+		conf.QueryParameters.Select = query.Select
 		if query.Filter != "" {
 			conf.QueryParameters.Filter = &query.Filter
 		}
 	}
-	resp, err := g.user(userID).MailFolders().Get(ctx, conf)
+	resp, err := g.user(userID).MailFolders().Get(ctx, &conf)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ListMailFolders(%s, %v): %w", userID, query, err)
 	}
-	return resp.GetValue(), nil
+	folders := make([]Folder, 0, requestTop)
+	it, err := msgraphcore.NewPageIterator[Folder](resp, g.client.GetAdapter(),
+		models.CreateMailFolderCollectionResponseFromDiscriminatorValue)
+	err = it.Iterate(ctx, func(f Folder) bool {
+		folders = append(folders, f)
+		return true
+	})
+	return folders, err
 }
 
 func (g GraphMailClient) user(userID string) *users.UserItemRequestBuilder {
+	if userID == "" || g.isDelegated {
+		return g.client.Me()
+	}
 	return g.client.Users().ByUserId(userID)
 }
+
+type JSON struct {
+	serialization.Parsable
+}
+
+func (j JSON) String() string               { v, _ := serialization.SerializeToJson(j.Parsable); return string(v) }
+func (j JSON) MarshalJSON() ([]byte, error) { return serialization.SerializeToJson(j.Parsable) }

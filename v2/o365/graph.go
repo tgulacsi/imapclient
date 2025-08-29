@@ -1,4 +1,4 @@
-// Copyright 2022, 2023 Tamás Gulácsi. All rights reserved.
+// Copyright 2022, 2025 Tamás Gulácsi. All rights reserved.
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -6,7 +6,6 @@ package o365
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -18,8 +17,6 @@ import (
 
 	"github.com/tgulacsi/imapclient/graph"
 	"github.com/tgulacsi/imapclient/v2"
-
-	"github.com/hashicorp/go-azure-sdk/sdk/odata"
 )
 
 type graphMailClient struct {
@@ -46,9 +43,9 @@ func NewGraphMailClient(ctx context.Context, clientID, clientSecret, tenantID, u
 	if strings.IndexByte(userID, '@') >= 0 {
 		var found bool
 		for _, u := range users {
-			logger.Debug("users", "name", u.DisplayName, "mail", u.Mail)
-			if u.Mail != nil && string(*u.Mail) == userID {
-				userID, found = *u.ID(), true
+			logger.Debug("users", "name", u.GetDisplayName(), "mail", u.GetMail())
+			if m := u.GetMail(); m != nil && string(*m) == userID {
+				userID, found = *u.GetId(), true
 				break
 			}
 		}
@@ -72,12 +69,12 @@ func (g *graphMailClient) init(ctx context.Context, mbox string) error {
 	}
 	if g.folders == nil {
 		g.folders = make(map[string]graph.Folder)
-		if folders, err := g.GraphMailClient.ListMailFolders(ctx, g.userID, odata.Query{}); err != nil && len(folders) == 0 {
+		if folders, err := g.GraphMailClient.ListMailFolders(ctx, g.userID, graph.Query{}); err != nil && len(folders) == 0 {
 			return err
 		} else {
 			for _, f := range folders {
-				g.folders[strings.ToLower(f.DisplayName)] = f
-				g.folders["{"+f.ID+"}"] = f
+				g.folders[strings.ToLower(*f.GetDisplayName())] = f
+				g.folders["{"+*f.GetId()+"}"] = f
 			}
 		}
 	}
@@ -93,7 +90,7 @@ func (g *graphMailClient) init(ctx context.Context, mbox string) error {
 	if err != nil {
 		return err
 	}
-	folders, err := g.GraphMailClient.ListChildFolders(ctx, g.userID, fID, true, odata.Query{})
+	folders, err := g.GraphMailClient.ListChildFolders(ctx, g.userID, fID, true, graph.Query{})
 	if err != nil {
 		g.logger.Error("ListChildFolders", "userID", g.userID, "folder", fID, "folders", folders, "error", err)
 		if len(folders) == 0 {
@@ -101,15 +98,15 @@ func (g *graphMailClient) init(ctx context.Context, mbox string) error {
 		}
 	}
 	for _, f := range folders {
-		g.folders["{"+f.ID+"}"] = f
+		g.folders["{"+*f.GetId()+"}"] = f
 	}
 	var path []string
 	for _, f := range folders {
 		var prefix string
 		path = path[:0]
-		if f.ParentFolderID != "" {
-			for p := g.folders["{"+f.ParentFolderID+"}"]; p.ParentFolderID != ""; p = g.folders["{"+p.ParentFolderID+"}"] {
-				path = append(path, strings.ToLower(p.DisplayName))
+		if pID := f.GetParentFolderId(); pID != nil && *pID != "" {
+			for p := g.folders["{"+*pID+"}"]; p.GetParentFolderId() != nil && *p.GetParentFolderId() != ""; p = g.folders["{"+*p.GetParentFolderId()+"}"] {
+				path = append(path, strings.ToLower(*p.GetDisplayName()))
 			}
 			if len(path) != 0 {
 				// reverse
@@ -119,7 +116,7 @@ func (g *graphMailClient) init(ctx context.Context, mbox string) error {
 				prefix = strings.Join(path, "/") + "/"
 			}
 		}
-		g.folders[prefix+strings.ToLower(f.DisplayName)] = f
+		g.folders[prefix+strings.ToLower(*f.GetDisplayName())] = f
 	}
 	if err != nil {
 		g.logger.Error("MailFolders.Get", "userID", g.userID, "folder", fID, "error", err)
@@ -154,20 +151,19 @@ func (g *graphMailClient) FetchArgs(ctx context.Context, what string, msgIDs ...
 	for _, mID := range msgIDs {
 		s := g.u2s[mID]
 		if wantMIME {
-			var buf strings.Builder
-			size, err := g.GraphMailClient.GetMIMEMessage(ctx, &buf, g.userID, s)
+			b, err := g.GraphMailClient.GetMIMEMessage(ctx, g.userID, s)
 			if err != nil {
 				return m, fmt.Errorf("GetMIMEMessage(%q): %w", s, err)
 			}
-			s := buf.String()
+			s := string(b)
 			i := strings.Index(s, "\r\n\r\n")
 			m[mID] = map[string][]string{
 				"RFC822.HEADER": []string{s[:i+4]},
 				"RFC822.BODY":   []string{s[i+4:]},
-				"RFC822.SIZE":   []string{strconv.FormatInt(size, 10)},
+				"RFC822.SIZE":   []string{strconv.Itoa(len(s))},
 			}
 		} else {
-			hdrs, err := g.GraphMailClient.GetMessageHeaders(ctx, g.userID, s, odata.Query{})
+			hdrs, err := g.GraphMailClient.GetMessageHeaders(ctx, g.userID, s)
 			if err != nil {
 				g.logger.Error("GetMessageHeaders", "msgID", s, "error", err)
 				if firstErr == nil {
@@ -239,30 +235,25 @@ func (g *graphMailClient) Move(ctx context.Context, msgID uint32, mbox string) e
 	return err
 }
 func (g *graphMailClient) Mark(ctx context.Context, msgID uint32, seen bool) error {
-	var buf strings.Builder
-	buf.WriteString(`{"isRead":`)
-	if seen {
-		buf.WriteString(`true}`)
-	} else {
-		buf.WriteString(`false}`)
-	}
-	_, err := g.GraphMailClient.UpdateMessage(ctx, g.userID, g.u2s[msgID], json.RawMessage(buf.String()))
+	m := graph.NewMessage()
+	m.SetIsRead(&seen)
+	_, err := g.GraphMailClient.UpdateMessage(ctx, g.userID, g.u2s[msgID], m)
 	return err
 }
 func (g *graphMailClient) m2s(mbox string) (string, error) {
 	mbox = strings.ToLower(mbox)
 	if mf, ok := g.folders[mbox]; ok {
-		return mf.ID, nil
+		return *mf.GetId(), nil
 	}
 	if mf, ok := g.folders["{"+mbox+"}"]; ok {
-		return mf.ID, nil
+		return *mf.GetId(), nil
 	}
 	for k, mf := range g.folders {
 		if len(k) > 2 && k[0] == '{' && k[len(k)-1] == '}' {
 			continue
 		}
-		if nm := mf.DisplayName; strings.EqualFold(nm, mbox) || (mbox == "inbox" && nm == "beérkezett üzenetek") {
-			return mf.ID, nil
+		if nm := *mf.GetDisplayName(); strings.EqualFold(nm, mbox) || (mbox == "inbox" && nm == "beérkezett üzenetek") {
+			return *mf.GetId(), nil
 		}
 	}
 	folders := make([]string, 0, len(g.folders))
@@ -283,7 +274,7 @@ func (g *graphMailClient) List(ctx context.Context, mbox, pattern string, all bo
 		g.logger.Error("m2s", "mbox", mbox, "error", err)
 		return nil, err
 	}
-	query := odata.Query{Filter: "isRead eq false"}
+	query := graph.Query{Filter: "isRead eq false"}
 	if pattern != "" {
 		query.Filter += " and contains(subject, " + strings.ReplaceAll(strconv.Quote(pattern), `"`, "'") + ")"
 	}
@@ -298,7 +289,7 @@ func (g *graphMailClient) List(ctx context.Context, mbox, pattern string, all bo
 	}
 	ids := make([]uint32, 0, len(msgs))
 	for _, m := range msgs {
-		s := m.ID
+		s := *m.GetId()
 		u, ok := g.s2u[s]
 		if !ok {
 			u = atomic.AddUint32(&g.seq, 1)
@@ -309,5 +300,10 @@ func (g *graphMailClient) List(ctx context.Context, mbox, pattern string, all bo
 	return ids, nil
 }
 func (g *graphMailClient) ReadTo(ctx context.Context, w io.Writer, msgID uint32) (int64, error) {
-	return g.GraphMailClient.GetMIMEMessage(ctx, w, g.userID, g.u2s[msgID])
+	b, err := g.GraphMailClient.GetMIMEMessage(ctx, g.userID, g.u2s[msgID])
+	n, wErr := w.Write(b)
+	if wErr != nil && err != nil {
+		err = wErr
+	}
+	return int64(n), err
 }

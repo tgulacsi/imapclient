@@ -39,13 +39,13 @@ var (
 // Except when the error is ErrSkip - then the message is left there as is.
 //
 // deliver is called with the message, UID and hsh.
-func DeliveryLoop(ctx context.Context, c Client, inbox, pattern string, deliver DeliverFunc, outbox, errbox string, logger *slog.Logger) error {
+func DeliveryLoop(ctx context.Context, c Client, inbox, pattern string, deliver DeliverFunc, outbox, errbox string, logger *slog.Logger, delete bool) error {
 	if inbox == "" {
 		inbox = "INBOX"
 	}
 	for {
 		// nosemgrep: trailofbits.go.invalid-usage-of-modified-variable.invalid-usage-of-modified-variable
-		n, err := one(ctx, c, inbox, pattern, deliver, outbox, errbox, logger)
+		n, err := one(ctx, c, inbox, pattern, deliver, outbox, errbox, logger, delete)
 		if err != nil {
 			logger.Error("DeliveryLoop one round", "count", n, "error", err)
 		} else {
@@ -92,11 +92,11 @@ func MkDeliverFunc(ctx context.Context, deliver DeliverFunc) DeliverFunc {
 
 // DeliverOne does one round of message reading and delivery. Does not loop.
 // Returns the number of messages delivered.
-func DeliverOne(ctx context.Context, c Client, inbox, pattern string, deliver DeliverFunc, outbox, errbox string, logger *slog.Logger) (int, error) {
+func DeliverOne(ctx context.Context, c Client, inbox, pattern string, deliver DeliverFunc, outbox, errbox string, logger *slog.Logger, delete bool) (int, error) {
 	if inbox == "" {
 		inbox = "INBOX"
 	}
-	return one(ctx, c, inbox, pattern, deliver, outbox, errbox, logger)
+	return one(ctx, c, inbox, pattern, deliver, outbox, errbox, logger, delete)
 }
 
 // DeliverFunc is the type for message delivery.
@@ -104,7 +104,7 @@ func DeliverOne(ctx context.Context, c Client, inbox, pattern string, deliver De
 // r is the message data, uid is the IMAP server sent message UID, hsh is the message's hash.
 type DeliverFunc func(ctx context.Context, r io.ReadSeeker, uid uint32, hsh HashArray) error
 
-func one(ctx context.Context, c Client, inbox, pattern string, deliver DeliverFunc, outbox, errbox string, logger *slog.Logger) (int, error) {
+func one(ctx context.Context, c Client, inbox, pattern string, deliver DeliverFunc, outbox, errbox string, logger *slog.Logger, delete bool) (int, error) {
 	logger = logger.With("inbox", inbox)
 	if err := c.Connect(ctx); err != nil {
 		logger.Error("Connecting", "error", err)
@@ -160,6 +160,13 @@ func one(ctx context.Context, c Client, inbox, pattern string, deliver DeliverFu
 			logger.Error("mark seen", "error", err)
 		}
 
+		if delete {
+			if err = c.Delete(ctx, uid); err != nil {
+				logger.Error("delete", "error", err)
+			} else {
+				continue
+			}
+		}
 		if outbox != "" {
 			if err = c.Move(ctx, uid, outbox); err != nil {
 				logger.Error("move to", "outbox", outbox, "error", err)

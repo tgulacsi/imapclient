@@ -284,6 +284,10 @@ github.com/stretchr/testify v1.10.0 h1:Xv5erBjTwe/5IxqUQTdXv5kgmIvbHo3QQyRwhJsOf
 github.com/stretchr/testify v1.10.0/go.mod h1:r2ic/lqez/lEtzL7wO/rwa5dbSLXVDPFyf8C91i36aY=
 github.com/tgulacsi/go v0.28.6 h1:HH2FUH11bvhTgkPavGd7Sl8jFwKX1MXBJyZTVRVKBb8=
 github.com/tgulacsi/go v0.28.6/go.mod h1:5P5oBOB16BwM25ebqqrpxMnwdZQlhcC5mqEvDtsrWEM=
+github.com/tgulacsi/go v0.28.7 h1:ST+fjR25oWtygTQ7lkvDlhCS+VvP+yKCujAvDZJJ4vA=
+github.com/tgulacsi/go v0.28.7/go.mod h1:E+hqfWmr0OVg3KU9qtnIoBqmdKVmEtEn79ET86muuKc=
+github.com/tgulacsi/go v0.28.8-0.20251018153338-d2421125b113 h1:rjeFfVPTnCuL7aw3IBZD1DpXW53ex/02fj2C/YblbXk=
+github.com/tgulacsi/go v0.28.8-0.20251018153338-d2421125b113/go.mod h1:E+hqfWmr0OVg3KU9qtnIoBqmdKVmEtEn79ET86muuKc=
 github.com/tgulacsi/oauth2client v0.1.0 h1:ZsM10C99AylCS0Zo6R74lxXlYeqrO9X723MZXZrwleg=
 github.com/tgulacsi/oauth2client v0.1.0/go.mod h1:JX+4TyGn0ox+A0q2w8RoKmI3nZ/ixW2cLs3IjlfT3UU=
 github.com/yuin/goldmark v1.1.25/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
@@ -767,6 +771,8 @@ gopkg.in/check.v1 v1.0.0-20180628173108-788fd7840127/go.mod h1:Co6ibVJAznAaIkqp8
 gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c h1:Hei/4ADfdWqJk1ZMxUNpqntNwaWcugrBjAiHlqqRiVk=
 gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c/go.mod h1:JHkPIbrfpd72SG/EVd6muEfDQjcINNoR0C8j2r3qZ4Q=
 gopkg.in/errgo.v2 v2.1.0/go.mod h1:hNsd1EY+bozCKY1Ytp96fpM3vjJbqLJn88ws8XvfDNI=
+gopkg.in/validator.v2 v2.0.1 h1:xF0KWyGWXm/LM2G1TrEjqOu4pa6coO9AlWSf3msVfDY=
+gopkg.in/validator.v2 v2.0.1/go.mod h1:lIUZBlB3Im4s/eYp39Ry/wkR02yOPhZ9IwIRBjuPuG8=
 gopkg.in/yaml.v2 v2.2.2/go.mod h1:hI93XBmqTisBFMUTm0b8Fm+jr3Dg1NNxqwp+5A1VGuI=
 gopkg.in/yaml.v2 v2.2.3/go.mod h1:hI93XBmqTisBFMUTm0b8Fm+jr3Dg1NNxqwp+5A1VGuI=
 gopkg.in/yaml.v3 v3.0.0-20200313102051-9f266ea9e77c/go.mod h1:K4uyk7z7BCEPqu6E+C64Yfv1cQ7kz7rIZviUmN+EgEM=

@@ -17,7 +17,7 @@ require (
 	github.com/microsoftgraph/msgraph-sdk-go v1.83.0
 	github.com/microsoftgraph/msgraph-sdk-go-core v1.3.2
 	github.com/peterbourgon/ff/v3 v3.4.0
-	github.com/tgulacsi/go v0.28.6
+	github.com/tgulacsi/go v0.28.8-0.20251018153338-d2421125b113
 	github.com/tgulacsi/oauth2client v0.1.0
 	go.etcd.io/bbolt v1.4.0
 	golang.org/x/exp v0.0.0-20250718183923-645b1fa84792
@@ -26,6 +26,7 @@ require (
 	golang.org/x/sync v0.16.0
 	golang.org/x/text v0.27.0
 	golang.org/x/time v0.12.0
+	gopkg.in/validator.v2 v2.0.1
 )
 
 require (
@@ -67,3 +68,5 @@ require (
 go 1.24.1
 
 // replace github.com/emersion/go-imap/v2 => ../../emersion/go-imap/v2
+
+tool github.com/tgulacsi/go/openapi-generator-cli

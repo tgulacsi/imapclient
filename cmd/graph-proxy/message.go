@@ -29,12 +29,15 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"mime"
+	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/emersion/go-imap/v2"
@@ -316,13 +319,35 @@ func getEnvelope(h textproto.Header) (*imap.Envelope, error) {
 	}, err
 }
 
+var (
+	rSpaceInAnglesMu sync.Mutex
+	rSpaceInAngles   *regexp.Regexp
+)
+
 func parseAddressList(mh mail.Header, k string) []imap.Address {
 	// TODO: leave the quoted words unchanged
 	// TODO: handle groups
 	addrs, err := mh.AddressList(k)
 	if err != nil {
 		raw, _ := mh.Header.Header.Raw(k)
-		slog.Warn("parseAddressList", "k", k, "raw", string(raw), "error", err)
+		if slog.Default().Enabled(context.Background(), slog.LevelDebug) {
+			slog.Debug("parseAddressList", "k", k, "raw", string(raw), "error", err)
+		}
+		rSpaceInAnglesMu.Lock()
+		if rSpaceInAngles == nil {
+			rSpaceInAngles = regexp.MustCompile("<[^>]* [^>]*>")
+		}
+		raw = rSpaceInAngles.ReplaceAllFunc(raw, func(b []byte) []byte {
+			return bytes.ReplaceAll(b, []byte{' '}, nil)
+		})
+		rSpaceInAnglesMu.Unlock()
+		// raw = bytes.ReplaceAll(raw, []byte("\r\n"), nil)
+		mh2 := mail.Header{}
+		mh2.AddRaw(raw)
+		raw, _ = mh2.Header.Header.Raw(k)
+		if addrs, err = mh2.AddressList(k); err != nil {
+			slog.Error("parseAddressList2", "k", k, "raw", string(raw), "error", err)
+		}
 	}
 	var l []imap.Address
 	for _, addr := range addrs {

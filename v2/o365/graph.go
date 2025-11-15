@@ -144,7 +144,7 @@ func (g *graphMailClient) Mailboxes(ctx context.Context, root string) ([]string,
 func (g *graphMailClient) FetchArgs(ctx context.Context, what string, msgIDs ...uint32) (map[uint32]map[string][]string, error) {
 	m := make(map[uint32]map[string][]string, len(msgIDs))
 	var wantMIME bool
-	for _, f := range strings.Fields(what) {
+	for f := range strings.FieldsSeq(what) {
 		wantMIME = wantMIME || f == "RFC822.HEADER" || f == "RFC822.SIZE" || f == "RFC822.BODY"
 	}
 	var firstErr error

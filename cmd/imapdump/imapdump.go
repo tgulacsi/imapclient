@@ -535,7 +535,7 @@ func Main() error {
 	return app.Run(rootCtx)
 }
 
-var bufPool = sync.Pool{New: func() interface{} { return bytes.NewBuffer(make([]byte, 0, 1<<20)) }}
+var bufPool = sync.Pool{New: func() any { return bytes.NewBuffer(make([]byte, 0, 1<<20)) }}
 
 func dumpMails(rootCtx context.Context, tw *syncTW, c imapclient.Client, mbox string, uids []uint32) error {
 	ctx, cancel := context.WithTimeout(rootCtx, 1*time.Minute)

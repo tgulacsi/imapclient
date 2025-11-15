@@ -148,7 +148,7 @@ func authResultToToken(result confidential.AuthResult) *oauth2.Token {
 
 type Attachment struct {
 	// The date and time when the attachment was last modified. The date and time use ISO 8601 format and is always in UTC time. For example, midnight UTC on Jan 1, 2014 would look like this: '2014-01-01T00:00:00Z'
-	LastModifiedDateTime time.Time `json:",omitempty"`
+	LastModifiedDateTime time.Time
 	// The MIME type of the attachment.
 	ContentType string `json:",omitempty"`
 	// The display name of the attachment. This does not need to be the actual file name.
@@ -160,7 +160,7 @@ type Attachment struct {
 }
 
 type Recipient struct {
-	EmailAddress EmailAddress `json:",omitempty"`
+	EmailAddress EmailAddress
 }
 
 type EmailAddress struct {
@@ -222,7 +222,7 @@ type Message struct {
 	UniqueBody *ItemBody `json:",omitempty"`
 	// The body of the message.
 	// W--
-	Body ItemBody `json:",omitempty"`
+	Body ItemBody
 	// The importance of the message: Low = 0, Normal = 1, High = 2.
 	// WFS
 	Importance Importance `json:",omitempty"`
@@ -405,7 +405,7 @@ func (c *client) Copy(ctx context.Context, msgID, destinationID string) error {
 	return c.post(ctx, "/messages/"+msgID+"/copy", bytes.NewReader(jsonObj("DestinationId", destinationID)))
 }
 
-func (c *client) Update(ctx context.Context, msgID string, upd map[string]interface{}) error {
+func (c *client) Update(ctx context.Context, msgID string, upd map[string]any) error {
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(upd); err != nil {
 		return fmt.Errorf("%#v: %w", upd, err)

@@ -30,7 +30,7 @@ func (a cramAuth) Next(challenge []byte) (response []byte, err error) {
 	h.Write(challenge)
 	n := len(a.username)
 	response = make([]byte, 0, len(a.username)+1+hex.EncodedLen(h.Size()))
-	for i := 0; i < n; i++ {
+	for i := range n {
 		response[i] = byte(a.username[i])
 	}
 	response[n] = ' '

@@ -17,7 +17,7 @@ func TestHashCollision(t *testing.T) {
 	hfnv := fnv.New32()
 	hfnva := fnv.New32a()
 	collisions := make(map[string]int64, 4)
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		datas := make([][]byte, 0, 128<<10)
 		for name, f := range map[string]func([]byte) uint32{
 			"FNV":  func(data []byte) uint32 { hfnv.Reset(); hfnv.Write(data); return hfnv.Sum32() },

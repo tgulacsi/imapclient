@@ -17,6 +17,7 @@ import (
 	"log/slog"
 	"net"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -410,13 +411,7 @@ func (c *imapClient) Move(ctx context.Context, msgID uint32, mbox string) error 
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	created := false
-	for _, k := range c.created {
-		if mbox == k {
-			created = true
-			break
-		}
-	}
+	created := slices.Contains(c.created, mbox)
 	if !created {
 		c.logger.Info("Create", "box", mbox)
 		c.created = append(c.created, mbox)
@@ -537,7 +532,7 @@ func (c *imapClient) Mark(ctx context.Context, msgID uint32, seen bool) error {
 	if !seen {
 		item = imap.FormatFlagsOp(imap.RemoveFlags, true)
 	}
-	flags := []interface{}{imap.SeenFlag}
+	flags := []any{imap.SeenFlag}
 	//c.mu.Lock()
 	//defer c.mu.Unlock()
 	return c.c.UidStore(set, item, flags, nil)
@@ -551,7 +546,7 @@ func (c *imapClient) Delete(ctx context.Context, msgID uint32) error {
 	set := &imap.SeqSet{}
 	set.AddNum(msgID)
 	item := imap.FormatFlagsOp(imap.AddFlags, true)
-	flags := []interface{}{imap.DeletedFlag}
+	flags := []any{imap.DeletedFlag}
 	//c.mu.Lock()
 	//defer c.mu.Unlock()
 	return c.c.UidStore(set, item, flags, nil)

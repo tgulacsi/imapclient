@@ -165,7 +165,7 @@ func (c *oClient) Mark(ctx context.Context, msgID uint32, seen bool) error {
 	if err != nil {
 		return err
 	}
-	return c.client.Update(ctx, s, map[string]interface{}{
+	return c.client.Update(ctx, s, map[string]any{
 		"IsRead": seen,
 	})
 }

@@ -32,9 +32,9 @@ type graphMailClient struct {
 	seq uint32
 }
 
-func NewGraphMailClient(ctx context.Context, clientID, clientSecret, tenantID, userID string) (*graphMailClient, error) {
+func NewGraphMailClient(ctx context.Context, clientID, tenantID, userID string, credOpts graph.CredentialOptions) (*graphMailClient, error) {
 	gmc, users, err := graph.NewGraphMailClient(ctx,
-		tenantID, clientID, clientSecret, "")
+		tenantID, clientID, credOpts)
 	if err != nil {
 		return nil, err
 	}

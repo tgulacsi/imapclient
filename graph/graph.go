@@ -6,8 +6,11 @@ package graph
 
 import (
 	"context"
+	"crypto"
+	"crypto/x509"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/UNO-SOFT/zlog/v2"
@@ -29,6 +32,14 @@ type (
 	Message   = models.Messageable
 	Folder    = models.MailFolderable
 )
+
+func ParseCertificates(r io.Reader) ([]*x509.Certificate, crypto.PrivateKey, error) {
+	b, err := io.ReadAll(r)
+	if err != nil {
+		return nil, nil, err
+	}
+	return azidentity.ParseCertificates(b, nil)
+}
 
 // type (
 // 	// Query is a re-export of odata.Query to save the users of importing that package, too.
@@ -89,9 +100,17 @@ var (
 	}
 )
 
+type CredentialOptions struct {
+	Secret string
+	Certs  []*x509.Certificate
+	Key    crypto.PrivateKey
+}
+
 func NewGraphMailClient(
 	ctx context.Context,
-	tenantID, clientID, clientSecret, redirectURI string,
+	tenantID, clientID string,
+	credOpts CredentialOptions,
+
 ) (GraphMailClient, []User, error) {
 	logger := zlog.SFromContext(ctx)
 	cache, err := cache.New(nil)
@@ -103,14 +122,22 @@ func NewGraphMailClient(
 	var scopes []string
 	var isDelegated bool
 	var users []User
-	if isDelegated = clientSecret == ""; isDelegated {
+	if credOpts.Key != nil {
+		cred, err = azidentity.NewClientCertificateCredential(
+			tenantID, clientID, credOpts.Certs, credOpts.Key,
+			&azidentity.ClientCertificateCredentialOptions{
+				AdditionallyAllowedTenants: []string{"*"},
+				Cache:                      cache,
+			},
+		)
+	} else if isDelegated = credOpts.Secret == ""; isDelegated {
 		cred, err = azidentity.NewInteractiveBrowserCredential(&azidentity.InteractiveBrowserCredentialOptions{
 			ClientID: clientID, TenantID: tenantID, Cache: cache,
 		})
 		scopes = delegatedScopes
 	} else {
 		cred, err = azidentity.NewClientSecretCredential(
-			tenantID, clientID, clientSecret,
+			tenantID, clientID, credOpts.Secret,
 			&azidentity.ClientSecretCredentialOptions{Cache: cache},
 		)
 		scopes = applicationScopes

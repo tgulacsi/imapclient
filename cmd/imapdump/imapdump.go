@@ -1,4 +1,4 @@
-// Copyright 2019, 2022 Tamás Gulácsi. All rights reserved.
+// Copyright 2019, 2025 Tamás Gulácsi. All rights reserved.
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -9,8 +9,9 @@ import (
 	"bufio"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/base64"
-	"flag"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -24,14 +25,15 @@ import (
 	"syscall"
 	"time"
 
-	"golang.org/x/net/context"
 	"golang.org/x/oauth2"
 	"golang.org/x/text/encoding/htmlindex"
 	"golang.org/x/text/transform"
 
 	"github.com/UNO-SOFT/zlog/v2"
 
-	"github.com/peterbourgon/ff/v3/ffcli"
+	"github.com/peterbourgon/ff/v4"
+	"github.com/peterbourgon/ff/v4/ffhelp"
+	"github.com/tgulacsi/imapclient/graph"
 	"github.com/tgulacsi/imapclient/v2"
 	"github.com/tgulacsi/imapclient/v2/o365"
 )
@@ -62,21 +64,22 @@ func Main() error {
 			port = i
 		}
 	}
-	FS := flag.NewFlagSet("global", flag.ExitOnError)
-	FS.Var(&verbose, "v", "verbose")
-	FS.StringVar(&username, "username", os.Getenv("IMAPDUMP_USER"), "username")
-	FS.StringVar(&password, "password", os.Getenv("IMAPDUMP_PASS"), "password")
-	FS.StringVar(&host, "host", host, "host")
-	FS.IntVar(&port, "port", port, "port")
-	FS.StringVar(&clientID, "client-id", os.Getenv("CLIENT_ID"), "Office 365 CLIENT_ID")
-	FS.StringVar(&clientSecret, "client-secret", os.Getenv("CLIENT_SECRET"), "Office 365 CLIENT_SECRET")
-	FS.StringVar(&tenantID, "tenant-id", os.Getenv("TENANT_ID"), "Office 365 tenant ID")
-	FS.StringVar(&impersonate, "impersonate", "", "Office 365 impersonate")
-	FS.StringVar(&userID, "user-id", os.Getenv("USER_ID"), "Office 365 user ID. Implies Graph API")
-	flagForceTLS := FS.Bool("force-tls", false, "force use of TLS")
-	flagForbidTLS := FS.Bool("forbid-tls", false, "forbid (force no TLS)")
+	FS := ff.NewFlagSet("global")
+	FS.Value('v', "verbose", &verbose, "log verbose")
+	FS.StringVar(&username, 'u', "username", os.Getenv("IMAPDUMP_USER"), "username")
+	FS.StringVar(&password, 'p', "password", os.Getenv("IMAPDUMP_PASS"), "password")
+	FS.StringVar(&host, 'H', "host", host, "host")
+	FS.IntVar(&port, 'P', "port", port, "port")
+	FS.StringVar(&clientID, 0, "client-id", os.Getenv("CLIENT_ID"), "Office 365 CLIENT_ID")
+	FS.StringVar(&clientSecret, 0, "client-secret", os.Getenv("CLIENT_SECRET"), "Office 365 CLIENT_SECRET")
+	flagClientCertsFile := FS.StringLong("client-certs", "", "client certificates file")
+	FS.StringVar(&tenantID, 'T', "tenant-id", os.Getenv("TENANT_ID"), "Office 365 tenant ID")
+	FS.StringVar(&impersonate, 0, "impersonate", "", "Office 365 impersonate")
+	FS.StringVar(&userID, 'U', "user-id", os.Getenv("USER_ID"), "Office 365 user ID. Implies Graph API")
+	flagForceTLS := FS.BoolLong("force-tls", "force use of TLS")
+	flagForbidTLS := FS.BoolLong("forbid-tls", "forbid (force no TLS)")
 
-	app := ffcli.Command{Name: "imapdump", ShortHelp: "dump/load mail through IMAP", FlagSet: FS}
+	app := ff.Command{Name: "imapdump", ShortHelp: "dump/load mail through IMAP", Flags: FS}
 
 	rootCtx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
@@ -84,40 +87,53 @@ func Main() error {
 
 	prepare := func(ctx context.Context) (imapclient.Client, error) {
 		var c imapclient.Client
-		if clientID != "" && clientSecret != "" {
-			if false {
-				conf := &oauth2.Config{
-					ClientID:     clientID,
-					ClientSecret: clientSecret,
-					Scopes:       []string{"https://outlook.office365.com/.default"},
+		if clientID != "" {
+			if userID != "" {
+				credOpts := graph.CredentialOptions{Secret: clientSecret}
+				if *flagClientCertsFile != "" {
+					fh, err := os.Open(*flagClientCertsFile)
+					if err != nil {
+						return nil, err
+					}
+					if credOpts.Certs, credOpts.Key, err = graph.ParseCertificates(fh); err != nil {
+						return nil, err
+					}
 				}
-				ts := o365.NewConfidentialTokenSource(conf, tenantID)
-				token, err := ts.Token()
-				if err != nil {
-					return nil, err
-				}
-				sa := imapclient.ServerAddress{
-					Host: host, Port: 993,
-					Username:  username,
-					TLSPolicy: imapclient.ForceTLS,
-				}.WithPassword(token.AccessToken)
-				c = imapclient.FromServerAddress(sa)
-				if verbose > 1 {
-					c.SetLogger(logger)
-					c.SetLogMask(imapclient.LogAll)
-				}
-			} else if userID != "" {
 				var err error
-				c, err = o365.NewGraphMailClient(ctx, clientID, clientSecret, tenantID, userID)
+				c, err = o365.NewGraphMailClient(ctx, clientID, tenantID, userID,
+					credOpts)
 				if err != nil {
 					return nil, err
 				}
 			} else {
-				c = o365.NewIMAPClient(o365.NewClient(
-					clientID, clientSecret, "http://localhost:8123",
-					o365.Impersonate(impersonate),
-					o365.TenantID(tenantID),
-				))
+				if false {
+					conf := &oauth2.Config{
+						ClientID:     clientID,
+						ClientSecret: clientSecret,
+						Scopes:       []string{"https://outlook.office365.com/.default"},
+					}
+					ts := o365.NewConfidentialTokenSource(conf, tenantID)
+					token, err := ts.Token()
+					if err != nil {
+						return nil, err
+					}
+					sa := imapclient.ServerAddress{
+						Host: host, Port: 993,
+						Username:  username,
+						TLSPolicy: imapclient.ForceTLS,
+					}.WithPassword(token.AccessToken)
+					c = imapclient.FromServerAddress(sa)
+					if verbose > 1 {
+						c.SetLogger(logger)
+						c.SetLogMask(imapclient.LogAll)
+					}
+				} else {
+					c = o365.NewIMAPClient(o365.NewClient(
+						clientID, clientSecret, "http://localhost:8123",
+						o365.Impersonate(impersonate),
+						o365.TenantID(tenantID),
+					))
+				}
 			}
 		} else {
 			if port == 0 {
@@ -156,9 +172,9 @@ func Main() error {
 
 	//dumpCmd := app.Command("dump", "dump mail").Default()
 
-	FS = flag.NewFlagSet("list", flag.ContinueOnError)
-	FS.BoolVar(&all, "all", false, "list all, not just UNSEEN")
-	listCmd := ffcli.Command{Name: "list", ShortHelp: "list mailbox", FlagSet: FS,
+	FS = ff.NewFlagSet("list")
+	FS.BoolVar(&all, 'a', "all", "list all, not just UNSEEN")
+	listCmd := ff.Command{Name: "list", ShortHelp: "list mailbox", Flags: FS,
 		Exec: func(rootCtx context.Context, args []string) error {
 			c, err := prepare(rootCtx)
 			if err != nil {
@@ -183,10 +199,10 @@ func Main() error {
 	}
 	app.Subcommands = append(app.Subcommands, &listCmd)
 
-	FS = flag.NewFlagSet("tree", flag.ContinueOnError)
-	FS.BoolVar(&du, "du", false, "print dir sizes, too")
-	treeCmd := ffcli.Command{Name: "tree", ShortHelp: "print the tree of mailboxes", FlagSet: FS,
-		ShortUsage: "tree [opts] <root - INBOX by default",
+	FS = ff.NewFlagSet("tree")
+	FS.BoolVar(&du, 0, "du", "print dir sizes, too")
+	treeCmd := ff.Command{Name: "tree", ShortHelp: "print the tree of mailboxes", Flags: FS,
+		Usage: "tree [opts] <root - INBOX by default",
 		Exec: func(rootCtx context.Context, args []string) error {
 			mbox := "INBOX"
 			if len(args) != 0 {
@@ -233,12 +249,12 @@ func Main() error {
 	}
 	app.Subcommands = append(app.Subcommands, &treeCmd)
 
-	FS = flag.NewFlagSet("save", flag.ContinueOnError)
-	saveOut := FS.String("out", "-", "output mail(s) to this file")
-	saveMbox := FS.String("mbox", "INBOX", "mailbox to save from")
-	FS.BoolVar(&recursive, "recursive", recursive, "dump recursively (all subfolders)")
-	saveCmd := ffcli.Command{Name: "save", ShortHelp: "save the mails", FlagSet: FS,
-		ShortUsage: "save [opts] [uids to save - empty for all]",
+	FS = ff.NewFlagSet("save")
+	saveOut := FS.String('o', "out", "-", "output mail(s) to this file")
+	saveMbox := FS.StringLong("mbox", "INBOX", "mailbox to save from")
+	FS.BoolVar(&recursive, 'r', "recursive", "dump recursively (all subfolders)")
+	saveCmd := ff.Command{Name: "save", ShortHelp: "save the mails", Flags: FS,
+		Usage: "save [opts] [uids to save - empty for all]",
 		Exec: func(rootCtx context.Context, args []string) error {
 			uids := make([]uint32, 0, len(args))
 			for _, s := range args {
@@ -351,7 +367,7 @@ func Main() error {
 	}
 	app.Subcommands = append(app.Subcommands, &saveCmd)
 
-	loadCmd := ffcli.Command{Name: "load", ShortHelp: "load the mails",
+	loadCmd := ff.Command{Name: "load", ShortHelp: "load the mails",
 		Exec: func(rootCtx context.Context, args []string) error {
 			mbox := args[0]
 			files := args[1:]
@@ -440,8 +456,8 @@ func Main() error {
 	}
 	app.Subcommands = append(app.Subcommands, &loadCmd)
 
-	syncCmd := ffcli.Command{Name: "sync", ShortHelp: "synchronize (push missing message)",
-		ShortUsage: "sync <source mailbox in 'imaps://host:port/mbox?user=a@b&passw=xxx' format> <destination mailbox in 'imaps://host:port/mbox?user=a@b&passw=xxx' format>",
+	syncCmd := ff.Command{Name: "sync", ShortHelp: "synchronize (push missing message)",
+		Usage: "sync <source mailbox in 'imaps://host:port/mbox?user=a@b&passw=xxx' format> <destination mailbox in 'imaps://host:port/mbox?user=a@b&passw=xxx' format>",
 		Exec: func(rootCtx context.Context, args []string) error {
 			syncSrc, syncDst := args[0], args[1]
 			srcM, err := imapclient.ParseMailbox(syncSrc)
@@ -529,6 +545,10 @@ func Main() error {
 	}
 	app.Subcommands = append(app.Subcommands, &syncCmd)
 	if err := app.Parse(os.Args[1:]); err != nil {
+		if errors.Is(err, ff.ErrHelp) {
+			ffhelp.Command(&app).WriteTo(os.Stderr)
+			return nil
+		}
 		return err
 	}
 

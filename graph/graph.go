@@ -8,8 +8,10 @@ import (
 	"context"
 	"crypto"
 	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"fmt"
+	"golang.org/x/crypto/pkcs12"
 	"io"
 	"strings"
 
@@ -33,12 +35,63 @@ type (
 	Folder    = models.MailFolderable
 )
 
-func ParseCertificates(r io.Reader) ([]*x509.Certificate, crypto.PrivateKey, error) {
-	b, err := io.ReadAll(r)
+func ParseCertificates(r io.Reader, password string) ([]*x509.Certificate, crypto.PrivateKey, error) {
+	certData, err := io.ReadAll(r)
 	if err != nil {
 		return nil, nil, err
 	}
-	return azidentity.ParseCertificates(b, nil)
+	blocks, _ := pkcs12.ToPEM(certData, password)
+	if len(blocks) == 0 {
+		for {
+			var block *pem.Block
+			block, certData = pem.Decode(certData)
+			if block == nil {
+				break
+			}
+			blocks = append(blocks, block)
+		}
+	}
+
+	var certs []*x509.Certificate
+	var pk crypto.PrivateKey
+	for _, block := range blocks {
+		switch block.Type {
+		case "CERTIFICATE":
+			c, err := x509.ParseCertificate(block.Bytes)
+			if err != nil {
+				return nil, nil, err
+			}
+			certs = append(certs, c)
+		case "PRIVATE KEY":
+			if pk != nil {
+				return nil, nil, errors.New("certData contains multiple private keys")
+			}
+			pk, err = x509.ParsePKCS8PrivateKey(block.Bytes)
+			if err != nil {
+				pk, err = x509.ParsePKCS1PrivateKey(block.Bytes)
+			}
+			if err != nil {
+				return nil, nil, err
+			}
+		case "RSA PRIVATE KEY":
+			if pk != nil {
+				return nil, nil, errors.New("certData contains multiple private keys")
+			}
+			pk, err = x509.ParsePKCS1PrivateKey(block.Bytes)
+			if err != nil {
+				return nil, nil, err
+			}
+		case "EC PRIVATE KEY":
+			if pk != nil {
+				return nil, nil, errors.New("certData contains multiple private keys")
+			}
+			pk, err = x509.ParseECPrivateKey(block.Bytes)
+			if err != nil {
+				return nil, nil, err
+			}
+		}
+	}
+	return certs, pk, nil
 }
 
 // type (

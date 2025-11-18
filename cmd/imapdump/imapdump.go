@@ -10,7 +10,9 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -30,6 +32,11 @@ import (
 	"golang.org/x/text/transform"
 
 	"github.com/UNO-SOFT/zlog/v2"
+
+	"github.com/cloudflare/cfssl/cli/genkey"
+	cfconfig "github.com/cloudflare/cfssl/config"
+	"github.com/cloudflare/cfssl/csr"
+	"github.com/cloudflare/cfssl/selfsign"
 
 	"github.com/peterbourgon/ff/v4"
 	"github.com/peterbourgon/ff/v4/ffhelp"
@@ -64,7 +71,39 @@ func Main() error {
 			port = i
 		}
 	}
-	FS := ff.NewFlagSet("global")
+
+	FS := ff.NewFlagSet("cert")
+	flagCertCSR := FS.StringLong("csr", "", `csr JSON {"CN":"example.com","names":[{"C":"US","L":"San Francisco","O":"X Ltd.","OU":"WWW","ST":"California"}]}`)
+	certCmd := ff.Command{Name: "cert", Flags: FS,
+		ShortHelp: "generate self-signed certificate",
+		Exec: func(ctx context.Context, args []string) error {
+			req := csr.New()
+			if err := json.Unmarshal([]byte(*flagCertCSR), req); err != nil {
+				return err
+			}
+			g := &csr.Generator{Validator: genkey.Validator}
+			csrPEM, keyPEM, err := g.ProcessRequest(req)
+			if err != nil {
+				return err
+			}
+			profile := cfconfig.DefaultConfig()
+			profile.Expiry = 24 * 365 * 10 * time.Hour
+			_, priv, err := graph.ParseCertificates(bytes.NewReader(keyPEM), "")
+			if err != nil {
+				return err
+			}
+
+			cert, err := selfsign.Sign(priv.(crypto.Signer), csrPEM, profile)
+			if err != nil {
+				return err
+			}
+			fmt.Print(string(cert))
+			fmt.Println(string(keyPEM))
+			return nil
+		},
+	}
+
+	FS = ff.NewFlagSet("imapdump")
 	FS.Value('v', "verbose", &verbose, "log verbose")
 	FS.StringVar(&username, 'u', "username", os.Getenv("IMAPDUMP_USER"), "username")
 	FS.StringVar(&password, 'p', "password", os.Getenv("IMAPDUMP_PASS"), "password")
@@ -79,7 +118,10 @@ func Main() error {
 	flagForceTLS := FS.BoolLong("force-tls", "force use of TLS")
 	flagForbidTLS := FS.BoolLong("forbid-tls", "forbid (force no TLS)")
 
-	app := ff.Command{Name: "imapdump", ShortHelp: "dump/load mail through IMAP", Flags: FS}
+	app := ff.Command{Name: "imapdump", Flags: FS,
+		ShortHelp:   "dump/load mail through IMAP",
+		Subcommands: []*ff.Command{&certCmd},
+	}
 
 	rootCtx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
@@ -95,7 +137,7 @@ func Main() error {
 					if err != nil {
 						return nil, err
 					}
-					if credOpts.Certs, credOpts.Key, err = graph.ParseCertificates(fh); err != nil {
+					if credOpts.Certs, credOpts.Key, err = graph.ParseCertificates(fh, ""); err != nil {
 						return nil, err
 					}
 				}

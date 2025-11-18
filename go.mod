@@ -7,6 +7,7 @@ require (
 	github.com/AzureAD/microsoft-authentication-library-for-go v1.6.0
 	github.com/UNO-SOFT/filecache v0.4.0
 	github.com/UNO-SOFT/zlog v0.8.6
+	github.com/cloudflare/cfssl v1.6.5
 	github.com/dchest/siphash v1.2.3
 	github.com/emersion/go-imap v1.2.1
 	github.com/emersion/go-imap/v2 v2.0.0-beta.7
@@ -17,9 +18,11 @@ require (
 	github.com/microsoftgraph/msgraph-sdk-go v1.89.0
 	github.com/microsoftgraph/msgraph-sdk-go-core v1.4.0
 	github.com/peterbourgon/ff/v3 v3.4.0
+	github.com/peterbourgon/ff/v4 v4.0.0-beta.1
 	github.com/tgulacsi/go v0.28.8-0.20251018153338-d2421125b113
 	github.com/tgulacsi/oauth2client v0.1.0
 	go.etcd.io/bbolt v1.4.0
+	golang.org/x/crypto v0.44.0
 	golang.org/x/exp v0.0.0-20251113190631-e25ba8c21ef6
 	golang.org/x/net v0.47.0
 	golang.org/x/oauth2 v0.30.0
@@ -37,9 +40,11 @@ require (
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.0 // indirect
+	github.com/google/certificate-transparency-go v1.1.7 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/hashicorp/go-azure-helpers v0.73.0 // indirect
 	github.com/hashicorp/go-uuid v1.0.3 // indirect
+	github.com/jmoiron/sqlx v1.3.5 // indirect
 	github.com/keybase/go-keychain v0.0.1 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/microsoft/kiota-authentication-azure-go v1.3.1 // indirect
@@ -48,20 +53,24 @@ require (
 	github.com/microsoft/kiota-serialization-json-go v1.1.2 // indirect
 	github.com/microsoft/kiota-serialization-multipart-go v1.1.2 // indirect
 	github.com/microsoft/kiota-serialization-text-go v1.1.3 // indirect
-	github.com/peterbourgon/ff/v4 v4.0.0-beta.1 // indirect
+	github.com/pelletier/go-toml v1.9.5 // indirect
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
 	github.com/std-uritemplate/std-uritemplate/go/v2 v2.0.8 // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
+	github.com/weppos/publicsuffix-go v0.30.0 // indirect
+	github.com/zmap/zcrypto v0.0.0-20230310154051-c8b263fd8300 // indirect
+	github.com/zmap/zlint/v3 v3.5.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel v1.38.0 // indirect
 	go.opentelemetry.io/otel/metric v1.38.0 // indirect
 	go.opentelemetry.io/otel/trace v1.38.0 // indirect
-	golang.org/x/crypto v0.44.0 // indirect
 	golang.org/x/sys v0.38.0 // indirect
 	golang.org/x/term v0.37.0 // indirect
+	google.golang.org/protobuf v1.36.5 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
+	k8s.io/klog/v2 v2.100.1 // indirect
 )
 
 // The last version supporting Xoauth2: github.com/emersion/go-sasl v0.0.0-20200509202850-4132e15e133d

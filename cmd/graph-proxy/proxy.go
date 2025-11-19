@@ -23,12 +23,24 @@ import (
 )
 
 func NewProxy(ctx context.Context,
-	clientID, redirectURI,
+	clientID, clientCert, redirectURI,
 	cacheDir string, cacheSizeMiB int,
 	rateLimit float64,
 ) (*proxy, error) {
+	credOpts := graph.CredentialOptions{RedirectURL: redirectURI}
+	if clientCert != "" {
+		fh, err := os.Open(clientCert)
+		if err != nil {
+			return nil, err
+		}
+		credOpts.Certs, credOpts.Key, err = graph.ParseCertificates(fh, "")
+		fh.Close()
+		if err != nil {
+			return nil, err
+		}
+	}
 	P := proxy{
-		ctx: ctx, clientID: clientID, redirectURI: redirectURI,
+		ctx: ctx, clientID: clientID, credOpts: credOpts,
 		folders: make(map[string]map[string]*Folder),
 		limit:   rate.Limit(rateLimit),
 	}
@@ -136,9 +148,10 @@ type proxy struct {
 	folders map[string]map[string]*Folder
 	// client                           *graph.GraphMailClient
 	//tenantID string
-	idm                   *uidMap
-	clientID, redirectURI string
-	limit                 rate.Limit
+	idm      *uidMap
+	clientID string
+	credOpts graph.CredentialOptions
+	limit    rate.Limit
 
 	mu sync.RWMutex
 }
@@ -175,9 +188,9 @@ func (P *proxy) connect(ctx context.Context, tenantID, clientSecret string) (gra
 		return clu.Client, clu.Users, P.folders[key], nil
 	}
 	start := time.Now()
-	cl, users, err := graph.NewGraphMailClient(ctx, tenantID, P.clientID, graph.CredentialOptions{
-		Secret: clientSecret, RedirectURL: P.redirectURI,
-	})
+	credOpts := P.credOpts
+	credOpts.Secret = clientSecret
+	cl, users, err := graph.NewGraphMailClient(ctx, tenantID, P.clientID, credOpts)
 	if err != nil {
 		logger.Error("NewGraphMailClient", "dur", time.Since(start).String(), "error", err)
 		return graph.GraphMailClient{}, nil, nil, err

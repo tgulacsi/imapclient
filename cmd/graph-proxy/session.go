@@ -110,8 +110,12 @@ func (s *session) Login(username, password string) error {
 		}
 	}
 	if s.userID == "" {
-		if len(s.users) != 1 {
-			logger.Error("no user found", "users", s.users)
+		if len(s.users) != 0 {
+			if len(s.users) == 0 {
+				logger.Error("no user found", "users", s.users)
+			} else {
+				logger.Error("more users found", "users", s.users)
+			}
 			return fmt.Errorf("user %q not found: %w", user, imapserver.ErrAuthFailed)
 		}
 		logger.Warn("user not found", "user", user, "users", s.users)
@@ -122,7 +126,12 @@ func (s *session) Login(username, password string) error {
 		ck := cleanMailbox(k)
 		if s.folders[ck] == nil {
 			F := Folder{Mailbox: k}
-			if F.Folder, err = s.cl.GetFolder(ctx, ck); err != nil {
+			if F.Folder, err = s.cl.GetFolder(ctx, s.userID, ck); err != nil {
+				if ck == "inbox" {
+					logger.Warn("GetFolder", "ck", ck, "error", err)
+				} else {
+					logger.Debug("GetFolder", "ck", ck, "error", err)
+				}
 				if errors.Is(err, graph.ErrNotFound) {
 					continue
 				}
@@ -137,7 +146,7 @@ func (s *session) Login(username, password string) error {
 				if s.folders[cv] == nil {
 				}
 				F := Folder{Mailbox: k}
-				if F.Folder, err = s.cl.GetFolder(ctx, v); err != nil {
+				if F.Folder, err = s.cl.GetFolder(ctx, s.userID, v); err != nil {
 					if errors.Is(err, graph.ErrNotFound) {
 						continue
 					}
@@ -210,7 +219,7 @@ func (s *session) Select(mailbox string, options *imap.SelectOptions) (*imap.Sel
 			logger.Warn("have", "key", k, "folderID", s.folders[k].GetId())
 		}
 		s.p.mu.RUnlock()
-		logger.Error("mailboxes", "have", keys, "root.id", root.GetId(), "root.tic", root.GetTotalItemCount(), "root", graph.JSON{Parsable: root})
+		logger.Error("mailboxes", "have", keys, "root", root)
 		return nil, fmt.Errorf("Select did not found root: %s", mailbox)
 	}
 	s.folderID, s.mboxDeltaLink = *root.GetId(), ""
@@ -635,7 +644,7 @@ func (s *session) Move(w *imapserver.MoveWriter, numSet imap.NumSet, dest string
 	defer cancel()
 	var sourceUIDs, destUIDs imap.UIDSet
 	err := s.idm.forNumSet(ctx, s.folderID, numSet, true, nil, func(ctx context.Context, msgID string) error {
-		msg, err := s.cl.MoveMessage(ctx, s.userID, s.folderID, msgID, destFolderID)
+		msg, err := s.cl.MoveMessage(ctx, s.userID, msgID, destFolderID)
 		if msg.GetId() != nil && *msg.GetId() != "" {
 			sourceUIDs.AddNum(s.idm.uidOf(s.folderID, msgID))
 			destUIDs.AddNum(s.idm.uidOf(destFolderID, *msg.GetId()))
@@ -997,7 +1006,7 @@ func (s *session) Copy(numSet imap.NumSet, dest string) (*imap.CopyData, error) 
 	result := imap.CopyData{UIDValidity: s.idm.uidValidity}
 	err := s.idm.forNumSet(ctx, s.folderID, numSet, true, nil,
 		func(ctx context.Context, msgID string) error {
-			msg, err := s.cl.CopyMessage(ctx, s.userID, s.folderID, msgID, destFolderID)
+			msg, err := s.cl.CopyMessage(ctx, s.userID, msgID, destFolderID)
 			if msg.GetId() != nil && *msg.GetId() != "" {
 				result.SourceUIDs.AddNum(s.idm.uidOf(s.folderID, msgID))
 				result.DestUIDs.AddNum(s.idm.uidOf(destFolderID, *msg.GetId()))

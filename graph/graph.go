@@ -215,6 +215,12 @@ func NewGraphMailClient(
 		if len(users) == 0 {
 			users = []User{me}
 		}
+	} else {
+		if coll, err := client.Users().Get(ctx, nil); err != nil {
+			return GraphMailClient{}, nil, fmt.Errorf("get Users: %w", err)
+		} else {
+			users = coll.GetValue()
+		}
 	}
 	cl := GraphMailClient{
 		client:      client,
@@ -401,13 +407,13 @@ func (g GraphMailClient) CreateMessage(ctx context.Context, userID, folderID str
 	return g.user(userID).Messages().Post(ctx, msg, nil)
 }
 
-func (g GraphMailClient) CopyMessage(ctx context.Context, userID, srcFolderID, msgID, destFolderID string) (Message, error) {
-	return g.copyOrMoveMessage(ctx, userID, srcFolderID, msgID, destFolderID, false)
+func (g GraphMailClient) CopyMessage(ctx context.Context, userID, msgID, destFolderID string) (Message, error) {
+	return g.copyOrMoveMessage(ctx, userID, msgID, destFolderID, false)
 }
-func (g GraphMailClient) MoveMessage(ctx context.Context, userID, srcFolderID, msgID, destFolderID string) (Message, error) {
-	return g.copyOrMoveMessage(ctx, userID, srcFolderID, msgID, destFolderID, true)
+func (g GraphMailClient) MoveMessage(ctx context.Context, userID, msgID, destFolderID string) (Message, error) {
+	return g.copyOrMoveMessage(ctx, userID, msgID, destFolderID, true)
 }
-func (g GraphMailClient) copyOrMoveMessage(ctx context.Context, userID, srcFolderID, msgID, destFolderID string, move bool) (Message, error) {
+func (g GraphMailClient) copyOrMoveMessage(ctx context.Context, userID, msgID, destFolderID string, move bool) (Message, error) {
 	if err := g.limiter.Wait(ctx); err != nil {
 		return nil, err
 	}
@@ -479,9 +485,9 @@ func NewMessage() Message { return models.NewMessage() }
 
 var ErrNotFound = errors.New("not found")
 
-func (g GraphMailClient) GetFolder(ctx context.Context, displayName string) (Folder, error) {
+func (g GraphMailClient) GetFolder(ctx context.Context, userID, displayName string) (Folder, error) {
 	if _, ok := WellKnownFolders[displayName]; ok {
-		f, err := g.user("").MailFolders().ByMailFolderId(displayName).Get(ctx, nil)
+		f, err := g.user(userID).MailFolders().ByMailFolderId(displayName).Get(ctx, nil)
 		if err != nil {
 			err = fmt.Errorf("%w: byMailFolderId(%s): %w", ErrNotFound, displayName, err)
 		} else if f.GetId() == nil {
@@ -604,7 +610,9 @@ func (g GraphMailClient) ListMailFolders(ctx context.Context, userID string, que
 	if err != nil {
 		return resp.GetValue(), err
 	}
+	logger := zlog.SFromContext(ctx)
 	err = it.Iterate(ctx, func(f Folder) bool {
+		logger.Debug("Folder", "dn", f.GetDisplayName(), "id", f.GetId())
 		folders = append(folders, f)
 		return true
 	})

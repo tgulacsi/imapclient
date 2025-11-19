@@ -175,7 +175,9 @@ func (P *proxy) connect(ctx context.Context, tenantID, clientSecret string) (gra
 		return clu.Client, clu.Users, P.folders[key], nil
 	}
 	start := time.Now()
-	cl, users, err := graph.NewGraphMailClient(ctx, tenantID, P.clientID, clientSecret, P.redirectURI)
+	cl, users, err := graph.NewGraphMailClient(ctx, tenantID, P.clientID, graph.CredentialOptions{
+		Secret: clientSecret, RedirectURL: P.redirectURI,
+	})
 	if err != nil {
 		logger.Error("NewGraphMailClient", "dur", time.Since(start).String(), "error", err)
 		return graph.GraphMailClient{}, nil, nil, err

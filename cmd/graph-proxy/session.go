@@ -210,7 +210,7 @@ func (s *session) Select(mailbox string, options *imap.SelectOptions) (*imap.Sel
 			logger.Warn("have", "key", k, "folderID", s.folders[k].GetId())
 		}
 		s.p.mu.RUnlock()
-		logger.Error("mailboxes", "have", keys, "root.id", root.GetId(), "root.tic", root.GetTotalItemCount(), "root", graph.JSON{root})
+		logger.Error("mailboxes", "have", keys, "root.id", root.GetId(), "root.tic", root.GetTotalItemCount(), "root", graph.JSON{Parsable: root})
 		return nil, fmt.Errorf("Select did not found root: %s", mailbox)
 	}
 	s.folderID, s.mboxDeltaLink = *root.GetId(), ""

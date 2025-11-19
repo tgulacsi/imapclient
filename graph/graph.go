@@ -154,9 +154,9 @@ var (
 )
 
 type CredentialOptions struct {
-	Secret string
-	Certs  []*x509.Certificate
-	Key    crypto.PrivateKey
+	Secret, RedirectURL string
+	Certs               []*x509.Certificate
+	Key                 crypto.PrivateKey
 }
 
 func NewGraphMailClient(
@@ -186,6 +186,7 @@ func NewGraphMailClient(
 	} else if isDelegated = credOpts.Secret == ""; isDelegated {
 		cred, err = azidentity.NewInteractiveBrowserCredential(&azidentity.InteractiveBrowserCredentialOptions{
 			ClientID: clientID, TenantID: tenantID, Cache: cache,
+			RedirectURL: credOpts.RedirectURL,
 		})
 		scopes = delegatedScopes
 	} else {

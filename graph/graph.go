@@ -22,10 +22,14 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity/cache"
+
 	msgraph "github.com/microsoftgraph/msgraph-sdk-go"
 	msgraphcore "github.com/microsoftgraph/msgraph-sdk-go-core"
+	// msgraph "github.com/tgulacsi/imapclient/graph/msgraph"
 	"github.com/microsoftgraph/msgraph-sdk-go/models"
+	// "github.com/tgulacsi/imapclient/graph/msgraph/models"
 	"github.com/microsoftgraph/msgraph-sdk-go/users"
+	// "github.com/tgulacsi/imapclient/graph/msgraph/users"
 )
 
 type (

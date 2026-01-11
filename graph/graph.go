@@ -1,4 +1,4 @@
-// Copyright 2022, 2025 Tamás Gulácsi. All rights reserved.
+// Copyright 2022, 2026 Tamás Gulácsi. All rights reserved.
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"golang.org/x/crypto/pkcs12"
 	"io"
+	"log/slog"
 	"strings"
 
 	"github.com/UNO-SOFT/zlog/v2"
@@ -296,6 +297,10 @@ func (g GraphMailClient) GetMIMEMessage(ctx context.Context, userID, messageID s
 		Content().Get(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("getMIMEMessage(%q): %w", messageID, err)
+	}
+	logger := zlog.SFromContext(ctx)
+	if logger.Enabled(ctx, slog.LevelDebug) {
+		logger.Debug("GetMIMEMessage", "id", messageID, "msg", string(msg))
 	}
 	return msg, nil
 }

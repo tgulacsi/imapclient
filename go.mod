@@ -18,24 +18,25 @@ require (
 	github.com/microsoft/kiota-serialization-json-go v1.1.2
 	github.com/microsoft/kiota-serialization-multipart-go v1.1.2
 	github.com/microsoft/kiota-serialization-text-go v1.1.3
-	github.com/microsoftgraph/msgraph-sdk-go v1.89.0
+	github.com/microsoftgraph/msgraph-sdk-go v1.93.0
 	github.com/microsoftgraph/msgraph-sdk-go-core v1.4.0
 	github.com/peterbourgon/ff/v4 v4.0.0-beta.1
-	github.com/tgulacsi/go v0.28.8-0.20251018153338-d2421125b113
+	github.com/tgulacsi/go v0.28.13
 	github.com/tgulacsi/oauth2client v0.1.0
-	go.etcd.io/bbolt v1.4.0
-	golang.org/x/crypto v0.44.0
-	golang.org/x/exp v0.0.0-20251113190631-e25ba8c21ef6
-	golang.org/x/net v0.47.0
+	go.etcd.io/bbolt v1.4.3
+	golang.org/x/crypto v0.46.0
+	golang.org/x/exp v0.0.0-20251219203646-944ab1f22d93
+	golang.org/x/net v0.48.0
 	golang.org/x/oauth2 v0.30.0
-	golang.org/x/sync v0.18.0
-	golang.org/x/text v0.31.0
+	golang.org/x/sync v0.19.0
+	golang.org/x/text v0.33.0
 	golang.org/x/time v0.14.0
 )
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.11.2 // indirect
 	github.com/AzureAD/microsoft-authentication-extensions-for-go/cache v0.1.1 // indirect
+	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/dgryski/go-linebreak v0.0.0-20180812204043-d8f37254e7d3 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
@@ -49,11 +50,11 @@ require (
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
 	github.com/std-uritemplate/std-uritemplate/go/v2 v2.0.8 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
-	go.opentelemetry.io/otel v1.38.0 // indirect
-	go.opentelemetry.io/otel/metric v1.38.0 // indirect
-	go.opentelemetry.io/otel/trace v1.38.0 // indirect
-	golang.org/x/sys v0.38.0 // indirect
-	golang.org/x/term v0.37.0 // indirect
+	go.opentelemetry.io/otel v1.39.0 // indirect
+	go.opentelemetry.io/otel/metric v1.39.0 // indirect
+	go.opentelemetry.io/otel/trace v1.39.0 // indirect
+	golang.org/x/sys v0.40.0 // indirect
+	golang.org/x/term v0.39.0 // indirect
 )
 
 // The last version supporting Xoauth2: github.com/emersion/go-sasl v0.0.0-20200509202850-4132e15e133d

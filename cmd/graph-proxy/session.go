@@ -565,7 +565,7 @@ func (s *session) List(w *imapserver.ListWriter, ref string, patterns []string, 
 
 func (s *session) Status(mailbox string, options *imap.StatusOptions) (*imap.StatusData, error) {
 	logger := s.logger().With("mailbox", mailbox)
-	logger.Info("Status", "options", options)
+	logger.Debug("Status", "options", options)
 	dn, bn := path.Split(mailbox)
 	qry := graph.Query{Select: []string{
 		"id", "displayName", "totalItemCount", "unreadItemCount",
@@ -799,7 +799,7 @@ func (s *session) Search(kind imapserver.NumKind, criteria *imap.SearchCriteria,
 	if err != nil {
 		logger.Error("ListMessages", "qry", qry, "msgs", msgs, "error", err)
 	} else {
-		logger.Info("ListMessages", "qry", qry, "folder", s.folderID, "msgsNum", len(msgs))
+		logger.Debug("ListMessages", "qry", qry, "folder", s.folderID, "msgsNum", len(msgs))
 	}
 	var nums imap.UIDSet
 	sd := imap.SearchData{Count: uint32(len(msgs))}
@@ -883,7 +883,7 @@ func (s *session) getMIMEMessage(ctx context.Context, msgID string) ([]byte, err
 	buf.Reset()
 	start := time.Now()
 	b, err := s.cl.GetMIMEMessage(ctx, s.userID, msgID)
-	dur := time.Since(start)
+	dur := max(time.Nanosecond, time.Since(start))
 	if err != nil {
 		logger.Error("GetMIMEMessage", "dur", dur.String(), "error", err)
 		return nil, err
@@ -897,8 +897,7 @@ func (s *session) getMIMEMessage(ctx context.Context, msgID string) ([]byte, err
 	}
 	if logger.Enabled(ctx, lvl) {
 		logger.Log(ctx, lvl,
-			"GetMIMEMessage", "length", length, "dur", dur,
-			"speedKiBs", float64(length>>10)/float64(dur/time.Second),
+			"GetMIMEMessage", "length", length, "dur", dur.String(),
 		)
 	}
 	if s.p.cache != nil {
@@ -911,9 +910,12 @@ func (s *session) getMIMEMessage(ctx context.Context, msgID string) ([]byte, err
 }
 
 func (s *session) Fetch(w *imapserver.FetchWriter, numSet imap.NumSet, options *imap.FetchOptions) error {
-	s.logger().Info("Fetch", "numSet", numSet, "numset", fmt.Sprintf("%#v", numSet), "folder", s.Folder(s.folderID, false).Mailbox, "options", options)
+	logger := s.logger().With("numSet", numSet, "folder", s.Folder(s.folderID, false).Mailbox)
 	ctx, cancel := context.WithTimeout(s.p.ctx, 15*time.Minute)
 	defer cancel()
+	if logger.Enabled(ctx, slog.LevelDebug) {
+		logger.Debug("Fetch", "numset", fmt.Sprintf("%#v", numSet), "options", options)
+	}
 
 	qry := graph.Query{Select: []string{"flag", "isRead", "id", "importance", "internetMessageHeaders"}}
 	return s.idm.forNumSet(ctx, s.folderID, numSet, true,
@@ -922,7 +924,7 @@ func (s *session) Fetch(w *imapserver.FetchWriter, numSet imap.NumSet, options *
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			logger := s.logger().With("id", msgID)
+			logger := logger.With("id", msgID)
 			gm, err := s.cl.GetMessage(ctx, s.userID, msgID, qry)
 			if err != nil {
 				if errS := err.Error(); strings.Contains(errS, "NotFound") || strings.Contains(errS, "not found") {
@@ -951,7 +953,7 @@ func (s *session) Fetch(w *imapserver.FetchWriter, numSet imap.NumSet, options *
 				msg.Flags[imap.FlagSeen] = struct{}{}
 			}
 			mw := w.CreateMessage(uint32(msg.UID))
-			if err := msg.fetch(mw, options); err != nil {
+			if err := msg.fetch(ctx, mw, options); err != nil {
 				mw.Close()
 				return err
 			}
@@ -960,7 +962,7 @@ func (s *session) Fetch(w *imapserver.FetchWriter, numSet imap.NumSet, options *
 }
 
 func (s *session) Store(w *imapserver.FetchWriter, numSet imap.NumSet, flags *imap.StoreFlags, options *imap.StoreOptions) error {
-	s.logger().Info("Store", "numSet", numSet, "flags", flags)
+	s.logger().Debug("Store", "numSet", numSet, "flags", flags)
 	if flags == nil {
 		return nil
 	}

@@ -1,10 +1,16 @@
-// Copyright 2025 Tamás Gulácsi.
+// Copyright 2025, 2026 Tamás Gulácsi.
 //
 // SPDX-License-Identifier: MIT
 
 package main
 
 import (
+	"bytes"
+	"compress/gzip"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/emersion/go-imap/v2"
@@ -27,10 +33,53 @@ func TestParseAddressList(t *testing.T) {
 				k: []string{elt.In},
 			})
 			// t.Log(mh.Header.Header.Raw(k))
-			aa := parseAddressList(mh, k)
+			aa := parseAddressList(t.Context(), mh, k)
 			if len(aa) == 0 {
 				t.Error("parse fail")
 			}
+		})
+	}
+}
+
+func TestMailSplit(t *testing.T) {
+	dis, err := os.ReadDir("testdata")
+	if err != nil && len(dis) == 0 {
+		t.Fatal(err)
+	}
+	for _, di := range dis {
+		if !strings.HasSuffix(di.Name(), ".eml") && !strings.HasSuffix(di.Name(), ".eml.gz") {
+			continue
+		}
+		t.Run(di.Name(), func(t *testing.T) {
+			fh, err := os.Open(filepath.Join("testdata", di.Name()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer fh.Close()
+			r := io.Reader(fh)
+			if strings.HasSuffix(fh.Name(), ".gz") {
+				gr, err := gzip.NewReader(r)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer gr.Close()
+				r = gr
+			}
+
+			b, err := io.ReadAll(r)
+			m := message{GetBuf: func() ([]byte, error) { return b, err }}
+			var buf bytes.Buffer
+			if err = m.writeBodySection(t.Context(), &buf, &imap.FetchItemBodySection{}); err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(b, buf.Bytes()) {
+				t.Error("buf:", buf.String())
+			}
+			buf.Reset()
+			if err = m.writeBodySection(t.Context(), &buf, &imap.FetchItemBodySection{Part: []int{0}}); err != nil {
+				t.Fatal(err)
+			}
+			t.Log("buf:", buf.String())
 		})
 	}
 }

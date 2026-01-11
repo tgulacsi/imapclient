@@ -43,11 +43,17 @@ import (
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapserver"
 	gomessage "github.com/emersion/go-message"
-	_ "github.com/emersion/go-message/charset"
+	"github.com/emersion/go-message/charset"
 	"github.com/emersion/go-message/mail"
 	"github.com/emersion/go-message/textproto"
 	"github.com/tgulacsi/go/iohlp"
+	"golang.org/x/text/encoding/charmap"
 )
+
+func init() {
+	charset.RegisterEncoding("iso-8859-2", charmap.ISO8859_2)
+	charset.RegisterEncoding("iso8859-2", charmap.ISO8859_2)
+}
 
 type message struct {
 	t time.Time
@@ -284,7 +290,14 @@ func (msg *message) writeBodySection(ctx context.Context, w io.Writer, item *ima
 		return err
 	}
 	header := found.Header.Copy()
+
+	// gomessage already decoded the transfer and the text
 	header.Del("Content-Transfer-Encoding")
+	if ct := header.Get("Content-Type"); strings.HasPrefix(ct, "text/") {
+		if pre, _, ok := strings.Cut(ct, "charset="); ok {
+			header.Set("Content-Type", pre)
+		}
+	}
 
 	// Filter header fields
 	if len(item.HeaderFields) > 0 {

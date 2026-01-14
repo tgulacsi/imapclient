@@ -91,16 +91,3 @@ func Main() error {
 
 	return app.Run(ctx)
 }
-
-func nvl[T comparable](a T, b ...T) T {
-	var zero T
-	if a != zero {
-		return a
-	}
-	for _, a := range b {
-		if a != zero {
-			return a
-		}
-	}
-	return a
-}

@@ -44,9 +44,9 @@ func Main() error {
 	flagRateLimit := FS.Float64Long("rate-limit", 10, "mas number of http calls per second")
 	flagCacheDir := FS.StringLong("cache-dir", cd, "cache directory")
 	flagCacheSize := FS.IntLong("cache-max-mb", 512, "cache max size in MiB")
-	flagClientID := FS.StringLong("client-id", nvl(os.Getenv("AZURE_CLIENT_ID"), "34f2c0c1-b509-43c5-aae8-56c10fa19ed7"), "ClientID")
-	flagClientCert := FS.StringLong("client-cert", "", "client certificate .pem (key)")
-	// flagRedirectURI := flag.String("redirect-uri", "http://localhost:19414/auth-repsonse", "The redirect URI you send in the request to the login server")
+	flagClientID := FS.StringLong("client-id", "34f2c0c1-b509-43c5-aae8-56c10fa19ed7", "ClientID")
+	flagClientCert := FS.StringLong("client-cert", "", "client certificate .pem")
+	// flagRedirectURI := flag.String("redirect-uri", "http://localhost:19414/auth-response", "The redirect URI you send in the request to the login server")
 	// flagClientSecret := flag.String("client-secret", "", "ClientSecret")
 	// flagTenantID := flag.String("tenant-id", "", "TenantID")
 	// flagUserID := flag.String("user-id", "", "UserID")
@@ -54,6 +54,7 @@ func Main() error {
 	FS.Value(0, "verbose", &verbose, "verbosity")
 	flagPprofURL := FS.StringLong("pprof", "", "pprof URL to listen on")
 	app := ff.Command{Name: "graph-proxy", Flags: FS,
+		Usage: "prefix env vars with GRAPH_PROXY_",
 		Exec: func(ctx context.Context, args []string) error {
 			if *flagPprofURL != "" {
 				go http.ListenAndServe(*flagPprofURL, nil)
@@ -77,7 +78,7 @@ func Main() error {
 		},
 	}
 
-	if err := app.Parse(os.Args[1:]); err != nil {
+	if err := app.Parse(os.Args[1:], ff.WithEnvVarPrefix("GRAPH_PROXY")); err != nil {
 		if errors.Is(err, ff.ErrHelp) {
 			ffhelp.Command(&app).WriteTo(os.Stderr)
 			return nil

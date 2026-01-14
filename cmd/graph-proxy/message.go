@@ -316,7 +316,9 @@ func (msg *message) writeBodySection(ctx context.Context, w io.Writer, item *ima
 	}
 
 	logger := zlog.SFromContext(ctx)
-	logger.Info("writeBodySection", "item", item, "found", found.Header.Header.Map())
+	if logger.Enabled(ctx, slog.LevelDebug) {
+		logger.Debug("writeBodySection", "item", item, "found", found.Header.Header.Map())
+	}
 	writeHeader := true
 	switch item.Specifier {
 	case imap.PartSpecifierNone:

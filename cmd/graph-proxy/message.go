@@ -85,6 +85,7 @@ func (msg *message) getHeader() (gomessage.Header, error) {
 			return msg.Header, err
 		}
 		msg.Header = ent.Header
+		fixReferences(&msg.Header)
 	}
 	return msg.Header, nil
 }
@@ -639,4 +640,26 @@ func parseDate(s string) time.Time {
 		}
 	}
 	return time.Time{}
+}
+
+func fixReferences(hdr *gomessage.Header) {
+	ok := true
+	const key, from, to = "References", ">,<", "> <"
+	ff := hdr.FieldsByKey(key)
+	for ff.Next() {
+		s, _ := ff.Text()
+		if ok = !strings.Contains(s, from); !ok {
+			break
+		}
+	}
+	if ok {
+		return
+	}
+	hdr2 := hdr.Copy()
+	ff = hdr2.FieldsByKey(key)
+	hdr.Del(key)
+	for ff.Next() {
+		hdr.Add(key, strings.ReplaceAll(ff.Value(), from, to))
+	}
+	slog.Info("replace Reference", "from", hdr2.Get(key), "to", hdr.Get(key))
 }

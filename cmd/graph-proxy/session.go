@@ -888,8 +888,15 @@ func (s *session) getMIMEMessage(ctx context.Context, msgID string) ([]byte, err
 		logger.Error("GetMIMEMessage", "dur", dur.String(), "error", err)
 		return nil, err
 	}
-	buf.Write(b)
-	length := len(b)
+
+	if ent, err := gomessage.Read(bytes.NewReader(b)); err == nil &&
+		ent.Header.Has("References") && strings.Contains(ent.Header.Get("References"), ">,<") {
+		fixReferences(&ent.Header)
+		ent.WriteTo(&buf)
+	} else {
+		buf.Write(b)
+	}
+	length := buf.Len()
 
 	lvl := slog.LevelDebug
 	if dur > time.Second {
@@ -943,7 +950,13 @@ func (s *session) Fetch(w *imapserver.FetchWriter, numSet imap.NumSet, options *
 			}
 			for _, v := range gm.GetInternetMessageHeaders() {
 				if v.GetName() != nil && v.GetValue() != nil {
-					msg.Header.Add(*v.GetName(), *v.GetValue())
+					k, v := *v.GetName(), *v.GetValue()
+					if k == "References" && strings.Contains(v, ">,<") {
+						old := v
+						v = strings.ReplaceAll(v, ">,<", "> <")
+						logger.Info("References fix", "from", old, "to", v)
+					}
+					msg.Header.Add(k, v)
 				}
 			}
 			if gm.GetFlag().GetFlagStatus().String() == "flagged" {

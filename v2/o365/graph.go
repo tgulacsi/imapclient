@@ -1,4 +1,4 @@
-// Copyright 2022, 2025 Tamás Gulácsi. All rights reserved.
+// Copyright 2022, 2026 Tamás Gulácsi. All rights reserved.
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -208,7 +208,7 @@ func (g *graphMailClient) Delete(ctx context.Context, msgID uint32) error {
 	if err != nil {
 		return err
 	}
-	_, err = g.GraphMailClient.MoveMessage(ctx, g.userID, "", g.u2s[msgID], mID)
+	_, err = g.GraphMailClient.MoveMessage(ctx, g.userID, g.u2s[msgID], mID)
 	return err
 }
 func (g *graphMailClient) Select(ctx context.Context, mbox string) error {
@@ -231,7 +231,7 @@ func (g *graphMailClient) Move(ctx context.Context, msgID uint32, mbox string) e
 	if err != nil {
 		return nil
 	}
-	_, err = g.GraphMailClient.MoveMessage(ctx, g.userID, "", g.u2s[msgID], mID)
+	_, err = g.GraphMailClient.MoveMessage(ctx, g.userID, g.u2s[msgID], mID)
 	return err
 }
 func (g *graphMailClient) Mark(ctx context.Context, msgID uint32, seen bool) error {

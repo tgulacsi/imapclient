@@ -1,4 +1,4 @@
-// Copyright 2021, 2023 Tamás Gulácsi. All rights reserved.
+// Copyright 2021, 2026 Tamás Gulácsi. All rights reserved.
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -7,6 +7,7 @@ package o365
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -18,7 +19,6 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/net/context"
 	"golang.org/x/oauth2"
 
 	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/confidential"

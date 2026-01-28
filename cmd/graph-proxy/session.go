@@ -94,7 +94,9 @@ func (s *session) Login(username, password string) error {
 	ctx, cancel := context.WithTimeout(s.p.ctx, 3*time.Minute)
 	defer cancel()
 	var err error
-	if s.cl, s.users, s.folders, err = s.p.connect(ctx, tenantID, clientSecret); err != nil {
+	if s.cl, s.users, s.folders, err = s.p.connect(
+		ctx, tenantID, clientSecret,
+	); err != nil {
 		logger.Error("connect", "error", err)
 		return fmt.Errorf("%w: %w", err, imapserver.ErrAuthFailed)
 	}

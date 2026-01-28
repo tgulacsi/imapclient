@@ -23,6 +23,7 @@ type graphMailClient struct {
 	graph.GraphMailClient `json:"-"`
 
 	userID  string
+	wkf     map[string]string
 	folders map[string]graph.Folder
 	u2s     map[uint32]string
 	s2u     map[string]uint32
@@ -36,6 +37,9 @@ func NewGraphMailClient(ctx context.Context,
 	clientID, tenantID, userID string,
 	credOpts graph.CredentialOptions,
 ) (*graphMailClient, error) {
+	if credOpts.IDOrPrincipalName == "" {
+		credOpts.IDOrPrincipalName = userID
+	}
 	gmc, users, err := graph.NewGraphMailClient(ctx,
 		tenantID, clientID, credOpts)
 	if err != nil {
@@ -79,6 +83,10 @@ func (g *graphMailClient) init(ctx context.Context, mbox string) error {
 				g.folders[strings.ToLower(*f.GetDisplayName())] = f
 				g.folders["{"+*f.GetId()+"}"] = f
 			}
+		}
+		g.wkf = make(map[string]string, len(graph.WellKnownFolders))
+		for K := range graph.WellKnownFolders {
+			g.wkf[strings.ToLower(K)] = K
 		}
 	}
 	if mbox == "" {
@@ -250,6 +258,9 @@ func (g *graphMailClient) m2s(mbox string) (string, error) {
 	}
 	if mf, ok := g.folders["{"+mbox+"}"]; ok {
 		return *mf.GetId(), nil
+	}
+	if K := g.wkf[mbox]; K != "" {
+		return K, nil
 	}
 	for k, mf := range g.folders {
 		if len(k) > 2 && k[0] == '{' && k[len(k)-1] == '}' {

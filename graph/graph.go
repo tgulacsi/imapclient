@@ -211,42 +211,53 @@ func NewGraphMailClient(
 	if err != nil {
 		return GraphMailClient{}, nil, fmt.Errorf("NewGraphServiceClientWithCredentials: %w", err)
 	}
-
+	var userID string
 	if isDelegated {
 		me, err := client.Me().Get(ctx, nil)
 		if err != nil {
 			return GraphMailClient{}, nil, fmt.Errorf("get Me: %w", err)
 		}
 		logger.Info("got", "me", JSON{me})
+		users = []User{me}
+		userID = *me.GetId()
+	}
+
+	if coll, err := client.Users().Get(ctx, nil); err == nil {
+		old := len(users)
+		users = append(users, coll.GetValue()...)
+		logger.Info("got", "users", len(users)-old)
+	} else if !isDelegated {
+		logger.Warn("get Users", "error", err)
+	}
+
+	if credOpts.IDOrPrincipalName == "" {
+		credOpts.IDOrPrincipalName = clientID
+	}
+	me, err := client.Users().ByUserId(credOpts.IDOrPrincipalName).Get(ctx, nil)
+	if err != nil {
 		if len(users) == 0 {
-			users = []User{me}
+			logger.Error("get user", "idOrPrincipalName", credOpts.IDOrPrincipalName, "error", err)
+			return GraphMailClient{}, nil, fmt.Errorf("get %s: %w", credOpts.IDOrPrincipalName, err)
+		} else if !isDelegated {
+			logger.Warn("get user", "idOrPrincipalName", credOpts.IDOrPrincipalName, "error", err)
 		}
 	} else {
-		if coll, err := client.Users().Get(ctx, nil); err == nil {
-			users = coll.GetValue()
-		} else {
-			logger.Warn("get Users", "error", err)
-			if credOpts.IDOrPrincipalName == "" {
-				credOpts.IDOrPrincipalName = clientID
-			}
-			me, err := client.Users().ByUserId(credOpts.IDOrPrincipalName).Get(ctx, nil)
-			if err != nil {
-				return GraphMailClient{}, nil, fmt.Errorf("get %s: %w", credOpts.IDOrPrincipalName, err)
-			}
-			users = []User{me}
-		}
+		logger.Info("got", "idOrPrincipalName", credOpts.IDOrPrincipalName, "user", me)
+		users = append(users, me)
+		userID = *me.GetId()
 	}
+
 	cl := GraphMailClient{
 		client:      client,
 		limiter:     rate.NewLimiter(24, 1),
 		isDelegated: isDelegated,
+		me:          userID,
 	}
-	switch len(users) {
-	case 0:
+	if len(users) == 0 {
 		if _, err := cl.Users(ctx); err != nil {
 			return GraphMailClient{}, users, fmt.Errorf("Users: %w", err)
 		}
-	case 1:
+	} else if cl.me == "" && len(users) == 0 {
 		cl.me = *users[0].GetId()
 	}
 
@@ -262,11 +273,18 @@ func (g GraphMailClient) Users(ctx context.Context) ([]User, error) {
 	if err != nil {
 		logger := zlog.SFromContext(ctx)
 		logger.Error("get users", "error", err)
-		panic(err)
+
+		var u User
+		var meErr error
 		if !g.isDelegated {
-			return nil, err
+			if g.me == "" {
+				return nil, err
+			}
+			u, meErr = g.client.Users().ByUserId(g.me).Get(ctx, nil)
+		} else {
+			u, meErr = g.client.Me().Get(ctx, nil)
 		}
-		if u, meErr := g.client.Me().Get(ctx, nil); meErr != nil {
+		if meErr != nil {
 			logger.Error("users.Me", "error", err)
 			return nil, fmt.Errorf("Users.Get: %w (me: %w)", err, meErr)
 		} else {

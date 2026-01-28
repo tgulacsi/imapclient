@@ -5,14 +5,13 @@
 package o365
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"strings"
 	"sync"
 	"time"
-
-	"golang.org/x/net/context"
 
 	"github.com/tgulacsi/imapclient"
 )

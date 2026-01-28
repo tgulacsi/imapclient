@@ -143,6 +143,7 @@ var WellKnownFolders = map[string][]string{
 type GraphMailClient struct {
 	client      *msgraph.GraphServiceClient
 	limiter     *rate.Limiter
+	me          string
 	isDelegated bool
 }
 
@@ -159,9 +160,9 @@ var (
 )
 
 type CredentialOptions struct {
-	Secret, RedirectURL string
-	Certs               []*x509.Certificate
-	Key                 crypto.PrivateKey
+	Secret, RedirectURL, IDOrPrincipalName string
+	Certs                                  []*x509.Certificate
+	Key                                    crypto.PrivateKey
 }
 
 func NewGraphMailClient(
@@ -221,10 +222,18 @@ func NewGraphMailClient(
 			users = []User{me}
 		}
 	} else {
-		if coll, err := client.Users().Get(ctx, nil); err != nil {
-			return GraphMailClient{}, nil, fmt.Errorf("get Users: %w", err)
-		} else {
+		if coll, err := client.Users().Get(ctx, nil); err == nil {
 			users = coll.GetValue()
+		} else {
+			logger.Warn("get Users", "error", err)
+			if credOpts.IDOrPrincipalName == "" {
+				credOpts.IDOrPrincipalName = clientID
+			}
+			me, err := client.Users().ByUserId(credOpts.IDOrPrincipalName).Get(ctx, nil)
+			if err != nil {
+				return GraphMailClient{}, nil, fmt.Errorf("get %s: %w", credOpts.IDOrPrincipalName, err)
+			}
+			users = []User{me}
 		}
 	}
 	cl := GraphMailClient{
@@ -232,10 +241,13 @@ func NewGraphMailClient(
 		limiter:     rate.NewLimiter(24, 1),
 		isDelegated: isDelegated,
 	}
-	if len(users) == 0 {
+	switch len(users) {
+	case 0:
 		if _, err := cl.Users(ctx); err != nil {
 			return GraphMailClient{}, users, fmt.Errorf("Users: %w", err)
 		}
+	case 1:
+		cl.me = *users[0].GetId()
 	}
 
 	return cl, users, nil
@@ -629,8 +641,10 @@ func (g GraphMailClient) ListMailFolders(ctx context.Context, userID string, que
 }
 
 func (g GraphMailClient) user(userID string) *users.UserItemRequestBuilder {
-	if userID == "" || g.isDelegated {
+	if g.isDelegated {
 		return g.client.Me()
+	} else if userID == "" {
+		userID = g.me
 	}
 	return g.client.Users().ByUserId(userID)
 }

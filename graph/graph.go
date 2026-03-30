@@ -29,8 +29,8 @@ import (
 	// msgraph "github.com/tgulacsi/imapclient/graph/msgraph"
 	"github.com/microsoftgraph/msgraph-sdk-go/models"
 	// "github.com/tgulacsi/imapclient/graph/msgraph/models"
-	"github.com/microsoftgraph/msgraph-sdk-go/users"
-	// "github.com/tgulacsi/imapclient/graph/msgraph/users"
+	graphusers "github.com/microsoftgraph/msgraph-sdk-go/users"
+	//graphusers "github.com/tgulacsi/imapclient/graph/msgraph/users"
 )
 
 type (
@@ -223,29 +223,49 @@ func NewGraphMailClient(
 		userID = *me.GetId()
 	}
 
-	if coll, err := client.Users().Get(ctx, nil); err == nil {
+	top := int32(999)
+	if coll, err := client.Users().Get(ctx, &graphusers.UsersRequestBuilderGetRequestConfiguration{
+		QueryParameters: &graphusers.UsersRequestBuilderGetQueryParameters{
+			Top: &top,
+		},
+	}); err == nil {
 		old := len(users)
 		users = append(users, coll.GetValue()...)
 		logger.Info("got", "users", len(users)-old)
-	} else if !isDelegated {
-		logger.Warn("get Users", "error", err)
+	} else {
+		if !isDelegated {
+			logger.Warn("get Users", "error", err)
+		}
 	}
 
 	if credOpts.IDOrPrincipalName == "" {
 		credOpts.IDOrPrincipalName = clientID
 	}
 	me, err := client.Users().ByUserId(credOpts.IDOrPrincipalName).Get(ctx, nil)
-	if err != nil {
-		if len(users) == 0 {
-			logger.Error("get user", "idOrPrincipalName", credOpts.IDOrPrincipalName, "error", err)
-			return GraphMailClient{}, nil, fmt.Errorf("get %s: %w", credOpts.IDOrPrincipalName, err)
-		} else if !isDelegated {
-			logger.Warn("get user", "idOrPrincipalName", credOpts.IDOrPrincipalName, "error", err)
-		}
-	} else {
+	if err == nil {
 		logger.Info("got", "idOrPrincipalName", credOpts.IDOrPrincipalName, "user", me)
 		users = append(users, me)
 		userID = *me.GetId()
+	} else {
+		if len(users) == 0 {
+			logger.Error("get user", "idOrPrincipalName", credOpts.IDOrPrincipalName, "error", err)
+			return GraphMailClient{}, nil, fmt.Errorf("get %s: %w", credOpts.IDOrPrincipalName, err)
+		} else {
+			if !isDelegated {
+				logger.Warn("get user", "idOrPrincipalName", credOpts.IDOrPrincipalName, "error", err)
+			}
+			for i, u := range users {
+				// logger.Info("user", "name", *u.GetUserPrincipalName(), "want", credOpts.IDOrPrincipalName)
+				if have := *u.GetUserPrincipalName(); have == credOpts.IDOrPrincipalName ||
+					strings.HasPrefix(have, credOpts.IDOrPrincipalName+"@") {
+					logger.Warn("found", "user", u.GetUserPrincipalName(), "id", u.GetId())
+					me = u
+					users[0], users[i] = users[i], users[0]
+					userID = *me.GetId()
+					break
+				}
+			}
+		}
 	}
 
 	cl := GraphMailClient{
@@ -261,6 +281,7 @@ func NewGraphMailClient(
 	} else if cl.me == "" && len(users) == 0 {
 		cl.me = *users[0].GetId()
 	}
+	logger.Info("GraphMailClient", "isDelegated", cl.isDelegated, "me", cl.me)
 
 	return cl, users, nil
 }
@@ -340,10 +361,10 @@ func (g GraphMailClient) GetMessage(ctx context.Context, userID, messageID strin
 	if err := g.limiter.Wait(ctx); err != nil {
 		return nil, err
 	}
-	var conf *users.ItemMessagesMessageItemRequestBuilderGetRequestConfiguration
+	var conf *graphusers.ItemMessagesMessageItemRequestBuilderGetRequestConfiguration
 	if !query.IsZero() {
-		conf = &users.ItemMessagesMessageItemRequestBuilderGetRequestConfiguration{
-			QueryParameters: &users.ItemMessagesMessageItemRequestBuilderGetQueryParameters{Select: query.Select},
+		conf = &graphusers.ItemMessagesMessageItemRequestBuilderGetRequestConfiguration{
+			QueryParameters: &graphusers.ItemMessagesMessageItemRequestBuilderGetQueryParameters{Select: query.Select},
 		}
 	}
 	return g.user(userID).Messages().ByMessageId(messageID).Get(ctx, conf)
@@ -354,8 +375,8 @@ func (g GraphMailClient) GetMessageHeaders(ctx context.Context, userID, messageI
 		return nil, err
 	}
 	msg, err := g.user(userID).Messages().ByMessageId(messageID).Get(ctx,
-		&users.ItemMessagesMessageItemRequestBuilderGetRequestConfiguration{
-			QueryParameters: &users.ItemMessagesMessageItemRequestBuilderGetQueryParameters{
+		&graphusers.ItemMessagesMessageItemRequestBuilderGetRequestConfiguration{
+			QueryParameters: &graphusers.ItemMessagesMessageItemRequestBuilderGetQueryParameters{
 				Select: []string{"internetMessageHeaders"},
 			},
 		})
@@ -385,7 +406,7 @@ func (g GraphMailClient) ListMessages(ctx context.Context, userID, folderID stri
 	if err := g.limiter.Wait(ctx); err != nil {
 		return nil, err
 	}
-	qp := users.ItemMailFoldersItemMessagesRequestBuilderGetQueryParameters{
+	qp := graphusers.ItemMailFoldersItemMessagesRequestBuilderGetQueryParameters{
 		Top: &requestTop,
 	}
 	if !query.IsZero() {
@@ -401,7 +422,7 @@ func (g GraphMailClient) ListMessages(ctx context.Context, userID, folderID stri
 	resp, err := g.user(userID).
 		MailFolders().ByMailFolderId(folderID).
 		Messages().Get(ctx,
-		&users.ItemMailFoldersItemMessagesRequestBuilderGetRequestConfiguration{
+		&graphusers.ItemMailFoldersItemMessagesRequestBuilderGetRequestConfiguration{
 			QueryParameters: &qp,
 		})
 	if err != nil {
@@ -458,11 +479,11 @@ func (g GraphMailClient) copyOrMoveMessage(ctx context.Context, userID, msgID, d
 		return nil, err
 	}
 	if move {
-		body := users.NewItemMessagesItemMovePostRequestBody()
+		body := graphusers.NewItemMessagesItemMovePostRequestBody()
 		body.SetDestinationId(&destFolderID)
 		return g.user(userID).Messages().ByMessageId(msgID).Move().Post(ctx, body, nil)
 	}
-	body := users.NewItemMessagesItemCopyPostRequestBody()
+	body := graphusers.NewItemMessagesItemCopyPostRequestBody()
 	body.SetDestinationId(&destFolderID)
 	return g.user(userID).Messages().ByMessageId(msgID).Copy().Post(ctx, body, nil)
 }
@@ -602,8 +623,8 @@ func (g GraphMailClient) ListChildFolders(ctx context.Context, userID, folderID 
 	if err := g.limiter.Wait(ctx); err != nil {
 		return nil, err
 	}
-	conf := users.ItemMailFoldersItemChildFoldersRequestBuilderGetRequestConfiguration{
-		QueryParameters: &users.ItemMailFoldersItemChildFoldersRequestBuilderGetQueryParameters{
+	conf := graphusers.ItemMailFoldersItemChildFoldersRequestBuilderGetRequestConfiguration{
+		QueryParameters: &graphusers.ItemMailFoldersItemChildFoldersRequestBuilderGetQueryParameters{
 			Top: &requestTop,
 		},
 	}
@@ -629,8 +650,8 @@ func (g GraphMailClient) ListMailFolders(ctx context.Context, userID string, que
 	if err := g.limiter.Wait(ctx); err != nil {
 		return nil, err
 	}
-	conf := users.ItemMailFoldersRequestBuilderGetRequestConfiguration{
-		QueryParameters: &users.ItemMailFoldersRequestBuilderGetQueryParameters{
+	conf := graphusers.ItemMailFoldersRequestBuilderGetRequestConfiguration{
+		QueryParameters: &graphusers.ItemMailFoldersRequestBuilderGetQueryParameters{
 			Top: &requestTop,
 		},
 	}
@@ -659,10 +680,12 @@ func (g GraphMailClient) ListMailFolders(ctx context.Context, userID string, que
 	return folders, err
 }
 
-func (g GraphMailClient) user(userID string) *users.UserItemRequestBuilder {
+func (g GraphMailClient) user(userID string) *graphusers.UserItemRequestBuilder {
 	if g.isDelegated {
 		return g.client.Me()
-	} else if userID == "" {
+	} else if userID == "" ||
+		strings.IndexByte(userID, '@') < 0 ||
+		!(len(userID) == 36 && strings.Count(userID, "-") == 4) {
 		userID = g.me
 	}
 	return g.client.Users().ByUserId(userID)

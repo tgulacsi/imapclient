@@ -22,7 +22,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
-	"github.com/Azure/azure-sdk-for-go/sdk/azidentity/cache"
+	azcache "github.com/Azure/azure-sdk-for-go/sdk/azidentity/cache"
 
 	msgraph "github.com/microsoftgraph/msgraph-sdk-go"
 	msgraphcore "github.com/microsoftgraph/msgraph-sdk-go-core"
@@ -172,9 +172,10 @@ func NewGraphMailClient(
 
 ) (GraphMailClient, []User, error) {
 	logger := zlog.SFromContext(ctx)
-	cache, err := cache.New(nil)
+	cache, err := azcache.New(nil)
 	if err != nil {
-		return GraphMailClient{}, nil, err
+		logger.Warn("azidentity/cache failed", "error", err)
+		cache = azidentity.Cache{}
 	}
 
 	var cred azcore.TokenCredential

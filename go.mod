@@ -1,9 +1,9 @@
 module github.com/tgulacsi/imapclient
 
 require (
-	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.20.0
+	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.21.0
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.13.1
-	github.com/Azure/azure-sdk-for-go/sdk/azidentity/cache v0.3.2
+	github.com/Azure/azure-sdk-for-go/sdk/azidentity/cache v0.4.0
 	github.com/AzureAD/microsoft-authentication-library-for-go v1.6.0
 	github.com/UNO-SOFT/filecache v0.4.0
 	github.com/UNO-SOFT/zlog v0.8.6
@@ -24,7 +24,7 @@ require (
 	github.com/tgulacsi/go v0.28.13
 	github.com/tgulacsi/oauth2client v0.1.0
 	go.etcd.io/bbolt v1.4.3
-	golang.org/x/crypto v0.46.0
+	golang.org/x/crypto v0.47.0
 	golang.org/x/exp v0.0.0-20251219203646-944ab1f22d93
 	golang.org/x/oauth2 v0.30.0
 	golang.org/x/sync v0.19.0
@@ -53,7 +53,7 @@ require (
 	go.opentelemetry.io/otel v1.39.0 // indirect
 	go.opentelemetry.io/otel/metric v1.39.0 // indirect
 	go.opentelemetry.io/otel/trace v1.39.0 // indirect
-	golang.org/x/net v0.48.0 // indirect
+	golang.org/x/net v0.49.0 // indirect
 	golang.org/x/sys v0.40.0 // indirect
 	golang.org/x/term v0.39.0 // indirect
 )

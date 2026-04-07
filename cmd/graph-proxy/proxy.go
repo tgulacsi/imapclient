@@ -1,4 +1,4 @@
-// Copyright 2024 Tamás Gulácsi. All rights reserved.
+// Copyright 2024, 2026 Tamás Gulácsi. All rights reserved.
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -173,8 +173,8 @@ func (P *proxy) logger() *slog.Logger {
 	return slog.Default()
 }
 
-func (P *proxy) connect(ctx context.Context, tenantID, clientSecret string) (graph.GraphMailClient, []graph.User, map[string]*Folder, error) {
-	logger := P.logger().With("tenantID", tenantID, "clientID", P.clientID, "clientSecretLen", len(clientSecret))
+func (P *proxy) connect(ctx context.Context, user, tenantID, clientSecret string) (graph.GraphMailClient, []graph.User, map[string]*Folder, error) {
+	logger := P.logger().With("tenantID", tenantID, "clientID", P.clientID, "clientSecretLen", len(clientSecret), "user", user)
 	P.mu.Lock()
 	defer P.mu.Unlock()
 	key := tenantID + "\t" + clientSecret
@@ -191,6 +191,9 @@ func (P *proxy) connect(ctx context.Context, tenantID, clientSecret string) (gra
 	start := time.Now()
 	credOpts := P.credOpts
 	credOpts.Secret = clientSecret
+	if credOpts.IDOrPrincipalName == "" {
+		credOpts.IDOrPrincipalName = user
+	}
 	cl, users, err := graph.NewGraphMailClient(ctx, tenantID, P.clientID, credOpts)
 	if err != nil {
 		logger.Error("NewGraphMailClient", "dur", time.Since(start).String(), "error", err)

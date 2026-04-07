@@ -1,4 +1,4 @@
-// Copyright 2024, 2025 Tamás Gulácsi. All rights reserved.
+// Copyright 2024, 2026 Tamás Gulácsi. All rights reserved.
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -84,7 +84,7 @@ func (s *session) Login(username, password string) error {
 	user, tenantID, ok := strings.Cut(username, "\x0A")
 	if !ok {
 		if user, tenantID, ok = strings.Cut(username, ","); !ok {
-			return fmt.Errorf("%w: username is missing \\x00tenantID: %q", imapserver.ErrAuthFailed, username)
+			return fmt.Errorf("%w: username is missing \\x0AtenantID: %q", imapserver.ErrAuthFailed, username)
 		}
 	}
 	clientSecret := password
@@ -95,19 +95,20 @@ func (s *session) Login(username, password string) error {
 	defer cancel()
 	var err error
 	if s.cl, s.users, s.folders, err = s.p.connect(
-		ctx, tenantID, clientSecret,
+		ctx, user, tenantID, clientSecret,
 	); err != nil {
 		logger.Error("connect", "error", err)
 		return fmt.Errorf("%w: %w", err, imapserver.ErrAuthFailed)
 	}
 	for _, u := range s.users {
-		logger.Debug("user", "u", u)
+		logger.Debug("user", "want", user, "dn", u.GetDisplayName(), "eID", u.GetEmployeeId(), "mail", u.GetMail(), "pn", u.GetUserPrincipalName())
 		if id := u.GetId(); (id != nil && *id == user) ||
 			(u.GetDisplayName() != nil && strings.EqualFold(*u.GetDisplayName(), user)) ||
 			(u.GetEmployeeId() != nil && string(*u.GetEmployeeId()) == user) ||
 			(u.GetMail() != nil && strings.EqualFold(string(*u.GetMail()), user)) ||
 			(u.GetUserPrincipalName() != nil && strings.EqualFold(string(*u.GetUserPrincipalName()), user)) {
 			s.userID = *id
+			logger.Info("found", "user", user, "id", s.userID)
 			break
 		}
 	}

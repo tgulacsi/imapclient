@@ -14,6 +14,7 @@ import (
 	"golang.org/x/crypto/pkcs12"
 	"io"
 	"log/slog"
+	"slices"
 	"strings"
 
 	"github.com/UNO-SOFT/zlog/v2"
@@ -172,9 +173,11 @@ func NewGraphMailClient(
 
 ) (GraphMailClient, []User, error) {
 	logger := zlog.SFromContext(ctx)
+	logger.Info("NewGraphMailClient", "tenantID", tenantID, "clientID", clientID, "credOpts", credOpts)
 	cache, err := azcache.New(nil)
 	if err != nil {
 		logger.Warn("azidentity/cache failed", "error", err)
+		// No persistent cache, use memory
 		cache = azidentity.Cache{}
 	}
 
@@ -223,7 +226,7 @@ func NewGraphMailClient(
 		userID = *me.GetId()
 	}
 
-	top := int32(999)
+	top := int32(999) // Max queryable number
 	if coll, err := client.Users().Get(ctx, &graphusers.UsersRequestBuilderGetRequestConfiguration{
 		QueryParameters: &graphusers.UsersRequestBuilderGetQueryParameters{
 			Top: &top,
@@ -231,7 +234,11 @@ func NewGraphMailClient(
 	}); err == nil {
 		old := len(users)
 		users = append(users, coll.GetValue()...)
-		logger.Info("got", "users", len(users)-old)
+		if logger.Enabled(ctx, slog.LevelDebug) {
+			logger.Debug("got", "users", users)
+		} else {
+			logger.Info("got", "users", len(users)-old)
+		}
 	} else {
 		if !isDelegated {
 			logger.Warn("get Users", "error", err)
@@ -246,25 +253,32 @@ func NewGraphMailClient(
 		logger.Info("got", "idOrPrincipalName", credOpts.IDOrPrincipalName, "user", me)
 		users = append(users, me)
 		userID = *me.GetId()
+	} else if len(users) == 0 {
+		logger.Error("get user", "idOrPrincipalName", credOpts.IDOrPrincipalName, "error", err)
+		return GraphMailClient{}, nil, fmt.Errorf("get %s: %w", credOpts.IDOrPrincipalName, err)
 	} else {
-		if len(users) == 0 {
-			logger.Error("get user", "idOrPrincipalName", credOpts.IDOrPrincipalName, "error", err)
-			return GraphMailClient{}, nil, fmt.Errorf("get %s: %w", credOpts.IDOrPrincipalName, err)
-		} else {
-			if !isDelegated {
-				logger.Warn("get user", "idOrPrincipalName", credOpts.IDOrPrincipalName, "error", err)
+		if !isDelegated {
+			logger.Warn("get user", "idOrPrincipalName", credOpts.IDOrPrincipalName, "error", err)
+		}
+		names := make([]string, 0, len(users))
+		for i, u := range users {
+			// logger.Info("user", "name", *u.GetUserPrincipalName(), "want", credOpts.IDOrPrincipalName)
+			have := *u.GetUserPrincipalName()
+			names = append(names, have)
+			if userID != "" {
+				continue
 			}
-			for i, u := range users {
-				// logger.Info("user", "name", *u.GetUserPrincipalName(), "want", credOpts.IDOrPrincipalName)
-				if have := *u.GetUserPrincipalName(); have == credOpts.IDOrPrincipalName ||
-					strings.HasPrefix(have, credOpts.IDOrPrincipalName+"@") {
-					logger.Warn("found", "user", u.GetUserPrincipalName(), "id", u.GetId())
-					me = u
-					users[0], users[i] = users[i], users[0]
-					userID = *me.GetId()
-					break
-				}
+			if have == credOpts.IDOrPrincipalName ||
+				strings.HasPrefix(have, credOpts.IDOrPrincipalName+"@") {
+				logger.Warn("found", "user", u.GetUserPrincipalName(), "id", u.GetId())
+				me = u
+				users[0], users[i] = users[i], users[0]
+				userID = *me.GetId()
 			}
+		}
+		if userID == "" {
+			slices.Sort(names)
+			logger.Warn("not found", "user", credOpts.IDOrPrincipalName, "users", names)
 		}
 	}
 
@@ -285,6 +299,7 @@ func NewGraphMailClient(
 
 	return cl, users, nil
 }
+
 func (g GraphMailClient) SetLimit(limit rate.Limit) { g.limiter.SetLimit(limit) }
 
 func (g GraphMailClient) Users(ctx context.Context) ([]User, error) {

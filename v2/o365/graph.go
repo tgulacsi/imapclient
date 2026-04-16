@@ -120,7 +120,7 @@ func (g *graphMailClient) init(ctx context.Context, mbox string) error {
 		var prefix string
 		path = path[:0]
 		if pID := f.GetParentFolderId(); pID != nil && *pID != "" {
-			for p := g.folders["{"+*pID+"}"]; p.GetParentFolderId() != nil && *p.GetParentFolderId() != ""; p = g.folders["{"+*p.GetParentFolderId()+"}"] {
+			for p := g.folders["{"+*pID+"}"]; p != nil && p.GetParentFolderId() != nil && *p.GetParentFolderId() != ""; p = g.folders["{"+*p.GetParentFolderId()+"}"] {
 				path = append(path, strings.ToLower(*p.GetDisplayName()))
 			}
 			if len(path) != 0 {

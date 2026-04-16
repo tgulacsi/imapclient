@@ -8,7 +8,6 @@ package o365
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -22,6 +21,9 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/confidential"
+	"github.com/go-json-experiment/json"
+	"github.com/go-json-experiment/json/jsontext"
+	"github.com/tgulacsi/go/iohlp"
 	"github.com/tgulacsi/oauth2client"
 )
 
@@ -299,7 +301,7 @@ type Message struct {
 func (c *client) List(ctx context.Context, mbox, pattern string, all bool) ([]Message, error) {
 	path := "/messages"
 	if mbox != "" {
-		path = "/MailFolders/" + mbox + "/messages"
+		path = "/MailFolders/" + url.PathEscape(mbox) + "/messages"
 	}
 
 	values := url.Values{
@@ -328,17 +330,20 @@ func (c *client) List(ctx context.Context, mbox, pattern string, all bool) ([]Me
 		Value []Message `json:"value"`
 	}
 	var resp listResponse
-	var buf bytes.Buffer
-	if err = json.NewDecoder(io.TeeReader(body, &buf)).Decode(&resp); err != nil {
-		b, _ := io.ReadAll(io.MultiReader(bytes.NewReader(buf.Bytes()), body))
-		c.logger.Error("decode", "listResponse", string(b))
+	buf := iohlp.HeadTailKeeper{Limit: 1 << 20}
+	tr := io.TeeReader(body, &buf)
+	if err = json.UnmarshalRead(tr, &resp); err != nil {
+		io.Copy(io.Discard, tr)
+		c.logger.Error("decode",
+			"listResponse.head", string(buf.Head()),
+			"listResponse.tail", string(buf.Tail()))
 	}
 	c.logger.Debug("List", "resp", resp)
 	return resp.Value, nil
 }
 
 func (c *client) Get(ctx context.Context, msgID string) (Message, error) {
-	path := "/messages/" + msgID
+	path := "/messages/" + url.PathEscape(msgID)
 	var msg Message
 	body, err := c.get(ctx, path)
 	if err != nil {
@@ -348,13 +353,13 @@ func (c *client) Get(ctx context.Context, msgID string) (Message, error) {
 		io.Copy(io.Discard, body)
 		body.Close()
 	}()
-	err = json.NewDecoder(body).Decode(&msg)
+	err = json.UnmarshalRead(body, &msg)
 	return msg, err
 }
 
 func (c *client) Send(ctx context.Context, msg Message) error {
 	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(struct {
+	if err := json.MarshalWrite(&buf, struct {
 		Message Message
 	}{Message: msg}); err != nil {
 		return fmt.Errorf("encode %#v: %w", msg, err)
@@ -374,43 +379,44 @@ func (c *client) p(ctx context.Context, method, path string, body io.Reader) (io
 	if method == "" {
 		method = "POST"
 	}
-	var buf bytes.Buffer
-	req, err := http.NewRequest(method, c.URLFor(path), io.TeeReader(body, &buf))
+	buf := iohlp.HeadTailKeeper{Limit: 1 << 20}
+	tr := io.TeeReader(body, &buf)
+	req, err := http.NewRequest(method, c.URLFor(path), tr)
 	req.Header.Set("Content-Type", "application/json")
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	resp, err := oauth2.NewClient(ctx, c.TokenSource).Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", buf.String(), err)
+		return nil, fmt.Errorf("%s ... %s: %w", string(buf.Head()), string(buf.Tail()), err)
 	}
 	if resp.StatusCode > 299 {
 		defer resp.Body.Close()
-		io.Copy(&buf, body)
-		io.WriteString(&buf, "\n\n")
-		io.Copy(&buf, resp.Body)
-		return nil, fmt.Errorf("POST %q: %s\n%s", path, resp.Status, buf.Bytes())
+		io.Copy(io.Discard, tr)
+		var respBuf strings.Builder
+		io.Copy(&respBuf, resp.Body)
+		return nil, fmt.Errorf("POST %s %s ... %s: %s\n%s", path, resp.Status, string(buf.Head()), string(buf.Tail()), respBuf.String())
 	}
 	return resp.Body, nil
 }
 
 func (c *client) Delete(ctx context.Context, msgID string) error {
-	return c.delete(ctx, "/messages/"+msgID)
+	return c.delete(ctx, "/messages/"+url.PathEscape(msgID))
 }
 
 func (c *client) Move(ctx context.Context, msgID, destinationID string) error {
-	return c.post(ctx, "/messages/"+msgID+"/move", bytes.NewReader(jsonObj("DestinationId", destinationID)))
+	return c.post(ctx, "/messages/"+url.PathEscape(msgID)+"/move", bytes.NewReader(jsonObj("DestinationId", destinationID)))
 }
 func (c *client) Copy(ctx context.Context, msgID, destinationID string) error {
-	return c.post(ctx, "/messages/"+msgID+"/copy", bytes.NewReader(jsonObj("DestinationId", destinationID)))
+	return c.post(ctx, "/messages/"+url.PathEscape(msgID)+"/copy", bytes.NewReader(jsonObj("DestinationId", destinationID)))
 }
 
 func (c *client) Update(ctx context.Context, msgID string, upd map[string]any) error {
 	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(upd); err != nil {
+	if err := json.MarshalWrite(&buf, upd); err != nil {
 		return fmt.Errorf("%#v: %w", upd, err)
 	}
-	body, err := c.p(ctx, "PATCH", "/messages/"+msgID, bytes.NewReader(buf.Bytes()))
+	body, err := c.p(ctx, "PATCH", "/messages/"+url.PathEscape(msgID), bytes.NewReader(buf.Bytes()))
 	if body != nil {
 		body.Close()
 	}
@@ -432,7 +438,7 @@ type Folder struct {
 func (c *client) ListFolders(ctx context.Context, parent string) ([]Folder, error) {
 	path := "/MailFolders"
 	if parent != "" {
-		path += "/" + parent + "/childfolders"
+		path += "/" + url.PathEscape(parent) + "/childfolders"
 	}
 	body, err := c.get(ctx, path)
 	if body != nil {
@@ -449,26 +455,26 @@ func (c *client) ListFolders(ctx context.Context, parent string) ([]Folder, erro
 		Value []Folder `json:"value"`
 	}
 	var resp folderList
-	err = json.NewDecoder(body).Decode(&resp)
+	err = json.UnmarshalRead(body, &resp)
 	return resp.Value, err
 }
 
 func (c *client) CreateFolder(ctx context.Context, parent, folder string) error {
-	return c.post(ctx, "/MailFolders/"+parent+"/childfolders", bytes.NewReader(jsonObj("DisplayName", folder)))
+	return c.post(ctx, "/MailFolders/"+url.PathEscape(parent)+"/childfolders", bytes.NewReader(jsonObj("DisplayName", folder)))
 }
 
 func (c *client) RenameFolder(ctx context.Context, folderID, newName string) error {
-	return c.post(ctx, "/MailFolders/"+folderID, bytes.NewReader(jsonObj("DisplayName", newName)))
+	return c.post(ctx, "/MailFolders/"+url.PathEscape(folderID), bytes.NewReader(jsonObj("DisplayName", newName)))
 }
 func (c *client) MoveFolder(ctx context.Context, folderID, destinationID string) error {
-	return c.post(ctx, "/MailFolders/"+folderID+"/move", bytes.NewReader(jsonObj("DestinationId", destinationID)))
+	return c.post(ctx, "/MailFolders/"+url.PathEscape(folderID)+"/move", bytes.NewReader(jsonObj("DestinationId", destinationID)))
 }
 func (c *client) CopyFolder(ctx context.Context, folderID, destinationID string) error {
-	return c.post(ctx, "/MailFolders/"+folderID+"/copy", bytes.NewReader(jsonObj("DestinationId", destinationID)))
+	return c.post(ctx, "/MailFolders/"+url.PathEscape(folderID)+"/copy", bytes.NewReader(jsonObj("DestinationId", destinationID)))
 }
 
 func (c *client) DeleteFolder(ctx context.Context, folderID string) error {
-	return c.delete(ctx, "/MailFolders/"+folderID)
+	return c.delete(ctx, "/MailFolders/"+url.PathEscape(folderID))
 }
 
 func (c *client) URLFor(path string) string { return baseURL + "/" + c.Me + path }
@@ -499,9 +505,11 @@ func (c *client) delete(ctx context.Context, path string) error {
 }
 
 func jsonObj(key, value string) []byte {
-	b, err := json.Marshal(map[string]string{key: value})
-	if err != nil {
-		panic(err)
-	}
-	return b
+	var buf bytes.Buffer
+	enc := jsontext.NewEncoder(&buf)
+	enc.WriteToken(jsontext.BeginObject)
+	enc.WriteToken(jsontext.String(key))
+	enc.WriteToken(jsontext.String(value))
+	enc.WriteToken(jsontext.EndObject)
+	return buf.Bytes()
 }

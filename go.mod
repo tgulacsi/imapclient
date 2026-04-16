@@ -12,6 +12,7 @@ require (
 	github.com/emersion/go-imap/v2 v2.0.0-beta.7
 	github.com/emersion/go-message v0.18.2
 	github.com/emersion/go-sasl v0.0.0-20241020182733-b788ff22d5a6
+	github.com/go-json-experiment/json v0.0.0-20260214004413-d219187c3433
 	github.com/google/uuid v1.6.0
 	github.com/microsoft/kiota-abstractions-go v1.9.3
 	github.com/microsoft/kiota-serialization-form-go v1.1.2
@@ -21,14 +22,14 @@ require (
 	github.com/microsoftgraph/msgraph-sdk-go v1.93.0
 	github.com/microsoftgraph/msgraph-sdk-go-core v1.4.0
 	github.com/peterbourgon/ff/v4 v4.0.0-beta.1
-	github.com/tgulacsi/go v0.28.13
+	github.com/tgulacsi/go v0.28.15-0.20260414052606-c130e0fbc48e
 	github.com/tgulacsi/oauth2client v0.1.0
 	go.etcd.io/bbolt v1.4.3
-	golang.org/x/crypto v0.47.0
-	golang.org/x/exp v0.0.0-20251219203646-944ab1f22d93
+	golang.org/x/crypto v0.50.0
+	golang.org/x/exp v0.0.0-20260410095643-746e56fc9e2f
 	golang.org/x/oauth2 v0.30.0
-	golang.org/x/sync v0.19.0
-	golang.org/x/text v0.33.0
+	golang.org/x/sync v0.20.0
+	golang.org/x/text v0.36.0
 	golang.org/x/time v0.14.0
 )
 
@@ -53,14 +54,14 @@ require (
 	go.opentelemetry.io/otel v1.39.0 // indirect
 	go.opentelemetry.io/otel/metric v1.39.0 // indirect
 	go.opentelemetry.io/otel/trace v1.39.0 // indirect
-	golang.org/x/net v0.49.0 // indirect
-	golang.org/x/sys v0.40.0 // indirect
-	golang.org/x/term v0.39.0 // indirect
+	golang.org/x/net v0.53.0 // indirect
+	golang.org/x/sys v0.43.0 // indirect
+	golang.org/x/term v0.42.0 // indirect
 )
 
 // The last version supporting Xoauth2: github.com/emersion/go-sasl v0.0.0-20200509202850-4132e15e133d
 
-go 1.24.1
+go 1.26
 
 // replace github.com/emersion/go-imap/v2 => ../../emersion/go-imap/v2
 

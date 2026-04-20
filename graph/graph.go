@@ -268,8 +268,8 @@ func NewGraphMailClient(
 			if userID != "" {
 				continue
 			}
-			if have == credOpts.IDOrPrincipalName ||
-				strings.HasPrefix(have, credOpts.IDOrPrincipalName+"@") {
+			if strings.EqualFold(have, credOpts.IDOrPrincipalName) ||
+				strings.HasPrefix(strings.ToLower(have), strings.ToLower(credOpts.IDOrPrincipalName+"@")) {
 				logger.Warn("found", "user", u.GetUserPrincipalName(), "id", u.GetId())
 				me = u
 				users[0], users[i] = users[i], users[0]

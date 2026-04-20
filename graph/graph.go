@@ -250,7 +250,8 @@ func NewGraphMailClient(
 	}
 	me, err := client.Users().ByUserId(credOpts.IDOrPrincipalName).Get(ctx, nil)
 	if err == nil {
-		logger.Info("got", "idOrPrincipalName", credOpts.IDOrPrincipalName, "user", me)
+		logger.Info("got", slog.String("idOrPrincipalName", credOpts.IDOrPrincipalName),
+			slog.Group("user", slog.String("ID", *me.GetId()), slog.String("Name", *me.GetUserPrincipalName())))
 		users = append(users, me)
 		userID = *me.GetId()
 	} else if len(users) == 0 {
@@ -296,6 +297,14 @@ func NewGraphMailClient(
 		cl.me = *users[0].GetId()
 	}
 	logger.Info("GraphMailClient", "isDelegated", cl.isDelegated, "me", cl.me)
+	if cl.me == "" {
+		return cl, users, fmt.Errorf("user %s not found", credOpts.IDOrPrincipalName)
+	}
+	if me, err := client.Users().ByUserId(cl.me).Get(ctx, nil); err != nil {
+		return cl, users, fmt.Errorf("get %s: %w", cl.me, err)
+	} else {
+		logger.Info("found", "me", me)
+	}
 
 	return cl, users, nil
 }

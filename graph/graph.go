@@ -263,18 +263,23 @@ func NewGraphMailClient(
 		}
 		names := make([]string, 0, len(users))
 		for i, u := range users {
-			// logger.Info("user", "name", *u.GetUserPrincipalName(), "want", credOpts.IDOrPrincipalName)
-			have := *u.GetUserPrincipalName()
-			names = append(names, have)
 			if userID != "" {
-				continue
+				break
 			}
-			if strings.EqualFold(have, credOpts.IDOrPrincipalName) ||
-				strings.HasPrefix(strings.ToLower(have), strings.ToLower(credOpts.IDOrPrincipalName+"@")) {
-				logger.Warn("found", "user", u.GetUserPrincipalName(), "id", u.GetId())
-				me = u
-				users[0], users[i] = users[i], users[0]
-				userID = *me.GetId()
+			for _, p := range []*string{u.GetUserPrincipalName(), u.GetMail()} {
+				if p == nil {
+					continue
+				}
+				have := *p
+				names = append(names, have)
+				if strings.EqualFold(have, credOpts.IDOrPrincipalName) ||
+					strings.HasPrefix(strings.ToLower(have), strings.ToLower(credOpts.IDOrPrincipalName+"@")) {
+					logger.Warn("found", "user", p, "id", u.GetId())
+					me = u
+					users[0], users[i] = users[i], users[0]
+					userID = *me.GetId()
+					break
+				}
 			}
 		}
 		if userID == "" {

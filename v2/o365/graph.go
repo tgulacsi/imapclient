@@ -50,7 +50,8 @@ func NewGraphMailClient(ctx context.Context,
 		var found bool
 		for _, u := range users {
 			logger.Debug("users", "name", u.GetDisplayName(), "mail", u.GetMail())
-			if m := u.GetMail(); m != nil && strings.EqualFold(string(*m), userID) {
+			if p, m := u.GetUserPrincipalName(), u.GetMail(); p != nil && strings.EqualFold(*p, userID) ||
+				m != nil && strings.EqualFold(*m, userID) {
 				userID, found = *u.GetId(), true
 				break
 			}

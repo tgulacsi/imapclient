@@ -46,7 +46,9 @@ func NewGraphMailClient(ctx context.Context,
 	}
 
 	logger := slog.Default()
-	if strings.IndexByte(userID, '@') >= 0 {
+	if u := gmc.UserID(); u != "" {
+		userID = u
+	} else if strings.IndexByte(userID, '@') >= 0 {
 		var found bool
 		for _, u := range users {
 			logger.Debug("users", "name", u.GetDisplayName(), "mail", u.GetMail())

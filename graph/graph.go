@@ -298,7 +298,7 @@ func NewGraphMailClient(
 		if _, err := cl.Users(ctx); err != nil {
 			return GraphMailClient{}, users, fmt.Errorf("Users: %w", err)
 		}
-	} else if cl.me == "" && len(users) == 0 {
+	} else if cl.me == "" && len(users) == 1 {
 		cl.me = *users[0].GetId()
 	}
 	logger.Info("GraphMailClient", "isDelegated", cl.isDelegated, "me", cl.me)
@@ -313,6 +313,8 @@ func NewGraphMailClient(
 
 	return cl, users, nil
 }
+
+func (g GraphMailClient) UserID() string { return g.me }
 
 func (g GraphMailClient) SetLimit(limit rate.Limit) { g.limiter.SetLimit(limit) }
 

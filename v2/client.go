@@ -680,7 +680,7 @@ func (c *imapClient) login(ctx context.Context) (err error) {
 					Username: c.Username, AccessToken: c.password,
 				}))
 				if err != nil {
-					logger.Info("XOAUTH2", "password", c.password, "error", err)
+					logger.Warn("XOAUTH2", "password", c.password, "error", err)
 				}
 			}
 		}
@@ -689,7 +689,7 @@ func (c *imapClient) login(ctx context.Context) (err error) {
 			logger.Info("logged in", "method", method, "error", err)
 			return nil
 		}
-		logger.Info("login failed", "method", method, "error", err)
+		logger.Warn("login failed", "method", method, "error", err)
 	}
 	if err != nil {
 		return err

@@ -78,7 +78,7 @@ func NewHash() *Hash { return &Hash{Hash: sha512.New512_224()} }
 
 type HashArray [sha512.Size224]byte
 
-func (h HashArray) String() string { return base64.URLEncoding.EncodeToString(h[:]) }
+func (h HashArray) String() string { return base64.StdEncoding.EncodeToString(h[:]) }
 
 type Hash struct{ hash.Hash }
 
@@ -130,12 +130,11 @@ func one(ctx context.Context, c Client, inbox, pattern string, deliver DeliverFu
 		hsh.Reset()
 		pr, pw := io.Pipe()
 		var wg sync.WaitGroup
-		wg.Add(1)
-		go func() {
+		wg.Go(func() {
+			defer wg.Done()
 			_, err = c.ReadTo(ctx, io.MultiWriter(pw, hsh), uid)
 			pw.CloseWithError(err)
-			wg.Done()
-		}()
+		})
 		sr, err := iohlp.MakeSectionReader(pr, 1<<20)
 		pr.CloseWithError(err)
 		wg.Wait()

@@ -10,66 +10,6 @@ import (
 
 type Message struct {
     OutlookItem
-    // The fileAttachment and itemAttachment attachments for the message.
-    attachments []Attachmentable
-    // The Bcc: recipients for the message.
-    bccRecipients []Recipientable
-    // The body of the message. It can be in HTML or text format. Find out about safe HTML in a message body.
-    body ItemBodyable
-    // The first 255 characters of the message body. It is in text format.
-    bodyPreview *string
-    // The Cc: recipients for the message.
-    ccRecipients []Recipientable
-    // The ID of the conversation the email belongs to.
-    conversationId *string
-    // Indicates the position of the message within the conversation.
-    conversationIndex []byte
-    // The collection of open extensions defined for the message. Nullable.
-    extensions []Extensionable
-    // Indicates the status, start date, due date, or completion date for the message.
-    flag FollowupFlagable
-    // The owner of the mailbox from which the message is sent. In most cases, this value is the same as the sender property, except for sharing or delegation scenarios. The value must correspond to the actual mailbox used. Find out more about setting the from and sender properties of a message.
-    from Recipientable
-    // Indicates whether the message has attachments. This property doesn't include inline attachments, so if a message contains only inline attachments, this property is false. To verify the existence of inline attachments, parse the body property to look for a src attribute, such as <IMG src='cid:image001.jpg@01D26CD8.6C05F070'>.
-    hasAttachments *bool
-    // The importance of the message. The possible values are: low, normal, and high.
-    importance *Importance
-    // The classification of the message for the user, based on inferred relevance or importance, or on an explicit override. The possible values are: focused or other.
-    inferenceClassification *InferenceClassificationType
-    // A collection of message headers defined by RFC5322. The set includes message headers indicating the network path taken by a message from the sender to the recipient. It can also contain custom message headers that hold app data for the message.  Returned only on applying a $select query option. Read-only.
-    internetMessageHeaders []InternetMessageHeaderable
-    // The message ID in the format specified by RFC2822.
-    internetMessageId *string
-    // Indicates whether a read receipt is requested for the message.
-    isDeliveryReceiptRequested *bool
-    // Indicates whether the message is a draft. A message is a draft if it hasn't been sent yet.
-    isDraft *bool
-    // Indicates whether the message has been read.
-    isRead *bool
-    // Indicates whether a read receipt is requested for the message.
-    isReadReceiptRequested *bool
-    // The collection of multi-value extended properties defined for the message. Nullable.
-    multiValueExtendedProperties []MultiValueLegacyExtendedPropertyable
-    // The unique identifier for the message's parent mailFolder.
-    parentFolderId *string
-    // The date and time the message was received.  The date and time information uses ISO 8601 format and is always in UTC time. For example, midnight UTC on Jan 1, 2014 is 2014-01-01T00:00:00Z.
-    receivedDateTime *i336074805fc853987abe6f7fe3ad97a6a6f3077a16391fec744f671a015fbd7e.Time
-    // The email addresses to use when replying.
-    replyTo []Recipientable
-    // The account that is used to generate the message. In most cases, this value is the same as the from property. You can set this property to a different value when sending a message from a shared mailbox, for a shared calendar, or as a delegate. In any case, the value must correspond to the actual mailbox used. Find out more about setting the from and sender properties of a message.
-    sender Recipientable
-    // The date and time the message was sent.  The date and time information uses ISO 8601 format and is always in UTC time. For example, midnight UTC on Jan 1, 2014 is 2014-01-01T00:00:00Z.
-    sentDateTime *i336074805fc853987abe6f7fe3ad97a6a6f3077a16391fec744f671a015fbd7e.Time
-    // The collection of single-value extended properties defined for the message. Nullable.
-    singleValueExtendedProperties []SingleValueLegacyExtendedPropertyable
-    // The subject of the message.
-    subject *string
-    // The To: recipients for the message.
-    toRecipients []Recipientable
-    // The part of the body of the message that is unique to the current message. uniqueBody is not returned by default but can be retrieved for a given message by use of the ?$select=uniqueBody query. It can be in HTML or text format.
-    uniqueBody ItemBodyable
-    // The URL to open the message in Outlook on the web.You can append an ispopout argument to the end of the URL to change how the message is displayed. If ispopout is not present or if it is set to 1, then the message is shown in a popout window. If ispopout is set to 0, the browser shows the message in the Outlook on the web review pane.The message opens in the browser if you are signed in to your mailbox via Outlook on the web. You are prompted to sign in if you are not already signed in with the browser.This URL cannot be accessed from within an iFrame.NOTE: When using this URL to access a message from a mailbox with delegate permissions, both the signed-in user and the target mailbox must be in the same database region. For example, an error is returned when a user with a mailbox in the EUR (Europe) region attempts to access messages from a mailbox in the NAM (North America) region.
-    webLink *string
 }
 // NewMessage instantiates a new Message and sets the default values.
 func NewMessage()(*Message) {
@@ -83,71 +23,103 @@ func NewMessage()(*Message) {
 // CreateMessageFromDiscriminatorValue creates a new instance of the appropriate class based on discriminator value
 // returns a Parsable when successful
 func CreateMessageFromDiscriminatorValue(parseNode i878a80d2330e89d26896388a3f487eef27b0a0e6c010c493bf80be1452208f91.ParseNode)(i878a80d2330e89d26896388a3f487eef27b0a0e6c010c493bf80be1452208f91.Parsable, error) {
-    if parseNode != nil {
-        mappingValueNode, err := parseNode.GetChildNode("@odata.type")
-        if err != nil {
-            return nil, err
-        }
-        if mappingValueNode != nil {
-            mappingValue, err := mappingValueNode.GetStringValue()
-            if err != nil {
-                return nil, err
-            }
-            if mappingValue != nil {
-                switch *mappingValue {
-                    case "#microsoft.graph.calendarSharingMessage":
-                        return NewCalendarSharingMessage(), nil
-                    case "#microsoft.graph.eventMessage":
-                        return NewEventMessage(), nil
-                    case "#microsoft.graph.eventMessageRequest":
-                        return NewEventMessageRequest(), nil
-                    case "#microsoft.graph.eventMessageResponse":
-                        return NewEventMessageResponse(), nil
-                }
-            }
-        }
-    }
     return NewMessage(), nil
 }
 // GetAttachments gets the attachments property value. The fileAttachment and itemAttachment attachments for the message.
 // returns a []Attachmentable when successful
 func (m *Message) GetAttachments()([]Attachmentable) {
-    return m.attachments
+    val, err := m.GetBackingStore().Get("attachments")
+    if err != nil {
+        panic(err)
+    }
+    if val != nil {
+        return val.([]Attachmentable)
+    }
+    return nil
 }
 // GetBccRecipients gets the bccRecipients property value. The Bcc: recipients for the message.
 // returns a []Recipientable when successful
 func (m *Message) GetBccRecipients()([]Recipientable) {
-    return m.bccRecipients
+    val, err := m.GetBackingStore().Get("bccRecipients")
+    if err != nil {
+        panic(err)
+    }
+    if val != nil {
+        return val.([]Recipientable)
+    }
+    return nil
 }
 // GetBody gets the body property value. The body of the message. It can be in HTML or text format. Find out about safe HTML in a message body.
 // returns a ItemBodyable when successful
 func (m *Message) GetBody()(ItemBodyable) {
-    return m.body
+    val, err := m.GetBackingStore().Get("body")
+    if err != nil {
+        panic(err)
+    }
+    if val != nil {
+        return val.(ItemBodyable)
+    }
+    return nil
 }
 // GetBodyPreview gets the bodyPreview property value. The first 255 characters of the message body. It is in text format.
 // returns a *string when successful
 func (m *Message) GetBodyPreview()(*string) {
-    return m.bodyPreview
+    val, err := m.GetBackingStore().Get("bodyPreview")
+    if err != nil {
+        panic(err)
+    }
+    if val != nil {
+        return val.(*string)
+    }
+    return nil
 }
 // GetCcRecipients gets the ccRecipients property value. The Cc: recipients for the message.
 // returns a []Recipientable when successful
 func (m *Message) GetCcRecipients()([]Recipientable) {
-    return m.ccRecipients
+    val, err := m.GetBackingStore().Get("ccRecipients")
+    if err != nil {
+        panic(err)
+    }
+    if val != nil {
+        return val.([]Recipientable)
+    }
+    return nil
 }
 // GetConversationId gets the conversationId property value. The ID of the conversation the email belongs to.
 // returns a *string when successful
 func (m *Message) GetConversationId()(*string) {
-    return m.conversationId
+    val, err := m.GetBackingStore().Get("conversationId")
+    if err != nil {
+        panic(err)
+    }
+    if val != nil {
+        return val.(*string)
+    }
+    return nil
 }
 // GetConversationIndex gets the conversationIndex property value. Indicates the position of the message within the conversation.
 // returns a []byte when successful
 func (m *Message) GetConversationIndex()([]byte) {
-    return m.conversationIndex
+    val, err := m.GetBackingStore().Get("conversationIndex")
+    if err != nil {
+        panic(err)
+    }
+    if val != nil {
+        return val.([]byte)
+    }
+    return nil
 }
 // GetExtensions gets the extensions property value. The collection of open extensions defined for the message. Nullable.
 // returns a []Extensionable when successful
 func (m *Message) GetExtensions()([]Extensionable) {
-    return m.extensions
+    val, err := m.GetBackingStore().Get("extensions")
+    if err != nil {
+        panic(err)
+    }
+    if val != nil {
+        return val.([]Extensionable)
+    }
+    return nil
 }
 // GetFieldDeserializers the deserialization information for the current model
 // returns a map[string]func(i878a80d2330e89d26896388a3f487eef27b0a0e6c010c493bf80be1452208f91.ParseNode)(error) when successful
@@ -512,112 +484,266 @@ func (m *Message) GetFieldDeserializers()(map[string]func(i878a80d2330e89d268963
 // GetFlag gets the flag property value. Indicates the status, start date, due date, or completion date for the message.
 // returns a FollowupFlagable when successful
 func (m *Message) GetFlag()(FollowupFlagable) {
-    return m.flag
+    val, err := m.GetBackingStore().Get("flag")
+    if err != nil {
+        panic(err)
+    }
+    if val != nil {
+        return val.(FollowupFlagable)
+    }
+    return nil
 }
 // GetFrom gets the from property value. The owner of the mailbox from which the message is sent. In most cases, this value is the same as the sender property, except for sharing or delegation scenarios. The value must correspond to the actual mailbox used. Find out more about setting the from and sender properties of a message.
 // returns a Recipientable when successful
 func (m *Message) GetFrom()(Recipientable) {
-    return m.from
+    val, err := m.GetBackingStore().Get("from")
+    if err != nil {
+        panic(err)
+    }
+    if val != nil {
+        return val.(Recipientable)
+    }
+    return nil
 }
 // GetHasAttachments gets the hasAttachments property value. Indicates whether the message has attachments. This property doesn't include inline attachments, so if a message contains only inline attachments, this property is false. To verify the existence of inline attachments, parse the body property to look for a src attribute, such as <IMG src='cid:image001.jpg@01D26CD8.6C05F070'>.
 // returns a *bool when successful
 func (m *Message) GetHasAttachments()(*bool) {
-    return m.hasAttachments
+    val, err := m.GetBackingStore().Get("hasAttachments")
+    if err != nil {
+        panic(err)
+    }
+    if val != nil {
+        return val.(*bool)
+    }
+    return nil
 }
 // GetImportance gets the importance property value. The importance of the message. The possible values are: low, normal, and high.
 // returns a *Importance when successful
 func (m *Message) GetImportance()(*Importance) {
-    return m.importance
+    val, err := m.GetBackingStore().Get("importance")
+    if err != nil {
+        panic(err)
+    }
+    if val != nil {
+        return val.(*Importance)
+    }
+    return nil
 }
 // GetInferenceClassification gets the inferenceClassification property value. The classification of the message for the user, based on inferred relevance or importance, or on an explicit override. The possible values are: focused or other.
 // returns a *InferenceClassificationType when successful
 func (m *Message) GetInferenceClassification()(*InferenceClassificationType) {
-    return m.inferenceClassification
+    val, err := m.GetBackingStore().Get("inferenceClassification")
+    if err != nil {
+        panic(err)
+    }
+    if val != nil {
+        return val.(*InferenceClassificationType)
+    }
+    return nil
 }
 // GetInternetMessageHeaders gets the internetMessageHeaders property value. A collection of message headers defined by RFC5322. The set includes message headers indicating the network path taken by a message from the sender to the recipient. It can also contain custom message headers that hold app data for the message.  Returned only on applying a $select query option. Read-only.
 // returns a []InternetMessageHeaderable when successful
 func (m *Message) GetInternetMessageHeaders()([]InternetMessageHeaderable) {
-    return m.internetMessageHeaders
+    val, err := m.GetBackingStore().Get("internetMessageHeaders")
+    if err != nil {
+        panic(err)
+    }
+    if val != nil {
+        return val.([]InternetMessageHeaderable)
+    }
+    return nil
 }
 // GetInternetMessageId gets the internetMessageId property value. The message ID in the format specified by RFC2822.
 // returns a *string when successful
 func (m *Message) GetInternetMessageId()(*string) {
-    return m.internetMessageId
+    val, err := m.GetBackingStore().Get("internetMessageId")
+    if err != nil {
+        panic(err)
+    }
+    if val != nil {
+        return val.(*string)
+    }
+    return nil
 }
 // GetIsDeliveryReceiptRequested gets the isDeliveryReceiptRequested property value. Indicates whether a read receipt is requested for the message.
 // returns a *bool when successful
 func (m *Message) GetIsDeliveryReceiptRequested()(*bool) {
-    return m.isDeliveryReceiptRequested
+    val, err := m.GetBackingStore().Get("isDeliveryReceiptRequested")
+    if err != nil {
+        panic(err)
+    }
+    if val != nil {
+        return val.(*bool)
+    }
+    return nil
 }
 // GetIsDraft gets the isDraft property value. Indicates whether the message is a draft. A message is a draft if it hasn't been sent yet.
 // returns a *bool when successful
 func (m *Message) GetIsDraft()(*bool) {
-    return m.isDraft
+    val, err := m.GetBackingStore().Get("isDraft")
+    if err != nil {
+        panic(err)
+    }
+    if val != nil {
+        return val.(*bool)
+    }
+    return nil
 }
 // GetIsRead gets the isRead property value. Indicates whether the message has been read.
 // returns a *bool when successful
 func (m *Message) GetIsRead()(*bool) {
-    return m.isRead
+    val, err := m.GetBackingStore().Get("isRead")
+    if err != nil {
+        panic(err)
+    }
+    if val != nil {
+        return val.(*bool)
+    }
+    return nil
 }
 // GetIsReadReceiptRequested gets the isReadReceiptRequested property value. Indicates whether a read receipt is requested for the message.
 // returns a *bool when successful
 func (m *Message) GetIsReadReceiptRequested()(*bool) {
-    return m.isReadReceiptRequested
+    val, err := m.GetBackingStore().Get("isReadReceiptRequested")
+    if err != nil {
+        panic(err)
+    }
+    if val != nil {
+        return val.(*bool)
+    }
+    return nil
 }
 // GetMultiValueExtendedProperties gets the multiValueExtendedProperties property value. The collection of multi-value extended properties defined for the message. Nullable.
 // returns a []MultiValueLegacyExtendedPropertyable when successful
 func (m *Message) GetMultiValueExtendedProperties()([]MultiValueLegacyExtendedPropertyable) {
-    return m.multiValueExtendedProperties
+    val, err := m.GetBackingStore().Get("multiValueExtendedProperties")
+    if err != nil {
+        panic(err)
+    }
+    if val != nil {
+        return val.([]MultiValueLegacyExtendedPropertyable)
+    }
+    return nil
 }
 // GetParentFolderId gets the parentFolderId property value. The unique identifier for the message's parent mailFolder.
 // returns a *string when successful
 func (m *Message) GetParentFolderId()(*string) {
-    return m.parentFolderId
+    val, err := m.GetBackingStore().Get("parentFolderId")
+    if err != nil {
+        panic(err)
+    }
+    if val != nil {
+        return val.(*string)
+    }
+    return nil
 }
 // GetReceivedDateTime gets the receivedDateTime property value. The date and time the message was received.  The date and time information uses ISO 8601 format and is always in UTC time. For example, midnight UTC on Jan 1, 2014 is 2014-01-01T00:00:00Z.
 // returns a *Time when successful
 func (m *Message) GetReceivedDateTime()(*i336074805fc853987abe6f7fe3ad97a6a6f3077a16391fec744f671a015fbd7e.Time) {
-    return m.receivedDateTime
+    val, err := m.GetBackingStore().Get("receivedDateTime")
+    if err != nil {
+        panic(err)
+    }
+    if val != nil {
+        return val.(*i336074805fc853987abe6f7fe3ad97a6a6f3077a16391fec744f671a015fbd7e.Time)
+    }
+    return nil
 }
 // GetReplyTo gets the replyTo property value. The email addresses to use when replying.
 // returns a []Recipientable when successful
 func (m *Message) GetReplyTo()([]Recipientable) {
-    return m.replyTo
+    val, err := m.GetBackingStore().Get("replyTo")
+    if err != nil {
+        panic(err)
+    }
+    if val != nil {
+        return val.([]Recipientable)
+    }
+    return nil
 }
 // GetSender gets the sender property value. The account that is used to generate the message. In most cases, this value is the same as the from property. You can set this property to a different value when sending a message from a shared mailbox, for a shared calendar, or as a delegate. In any case, the value must correspond to the actual mailbox used. Find out more about setting the from and sender properties of a message.
 // returns a Recipientable when successful
 func (m *Message) GetSender()(Recipientable) {
-    return m.sender
+    val, err := m.GetBackingStore().Get("sender")
+    if err != nil {
+        panic(err)
+    }
+    if val != nil {
+        return val.(Recipientable)
+    }
+    return nil
 }
 // GetSentDateTime gets the sentDateTime property value. The date and time the message was sent.  The date and time information uses ISO 8601 format and is always in UTC time. For example, midnight UTC on Jan 1, 2014 is 2014-01-01T00:00:00Z.
 // returns a *Time when successful
 func (m *Message) GetSentDateTime()(*i336074805fc853987abe6f7fe3ad97a6a6f3077a16391fec744f671a015fbd7e.Time) {
-    return m.sentDateTime
+    val, err := m.GetBackingStore().Get("sentDateTime")
+    if err != nil {
+        panic(err)
+    }
+    if val != nil {
+        return val.(*i336074805fc853987abe6f7fe3ad97a6a6f3077a16391fec744f671a015fbd7e.Time)
+    }
+    return nil
 }
 // GetSingleValueExtendedProperties gets the singleValueExtendedProperties property value. The collection of single-value extended properties defined for the message. Nullable.
 // returns a []SingleValueLegacyExtendedPropertyable when successful
 func (m *Message) GetSingleValueExtendedProperties()([]SingleValueLegacyExtendedPropertyable) {
-    return m.singleValueExtendedProperties
+    val, err := m.GetBackingStore().Get("singleValueExtendedProperties")
+    if err != nil {
+        panic(err)
+    }
+    if val != nil {
+        return val.([]SingleValueLegacyExtendedPropertyable)
+    }
+    return nil
 }
 // GetSubject gets the subject property value. The subject of the message.
 // returns a *string when successful
 func (m *Message) GetSubject()(*string) {
-    return m.subject
+    val, err := m.GetBackingStore().Get("subject")
+    if err != nil {
+        panic(err)
+    }
+    if val != nil {
+        return val.(*string)
+    }
+    return nil
 }
 // GetToRecipients gets the toRecipients property value. The To: recipients for the message.
 // returns a []Recipientable when successful
 func (m *Message) GetToRecipients()([]Recipientable) {
-    return m.toRecipients
+    val, err := m.GetBackingStore().Get("toRecipients")
+    if err != nil {
+        panic(err)
+    }
+    if val != nil {
+        return val.([]Recipientable)
+    }
+    return nil
 }
 // GetUniqueBody gets the uniqueBody property value. The part of the body of the message that is unique to the current message. uniqueBody is not returned by default but can be retrieved for a given message by use of the ?$select=uniqueBody query. It can be in HTML or text format.
 // returns a ItemBodyable when successful
 func (m *Message) GetUniqueBody()(ItemBodyable) {
-    return m.uniqueBody
+    val, err := m.GetBackingStore().Get("uniqueBody")
+    if err != nil {
+        panic(err)
+    }
+    if val != nil {
+        return val.(ItemBodyable)
+    }
+    return nil
 }
 // GetWebLink gets the webLink property value. The URL to open the message in Outlook on the web.You can append an ispopout argument to the end of the URL to change how the message is displayed. If ispopout is not present or if it is set to 1, then the message is shown in a popout window. If ispopout is set to 0, the browser shows the message in the Outlook on the web review pane.The message opens in the browser if you are signed in to your mailbox via Outlook on the web. You are prompted to sign in if you are not already signed in with the browser.This URL cannot be accessed from within an iFrame.NOTE: When using this URL to access a message from a mailbox with delegate permissions, both the signed-in user and the target mailbox must be in the same database region. For example, an error is returned when a user with a mailbox in the EUR (Europe) region attempts to access messages from a mailbox in the NAM (North America) region.
 // returns a *string when successful
 func (m *Message) GetWebLink()(*string) {
-    return m.webLink
+    val, err := m.GetBackingStore().Get("webLink")
+    if err != nil {
+        panic(err)
+    }
+    if val != nil {
+        return val.(*string)
+    }
+    return nil
 }
 // Serialize serializes information the current object
 func (m *Message) Serialize(writer i878a80d2330e89d26896388a3f487eef27b0a0e6c010c493bf80be1452208f91.SerializationWriter)(error) {
@@ -865,123 +991,213 @@ func (m *Message) Serialize(writer i878a80d2330e89d26896388a3f487eef27b0a0e6c010
 }
 // SetAttachments sets the attachments property value. The fileAttachment and itemAttachment attachments for the message.
 func (m *Message) SetAttachments(value []Attachmentable)() {
-    m.attachments = value
+    err := m.GetBackingStore().Set("attachments", value)
+    if err != nil {
+        panic(err)
+    }
 }
 // SetBccRecipients sets the bccRecipients property value. The Bcc: recipients for the message.
 func (m *Message) SetBccRecipients(value []Recipientable)() {
-    m.bccRecipients = value
+    err := m.GetBackingStore().Set("bccRecipients", value)
+    if err != nil {
+        panic(err)
+    }
 }
 // SetBody sets the body property value. The body of the message. It can be in HTML or text format. Find out about safe HTML in a message body.
 func (m *Message) SetBody(value ItemBodyable)() {
-    m.body = value
+    err := m.GetBackingStore().Set("body", value)
+    if err != nil {
+        panic(err)
+    }
 }
 // SetBodyPreview sets the bodyPreview property value. The first 255 characters of the message body. It is in text format.
 func (m *Message) SetBodyPreview(value *string)() {
-    m.bodyPreview = value
+    err := m.GetBackingStore().Set("bodyPreview", value)
+    if err != nil {
+        panic(err)
+    }
 }
 // SetCcRecipients sets the ccRecipients property value. The Cc: recipients for the message.
 func (m *Message) SetCcRecipients(value []Recipientable)() {
-    m.ccRecipients = value
+    err := m.GetBackingStore().Set("ccRecipients", value)
+    if err != nil {
+        panic(err)
+    }
 }
 // SetConversationId sets the conversationId property value. The ID of the conversation the email belongs to.
 func (m *Message) SetConversationId(value *string)() {
-    m.conversationId = value
+    err := m.GetBackingStore().Set("conversationId", value)
+    if err != nil {
+        panic(err)
+    }
 }
 // SetConversationIndex sets the conversationIndex property value. Indicates the position of the message within the conversation.
 func (m *Message) SetConversationIndex(value []byte)() {
-    m.conversationIndex = value
+    err := m.GetBackingStore().Set("conversationIndex", value)
+    if err != nil {
+        panic(err)
+    }
 }
 // SetExtensions sets the extensions property value. The collection of open extensions defined for the message. Nullable.
 func (m *Message) SetExtensions(value []Extensionable)() {
-    m.extensions = value
+    err := m.GetBackingStore().Set("extensions", value)
+    if err != nil {
+        panic(err)
+    }
 }
 // SetFlag sets the flag property value. Indicates the status, start date, due date, or completion date for the message.
 func (m *Message) SetFlag(value FollowupFlagable)() {
-    m.flag = value
+    err := m.GetBackingStore().Set("flag", value)
+    if err != nil {
+        panic(err)
+    }
 }
 // SetFrom sets the from property value. The owner of the mailbox from which the message is sent. In most cases, this value is the same as the sender property, except for sharing or delegation scenarios. The value must correspond to the actual mailbox used. Find out more about setting the from and sender properties of a message.
 func (m *Message) SetFrom(value Recipientable)() {
-    m.from = value
+    err := m.GetBackingStore().Set("from", value)
+    if err != nil {
+        panic(err)
+    }
 }
 // SetHasAttachments sets the hasAttachments property value. Indicates whether the message has attachments. This property doesn't include inline attachments, so if a message contains only inline attachments, this property is false. To verify the existence of inline attachments, parse the body property to look for a src attribute, such as <IMG src='cid:image001.jpg@01D26CD8.6C05F070'>.
 func (m *Message) SetHasAttachments(value *bool)() {
-    m.hasAttachments = value
+    err := m.GetBackingStore().Set("hasAttachments", value)
+    if err != nil {
+        panic(err)
+    }
 }
 // SetImportance sets the importance property value. The importance of the message. The possible values are: low, normal, and high.
 func (m *Message) SetImportance(value *Importance)() {
-    m.importance = value
+    err := m.GetBackingStore().Set("importance", value)
+    if err != nil {
+        panic(err)
+    }
 }
 // SetInferenceClassification sets the inferenceClassification property value. The classification of the message for the user, based on inferred relevance or importance, or on an explicit override. The possible values are: focused or other.
 func (m *Message) SetInferenceClassification(value *InferenceClassificationType)() {
-    m.inferenceClassification = value
+    err := m.GetBackingStore().Set("inferenceClassification", value)
+    if err != nil {
+        panic(err)
+    }
 }
 // SetInternetMessageHeaders sets the internetMessageHeaders property value. A collection of message headers defined by RFC5322. The set includes message headers indicating the network path taken by a message from the sender to the recipient. It can also contain custom message headers that hold app data for the message.  Returned only on applying a $select query option. Read-only.
 func (m *Message) SetInternetMessageHeaders(value []InternetMessageHeaderable)() {
-    m.internetMessageHeaders = value
+    err := m.GetBackingStore().Set("internetMessageHeaders", value)
+    if err != nil {
+        panic(err)
+    }
 }
 // SetInternetMessageId sets the internetMessageId property value. The message ID in the format specified by RFC2822.
 func (m *Message) SetInternetMessageId(value *string)() {
-    m.internetMessageId = value
+    err := m.GetBackingStore().Set("internetMessageId", value)
+    if err != nil {
+        panic(err)
+    }
 }
 // SetIsDeliveryReceiptRequested sets the isDeliveryReceiptRequested property value. Indicates whether a read receipt is requested for the message.
 func (m *Message) SetIsDeliveryReceiptRequested(value *bool)() {
-    m.isDeliveryReceiptRequested = value
+    err := m.GetBackingStore().Set("isDeliveryReceiptRequested", value)
+    if err != nil {
+        panic(err)
+    }
 }
 // SetIsDraft sets the isDraft property value. Indicates whether the message is a draft. A message is a draft if it hasn't been sent yet.
 func (m *Message) SetIsDraft(value *bool)() {
-    m.isDraft = value
+    err := m.GetBackingStore().Set("isDraft", value)
+    if err != nil {
+        panic(err)
+    }
 }
 // SetIsRead sets the isRead property value. Indicates whether the message has been read.
 func (m *Message) SetIsRead(value *bool)() {
-    m.isRead = value
+    err := m.GetBackingStore().Set("isRead", value)
+    if err != nil {
+        panic(err)
+    }
 }
 // SetIsReadReceiptRequested sets the isReadReceiptRequested property value. Indicates whether a read receipt is requested for the message.
 func (m *Message) SetIsReadReceiptRequested(value *bool)() {
-    m.isReadReceiptRequested = value
+    err := m.GetBackingStore().Set("isReadReceiptRequested", value)
+    if err != nil {
+        panic(err)
+    }
 }
 // SetMultiValueExtendedProperties sets the multiValueExtendedProperties property value. The collection of multi-value extended properties defined for the message. Nullable.
 func (m *Message) SetMultiValueExtendedProperties(value []MultiValueLegacyExtendedPropertyable)() {
-    m.multiValueExtendedProperties = value
+    err := m.GetBackingStore().Set("multiValueExtendedProperties", value)
+    if err != nil {
+        panic(err)
+    }
 }
 // SetParentFolderId sets the parentFolderId property value. The unique identifier for the message's parent mailFolder.
 func (m *Message) SetParentFolderId(value *string)() {
-    m.parentFolderId = value
+    err := m.GetBackingStore().Set("parentFolderId", value)
+    if err != nil {
+        panic(err)
+    }
 }
 // SetReceivedDateTime sets the receivedDateTime property value. The date and time the message was received.  The date and time information uses ISO 8601 format and is always in UTC time. For example, midnight UTC on Jan 1, 2014 is 2014-01-01T00:00:00Z.
 func (m *Message) SetReceivedDateTime(value *i336074805fc853987abe6f7fe3ad97a6a6f3077a16391fec744f671a015fbd7e.Time)() {
-    m.receivedDateTime = value
+    err := m.GetBackingStore().Set("receivedDateTime", value)
+    if err != nil {
+        panic(err)
+    }
 }
 // SetReplyTo sets the replyTo property value. The email addresses to use when replying.
 func (m *Message) SetReplyTo(value []Recipientable)() {
-    m.replyTo = value
+    err := m.GetBackingStore().Set("replyTo", value)
+    if err != nil {
+        panic(err)
+    }
 }
 // SetSender sets the sender property value. The account that is used to generate the message. In most cases, this value is the same as the from property. You can set this property to a different value when sending a message from a shared mailbox, for a shared calendar, or as a delegate. In any case, the value must correspond to the actual mailbox used. Find out more about setting the from and sender properties of a message.
 func (m *Message) SetSender(value Recipientable)() {
-    m.sender = value
+    err := m.GetBackingStore().Set("sender", value)
+    if err != nil {
+        panic(err)
+    }
 }
 // SetSentDateTime sets the sentDateTime property value. The date and time the message was sent.  The date and time information uses ISO 8601 format and is always in UTC time. For example, midnight UTC on Jan 1, 2014 is 2014-01-01T00:00:00Z.
 func (m *Message) SetSentDateTime(value *i336074805fc853987abe6f7fe3ad97a6a6f3077a16391fec744f671a015fbd7e.Time)() {
-    m.sentDateTime = value
+    err := m.GetBackingStore().Set("sentDateTime", value)
+    if err != nil {
+        panic(err)
+    }
 }
 // SetSingleValueExtendedProperties sets the singleValueExtendedProperties property value. The collection of single-value extended properties defined for the message. Nullable.
 func (m *Message) SetSingleValueExtendedProperties(value []SingleValueLegacyExtendedPropertyable)() {
-    m.singleValueExtendedProperties = value
+    err := m.GetBackingStore().Set("singleValueExtendedProperties", value)
+    if err != nil {
+        panic(err)
+    }
 }
 // SetSubject sets the subject property value. The subject of the message.
 func (m *Message) SetSubject(value *string)() {
-    m.subject = value
+    err := m.GetBackingStore().Set("subject", value)
+    if err != nil {
+        panic(err)
+    }
 }
 // SetToRecipients sets the toRecipients property value. The To: recipients for the message.
 func (m *Message) SetToRecipients(value []Recipientable)() {
-    m.toRecipients = value
+    err := m.GetBackingStore().Set("toRecipients", value)
+    if err != nil {
+        panic(err)
+    }
 }
 // SetUniqueBody sets the uniqueBody property value. The part of the body of the message that is unique to the current message. uniqueBody is not returned by default but can be retrieved for a given message by use of the ?$select=uniqueBody query. It can be in HTML or text format.
 func (m *Message) SetUniqueBody(value ItemBodyable)() {
-    m.uniqueBody = value
+    err := m.GetBackingStore().Set("uniqueBody", value)
+    if err != nil {
+        panic(err)
+    }
 }
 // SetWebLink sets the webLink property value. The URL to open the message in Outlook on the web.You can append an ispopout argument to the end of the URL to change how the message is displayed. If ispopout is not present or if it is set to 1, then the message is shown in a popout window. If ispopout is set to 0, the browser shows the message in the Outlook on the web review pane.The message opens in the browser if you are signed in to your mailbox via Outlook on the web. You are prompted to sign in if you are not already signed in with the browser.This URL cannot be accessed from within an iFrame.NOTE: When using this URL to access a message from a mailbox with delegate permissions, both the signed-in user and the target mailbox must be in the same database region. For example, an error is returned when a user with a mailbox in the EUR (Europe) region attempts to access messages from a mailbox in the NAM (North America) region.
 func (m *Message) SetWebLink(value *string)() {
-    m.webLink = value
+    err := m.GetBackingStore().Set("webLink", value)
+    if err != nil {
+        panic(err)
+    }
 }
 type Messageable interface {
     OutlookItemable

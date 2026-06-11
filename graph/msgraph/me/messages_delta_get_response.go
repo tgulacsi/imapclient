@@ -10,8 +10,6 @@ import (
 
 type MessagesDeltaGetResponse struct {
     i992b4a960d2aac6ee675fd11b0e2cdb20526c4d5f58b360b5923c6d853233698.BaseDeltaFunctionResponse
-    // The value property
-    value []i992b4a960d2aac6ee675fd11b0e2cdb20526c4d5f58b360b5923c6d853233698.Messageable
 }
 // NewMessagesDeltaGetResponse instantiates a new MessagesDeltaGetResponse and sets the default values.
 func NewMessagesDeltaGetResponse()(*MessagesDeltaGetResponse) {
@@ -50,7 +48,14 @@ func (m *MessagesDeltaGetResponse) GetFieldDeserializers()(map[string]func(i878a
 // GetValue gets the value property value. The value property
 // returns a []Messageable when successful
 func (m *MessagesDeltaGetResponse) GetValue()([]i992b4a960d2aac6ee675fd11b0e2cdb20526c4d5f58b360b5923c6d853233698.Messageable) {
-    return m.value
+    val, err := m.GetBackingStore().Get("value")
+    if err != nil {
+        panic(err)
+    }
+    if val != nil {
+        return val.([]i992b4a960d2aac6ee675fd11b0e2cdb20526c4d5f58b360b5923c6d853233698.Messageable)
+    }
+    return nil
 }
 // Serialize serializes information the current object
 func (m *MessagesDeltaGetResponse) Serialize(writer i878a80d2330e89d26896388a3f487eef27b0a0e6c010c493bf80be1452208f91.SerializationWriter)(error) {
@@ -74,7 +79,10 @@ func (m *MessagesDeltaGetResponse) Serialize(writer i878a80d2330e89d26896388a3f4
 }
 // SetValue sets the value property value. The value property
 func (m *MessagesDeltaGetResponse) SetValue(value []i992b4a960d2aac6ee675fd11b0e2cdb20526c4d5f58b360b5923c6d853233698.Messageable)() {
-    m.value = value
+    err := m.GetBackingStore().Set("value", value)
+    if err != nil {
+        panic(err)
+    }
 }
 type MessagesDeltaGetResponseable interface {
     i992b4a960d2aac6ee675fd11b0e2cdb20526c4d5f58b360b5923c6d853233698.BaseDeltaFunctionResponseable

@@ -24,12 +24,12 @@ func NewMeRequestBuilder(rawUrl string, requestAdapter i2ae4187f7daee263371cb1c9
     urlParams["request-raw-url"] = rawUrl
     return NewMeRequestBuilderInternal(urlParams, requestAdapter)
 }
-// MailFolders provides operations to manage the mailFolders property of the microsoft.graph.user entity.
+// MailFolders the mailFolders property
 // returns a *MailFoldersRequestBuilder when successful
 func (m *MeRequestBuilder) MailFolders()(*MailFoldersRequestBuilder) {
     return NewMailFoldersRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)
 }
-// Messages provides operations to manage the messages property of the microsoft.graph.user entity.
+// Messages the messages property
 // returns a *MessagesRequestBuilder when successful
 func (m *MeRequestBuilder) Messages()(*MessagesRequestBuilder) {
     return NewMessagesRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)

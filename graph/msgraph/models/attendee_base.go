@@ -9,8 +9,6 @@ import (
 
 type AttendeeBase struct {
     Recipient
-    // The type of attendee. The possible values are: required, optional, resource. Currently if the attendee is a person, findMeetingTimes always considers the person is of the Required type.
-    typeEscaped *AttendeeType
 }
 // NewAttendeeBase instantiates a new AttendeeBase and sets the default values.
 func NewAttendeeBase()(*AttendeeBase) {
@@ -63,7 +61,14 @@ func (m *AttendeeBase) GetFieldDeserializers()(map[string]func(i878a80d2330e89d2
 // GetTypeEscaped gets the type property value. The type of attendee. The possible values are: required, optional, resource. Currently if the attendee is a person, findMeetingTimes always considers the person is of the Required type.
 // returns a *AttendeeType when successful
 func (m *AttendeeBase) GetTypeEscaped()(*AttendeeType) {
-    return m.typeEscaped
+    val, err := m.GetBackingStore().Get("typeEscaped")
+    if err != nil {
+        panic(err)
+    }
+    if val != nil {
+        return val.(*AttendeeType)
+    }
+    return nil
 }
 // Serialize serializes information the current object
 func (m *AttendeeBase) Serialize(writer i878a80d2330e89d26896388a3f487eef27b0a0e6c010c493bf80be1452208f91.SerializationWriter)(error) {
@@ -82,7 +87,10 @@ func (m *AttendeeBase) Serialize(writer i878a80d2330e89d26896388a3f487eef27b0a0e
 }
 // SetTypeEscaped sets the type property value. The type of attendee. The possible values are: required, optional, resource. Currently if the attendee is a person, findMeetingTimes always considers the person is of the Required type.
 func (m *AttendeeBase) SetTypeEscaped(value *AttendeeType)() {
-    m.typeEscaped = value
+    err := m.GetBackingStore().Set("typeEscaped", value)
+    if err != nil {
+        panic(err)
+    }
 }
 type AttendeeBaseable interface {
     i878a80d2330e89d26896388a3f487eef27b0a0e6c010c493bf80be1452208f91.Parsable

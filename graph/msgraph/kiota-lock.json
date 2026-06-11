@@ -1,13 +1,13 @@
 {
-  "descriptionHash": "1521200833CEA847A6C7C6A11B18B697DD77ED199E3D358D7FF4AB4D7C018F71098480EC799690496735DCA283BFB869D2C6079DE2D618C071936AE9F8677764",
-  "descriptionLocation": "../openapi.yaml",
+  "descriptionHash": "EAC8C69B58203DBCAC48C9642E1397EA3327F9116292343A54A3613E5979BB7E05729F6C54B630A61E4CE572BE30C7FCC67E3A78773D6B143093BE9744B1B43E",
+  "descriptionLocation": "../openapi.slim.yaml",
   "lockFileVersion": "1.0.0",
   "kiotaVersion": "1.32.1",
   "clientClassName": "ApiClient",
   "typeAccessModifier": "Public",
   "clientNamespaceName": "github.com/tgulacsi/imapclient/graph/msgraph",
   "language": "Go",
-  "usesBackingStore": false,
+  "usesBackingStore": true,
   "excludeBackwardCompatible": false,
   "includeAdditionalData": true,
   "disableSSLValidation": false,
@@ -29,14 +29,10 @@
     "multipart/form-data;q=0.1"
   ],
   "includePatterns": [
-    "/me/mailFolders",
+    "/users/*/messages/**",
     "/me/mailFolders/**",
-    "/me/messages",
-    "/me/messages/**",
-    "/users/*/mailFolders",
     "/users/*/mailFolders/**",
-    "/users/*/messages",
-    "/users/*/messages/**"
+    "/me/messages/**"
   ],
   "excludePatterns": [],
   "disabledValidationRules": []

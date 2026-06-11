@@ -10,8 +10,6 @@ import (
 
 type ItemMailFoldersItemChildFoldersItemMessagesDeltaGetResponse struct {
     i992b4a960d2aac6ee675fd11b0e2cdb20526c4d5f58b360b5923c6d853233698.BaseDeltaFunctionResponse
-    // The value property
-    value []i992b4a960d2aac6ee675fd11b0e2cdb20526c4d5f58b360b5923c6d853233698.Messageable
 }
 // NewItemMailFoldersItemChildFoldersItemMessagesDeltaGetResponse instantiates a new ItemMailFoldersItemChildFoldersItemMessagesDeltaGetResponse and sets the default values.
 func NewItemMailFoldersItemChildFoldersItemMessagesDeltaGetResponse()(*ItemMailFoldersItemChildFoldersItemMessagesDeltaGetResponse) {
@@ -50,7 +48,14 @@ func (m *ItemMailFoldersItemChildFoldersItemMessagesDeltaGetResponse) GetFieldDe
 // GetValue gets the value property value. The value property
 // returns a []Messageable when successful
 func (m *ItemMailFoldersItemChildFoldersItemMessagesDeltaGetResponse) GetValue()([]i992b4a960d2aac6ee675fd11b0e2cdb20526c4d5f58b360b5923c6d853233698.Messageable) {
-    return m.value
+    val, err := m.GetBackingStore().Get("value")
+    if err != nil {
+        panic(err)
+    }
+    if val != nil {
+        return val.([]i992b4a960d2aac6ee675fd11b0e2cdb20526c4d5f58b360b5923c6d853233698.Messageable)
+    }
+    return nil
 }
 // Serialize serializes information the current object
 func (m *ItemMailFoldersItemChildFoldersItemMessagesDeltaGetResponse) Serialize(writer i878a80d2330e89d26896388a3f487eef27b0a0e6c010c493bf80be1452208f91.SerializationWriter)(error) {
@@ -74,7 +79,10 @@ func (m *ItemMailFoldersItemChildFoldersItemMessagesDeltaGetResponse) Serialize(
 }
 // SetValue sets the value property value. The value property
 func (m *ItemMailFoldersItemChildFoldersItemMessagesDeltaGetResponse) SetValue(value []i992b4a960d2aac6ee675fd11b0e2cdb20526c4d5f58b360b5923c6d853233698.Messageable)() {
-    m.value = value
+    err := m.GetBackingStore().Set("value", value)
+    if err != nil {
+        panic(err)
+    }
 }
 type ItemMailFoldersItemChildFoldersItemMessagesDeltaGetResponseable interface {
     i992b4a960d2aac6ee675fd11b0e2cdb20526c4d5f58b360b5923c6d853233698.BaseDeltaFunctionResponseable

@@ -27,8 +27,13 @@ import (
 
 	// msgraph "github.com/microsoftgraph/msgraph-sdk-go"
 	msgraphcore "github.com/microsoftgraph/msgraph-sdk-go-core"
+<<<<<<< Updated upstream
 	msgraph "github.com/tgulacsi/imapclient/graph/msgraph"
 	// "github.com/microsoftgraph/msgraph-sdk-go/models"
+=======
+	// "github.com/microsoftgraph/msgraph-sdk-go/models"
+	msgraph "github.com/tgulacsi/imapclient/graph/msgraph"
+>>>>>>> Stashed changes
 	"github.com/tgulacsi/imapclient/graph/msgraph/models"
 	// graphusers "github.com/microsoftgraph/msgraph-sdk-go/users"
 	graphusers "github.com/tgulacsi/imapclient/graph/msgraph/users"

@@ -39,12 +39,17 @@ func NewProxy(ctx context.Context,
 			return nil, err
 		}
 	}
+	done := ctx.Done()
+	logger := zlog.SFromContext(ctx)
+	ctx, cancel := context.WithCancel(context.Background())
+	ctx = zlog.NewSContext(ctx, logger)
+	go func() { <-done; cancel() }()
 	P := proxy{
-		ctx: ctx, clientID: clientID, credOpts: credOpts,
+		ctx:      ctx,
+		clientID: clientID, credOpts: credOpts,
 		folders: make(map[string]map[string]*Folder),
 		limit:   rate.Limit(rateLimit),
 	}
-	logger := P.logger()
 	os.MkdirAll(cacheDir, 0750)
 	if cacheSizeMiB < 1 {
 		cacheSizeMiB = 512
@@ -97,7 +102,7 @@ func NewProxy(ctx context.Context,
 		// the server is susceptible to man-in-the-middle attacks.
 		InsecureAuth: true,
 	}
-	if logger.Enabled(ctx, slog.LevelDebug) {
+	if false && logger.Enabled(ctx, slog.LevelDebug) {
 		// Raw ingress and egress data will be written to this writer, if any.
 		// Note, this may include sensitive information such as credentials used
 		// during authentication.
@@ -105,6 +110,7 @@ func NewProxy(ctx context.Context,
 	}
 
 	P.srv = imapserver.New(&opts)
+	P.logger().Debug("imapserver.New", "opts", opts)
 	return &P, nil
 }
 
@@ -120,6 +126,7 @@ func (P *proxy) ListenAndServe(addr string) error {
 	if addr == "" {
 		addr = ":143"
 	}
+	P.logger().Info("listen", "addr", addr)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
@@ -166,12 +173,7 @@ func (P *proxy) Close() error {
 	return nil
 }
 
-func (P *proxy) logger() *slog.Logger {
-	if lgr := zlog.SFromContext(P.ctx); lgr != nil {
-		return lgr
-	}
-	return slog.Default()
-}
+func (P *proxy) logger() *slog.Logger { return zlog.SFromContext(P.ctx) }
 
 func (P *proxy) connect(ctx context.Context, user, tenantID, clientSecret string) (graph.GraphMailClient, []graph.User, map[string]*Folder, error) {
 	logger := P.logger().With("tenantID", tenantID, "clientID", P.clientID, "clientSecretLen", len(clientSecret), "user", user)

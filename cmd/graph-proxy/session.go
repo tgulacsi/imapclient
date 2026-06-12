@@ -23,6 +23,7 @@ import (
 	"golang.org/x/exp/maps"
 
 	"github.com/UNO-SOFT/filecache"
+	"github.com/UNO-SOFT/zlog/v2"
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapserver"
 	gomessage "github.com/emersion/go-message"
@@ -81,21 +82,27 @@ func (s *session) Close() error {
 
 // Login with username\x0AtenantID, clientSecret
 func (s *session) Login(username, password string) error {
-	user, tenantID, ok := strings.Cut(username, "\x0A")
-	if !ok {
-		if user, tenantID, ok = strings.Cut(username, ","); !ok {
-			return fmt.Errorf("%w: username is missing \\x0AtenantID: %q", imapserver.ErrAuthFailed, username)
+	logger := s.logger().With("username", username, "password", strings.Repeat("*", len(password)))
+	var user, tenantID string
+	var ok bool
+	for _, sep := range []string{"\x0A", "%0A", ","} {
+		if user, tenantID, ok = strings.Cut(username, sep); ok {
+			break
 		}
 	}
+	if !ok {
+		logger.Error("username is missing [\\x0A%0A,]tenantID", "username", username)
+		return fmt.Errorf("%w: username is missing \\x0AtenantID: %q", imapserver.ErrAuthFailed, username)
+	}
 	clientSecret := password
-	logger := s.logger().With("username", username, "password", password,
-		"user", user, "tenantID", tenantID, "clientID", s.p.clientID, "clientSecretLen", len(clientSecret))
+	logger.Info("Login", "user", user, "tenantID", tenantID, "clientID", s.p.clientID, "clientSecretLen", len(clientSecret))
 	s.userID = ""
 	ctx, cancel := context.WithTimeout(s.p.ctx, 3*time.Minute)
 	defer cancel()
 	var err error
+	logger.Info("connect")
 	if s.cl, s.users, s.folders, err = s.p.connect(
-		ctx, user, tenantID, clientSecret,
+		zlog.NewSContext(ctx, logger), user, tenantID, clientSecret,
 	); err != nil {
 		logger.Error("connect", "error", err)
 		return fmt.Errorf("%w: %w", err, imapserver.ErrAuthFailed)

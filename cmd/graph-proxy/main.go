@@ -65,6 +65,7 @@ func Main() error {
 				addr = args[0]
 			}
 			logger.Info("Listen", "addr", addr)
+			slog.SetDefault(logger)
 			p, err := NewProxy(
 				zlog.NewSContext(ctx, logger),
 				*flagClientID, *flagClientCert, *flagRedirectURI,

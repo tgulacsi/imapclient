@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/mail"
 	"strings"
 	"sync"
 
@@ -108,6 +109,9 @@ func (S *session) Rcpt(to string, opts *smtp.RcptOptions) error {
 //
 // r must be consumed before Data returns.
 func (S *session) Data(r io.Reader) error {
-	// S.client.CreateMessage(S.p.ctx, "")
-	return fmt.Errorf("not implemented")
+	msg, err := mail.ReadMessage(r)
+	if err != nil {
+		return err
+	}
+	return S.client.SendMail(S.p.ctx, "", msg, true)
 }

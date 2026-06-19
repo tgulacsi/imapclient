@@ -11,13 +11,17 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"golang.org/x/crypto/pkcs12"
 	"io"
 	"log/slog"
+	"mime"
+	"net/mail"
 	"slices"
 	"strings"
 
+	"golang.org/x/crypto/pkcs12"
+
 	"github.com/UNO-SOFT/zlog/v2"
+	"github.com/emersion/go-message"
 	"github.com/microsoft/kiota-abstractions-go/serialization"
 	"golang.org/x/time/rate"
 
@@ -27,6 +31,7 @@ import (
 
 	msgraph "github.com/microsoftgraph/msgraph-sdk-go"
 	msgraphcore "github.com/microsoftgraph/msgraph-sdk-go-core"
+
 	// msgraph "github.com/tgulacsi/imapclient/graph/msgraph"
 	"github.com/microsoftgraph/msgraph-sdk-go/models"
 	// "github.com/tgulacsi/imapclient/graph/msgraph/models"
@@ -711,6 +716,65 @@ func (g GraphMailClient) ListMailFolders(ctx context.Context, userID string, que
 	return folders, err
 }
 
+func (g GraphMailClient) SendMail(ctx context.Context, userID string, msg *mail.Message, saveToSentItems bool) error {
+	ent, err := message.New(message.HeaderFromMap(msg.Header), msg.Body)
+	if err != nil {
+		return err
+	}
+	m := models.NewMessage()
+	var body *models.ItemBody
+	m.SetInternetMessageHeaders(toInternetMessageHeader(msg.Header))
+	var attachments []models.Attachmentable
+	if err = ent.Walk(func(path []int, entity *message.Entity, err error) error {
+		if err != nil {
+			return err
+		}
+		ct := ent.Header.Get("Content-Type")
+		if body == nil {
+			if strings.HasPrefix(ct, "text/") {
+				body = models.NewItemBody()
+				typ := models.TEXT_BODYTYPE
+				if strings.HasPrefix(ct, "text/html") {
+					typ = models.HTML_BODYTYPE
+				}
+				body.SetContentType(&typ)
+			}
+			var buf strings.Builder
+			if err = ent.WriteTo(&buf); err != nil {
+				return err
+			}
+			s := buf.String()
+			body.SetContent(&s)
+		} else if len(attachments) == 0 || len(path) < 2 {
+			cd, params, _ := mime.ParseMediaType(ent.Header.Get("Content-Disposition"))
+			a := models.NewFileAttachment()
+			a.SetContentType(&ct)
+			fn := params["filename"]
+			a.SetName(&fn)
+			inline := cd == "inline"
+			a.SetIsInline(&inline)
+			b, err := io.ReadAll(ent.Body)
+			if err != nil {
+				return err
+			}
+			a.SetContentBytes(b)
+			attachments = append(attachments, a)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	m.SetBody(body)
+	if len(attachments) != 0 {
+		m.SetAttachments(attachments)
+	}
+
+	requestBody := graphusers.NewItemSendMailPostRequestBody()
+	requestBody.SetMessage(m)
+	requestBody.SetSaveToSentItems(&saveToSentItems)
+	return g.user(userID).SendMail().Post(ctx, requestBody, nil)
+}
+
 func (g GraphMailClient) user(userID string) *graphusers.UserItemRequestBuilder {
 	if g.isDelegated {
 		return g.client.Me()
@@ -728,3 +792,14 @@ type JSON struct {
 
 func (j JSON) String() string               { v, _ := serialization.SerializeToJson(j.Parsable); return string(v) }
 func (j JSON) MarshalJSON() ([]byte, error) { return serialization.SerializeToJson(j.Parsable) }
+
+func toInternetMessageHeader(h mail.Header) []models.InternetMessageHeaderable {
+	hh := make([]models.InternetMessageHeaderable, 0, len(h))
+	for k := range h {
+		var imh models.InternetMessageHeader
+		imh.SetName(new(k))
+		imh.SetValue(new(h.Get(k)))
+		hh = append(hh, &imh)
+	}
+	return hh
+}

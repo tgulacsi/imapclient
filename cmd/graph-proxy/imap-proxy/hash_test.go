@@ -1,6 +1,8 @@
-// Copyright 2024 Tamás Gulácsi. All rights reserved.
+// Copyright 2024, 2026 Tamás Gulácsi. All rights reserved.
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
-package main_test
+package imap_proxy_test
 
 import (
 	"crypto/rand"

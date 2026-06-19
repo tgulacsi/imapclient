@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-package main
+package imap_proxy
 
 import (
 	"context"
@@ -11,34 +11,19 @@ import (
 	"net"
 	"os"
 	"sync"
-	"time"
-
-	"golang.org/x/time/rate"
 
 	"github.com/UNO-SOFT/filecache"
 	"github.com/UNO-SOFT/zlog/v2"
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapserver"
+	pconfig "github.com/tgulacsi/imapclient/cmd/graph-proxy/lib"
 	"github.com/tgulacsi/imapclient/graph"
 )
 
-func NewProxy(ctx context.Context,
-	clientID, clientCert, redirectURI,
+func New(
+	ctx context.Context, config pconfig.ProxyConfig,
 	cacheDir string, cacheSizeMiB int,
-	rateLimit float64,
 ) (*proxy, error) {
-	credOpts := graph.CredentialOptions{RedirectURL: redirectURI}
-	if clientCert != "" {
-		fh, err := os.Open(clientCert)
-		if err != nil {
-			return nil, err
-		}
-		credOpts.Certs, credOpts.Key, err = graph.ParseCertificates(fh, "")
-		fh.Close()
-		if err != nil {
-			return nil, err
-		}
-	}
 	done := ctx.Done()
 	logger := zlog.SFromContext(ctx)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -46,15 +31,17 @@ func NewProxy(ctx context.Context,
 	go func() { <-done; cancel() }()
 	P := proxy{
 		ctx:      ctx,
-		clientID: clientID, credOpts: credOpts,
-		folders: make(map[string]map[string]*Folder),
-		limit:   rate.Limit(rateLimit),
+		clientID: config.ClientID,
+		folders:  make(map[string]map[string]*Folder),
+	}
+	var err error
+	if P.clients, err = pconfig.NewClientCache(config); err != nil {
+		return nil, err
 	}
 	os.MkdirAll(cacheDir, 0750)
 	if cacheSizeMiB < 1 {
 		cacheSizeMiB = 512
 	}
-	var err error
 	if P.cache, err = filecache.Open(
 		cacheDir,
 		filecache.WithMaxSize(int64(cacheSizeMiB)<<20),
@@ -152,14 +139,12 @@ type proxy struct {
 	ctx     context.Context
 	srv     *imapserver.Server
 	cache   *filecache.Cache
-	clients map[string]clientUsers
+	clients *pconfig.ClientCache
 	folders map[string]map[string]*Folder
 	// client                           *graph.GraphMailClient
 	//tenantID string
 	idm      *uidMap
 	clientID string
-	credOpts graph.CredentialOptions
-	limit    rate.Limit
 
 	mu sync.RWMutex
 }
@@ -176,43 +161,20 @@ func (P *proxy) Close() error {
 func (P *proxy) logger() *slog.Logger { return zlog.SFromContext(P.ctx) }
 
 func (P *proxy) connect(ctx context.Context, user, tenantID, clientSecret string) (graph.GraphMailClient, []graph.User, map[string]*Folder, error) {
-	logger := P.logger().With("tenantID", tenantID, "clientID", P.clientID, "clientSecretLen", len(clientSecret), "user", user)
 	P.mu.Lock()
 	defer P.mu.Unlock()
-	key := tenantID + "\t" + clientSecret
+	key := P.clients.Key(tenantID, clientSecret)
 	if P.folders == nil {
 		P.folders = make(map[string]map[string]*Folder)
+	}
+	cl, users, err := P.clients.Get(ctx, tenantID, clientSecret, user)
+	if err != nil {
+		return cl, nil, nil, err
 	}
 	if P.folders[key] == nil {
 		P.folders[key] = make(map[string]*Folder)
 	}
-	if clu, ok := P.clients[key]; ok {
-		logger.Debug("client cached")
-		return clu.Client, clu.Users, P.folders[key], nil
-	}
-	start := time.Now()
-	credOpts := P.credOpts
-	credOpts.Secret = clientSecret
-	if credOpts.IDOrPrincipalName == "" {
-		credOpts.IDOrPrincipalName = user
-	}
-	cl, users, err := graph.NewGraphMailClient(ctx, tenantID, P.clientID, credOpts)
-	if err != nil {
-		logger.Error("NewGraphMailClient", "dur", time.Since(start).String(), "error", err)
-		return graph.GraphMailClient{}, nil, nil, err
-	}
-	cl.SetLimit(P.limit)
-	logger.Debug("NewGraphMailClient", "users", users, "dur", time.Since(start).String())
-	if P.clients == nil {
-		P.clients = make(map[string]clientUsers)
-	}
-	P.clients[key] = clientUsers{Client: cl, Users: users}
 	return cl, users, P.folders[key], err
-}
-
-type clientUsers struct {
-	Client graph.GraphMailClient
-	Users  []graph.User
 }
 
 type slogDebugWriter struct{ *slog.Logger }

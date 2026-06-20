@@ -9,7 +9,7 @@ import (
     i4673b2807224f76513c7589a2d12fd7613a4c21f3227908c03a056df70ee6137 "github.com/tgulacsi/imapclient/graph/msgraph/models/odataerrors"
 )
 
-// MessagesItemForwardRequestBuilder provides operations to call the forward method.
+// MessagesItemForwardRequestBuilder builds and executes requests for operations under \me\messages\{message-id}\forward
 type MessagesItemForwardRequestBuilder struct {
     i2ae4187f7daee263371cb1c977df639813ab50ffa529013b7437480d1ec0158f.BaseRequestBuilder
 }

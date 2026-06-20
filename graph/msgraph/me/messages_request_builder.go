@@ -11,7 +11,7 @@ import (
 type MessagesRequestBuilder struct {
     i2ae4187f7daee263371cb1c977df639813ab50ffa529013b7437480d1ec0158f.BaseRequestBuilder
 }
-// ByMessageId provides operations to manage the messages property of the microsoft.graph.user entity.
+// ByMessageId gets an item from the github.com/tgulacsi/imapclient/graph/msgraph.me.messages.item collection
 // returns a *MessagesMessageItemRequestBuilder when successful
 func (m *MessagesRequestBuilder) ByMessageId(messageId string)(*MessagesMessageItemRequestBuilder) {
     urlTplParams := make(map[string]string)
@@ -36,12 +36,12 @@ func NewMessagesRequestBuilder(rawUrl string, requestAdapter i2ae4187f7daee26337
     urlParams["request-raw-url"] = rawUrl
     return NewMessagesRequestBuilderInternal(urlParams, requestAdapter)
 }
-// Count provides operations to count the resources in the collection.
+// Count the Count property
 // returns a *MessagesCountRequestBuilder when successful
 func (m *MessagesRequestBuilder) Count()(*MessagesCountRequestBuilder) {
     return NewMessagesCountRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)
 }
-// Delta provides operations to call the delta method.
+// Delta the delta property
 // returns a *MessagesDeltaRequestBuilder when successful
 func (m *MessagesRequestBuilder) Delta()(*MessagesDeltaRequestBuilder) {
     return NewMessagesDeltaRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)

@@ -11,7 +11,7 @@ import (
 type ItemMailFoldersRequestBuilder struct {
     i2ae4187f7daee263371cb1c977df639813ab50ffa529013b7437480d1ec0158f.BaseRequestBuilder
 }
-// ByMailFolderId provides operations to manage the mailFolders property of the microsoft.graph.user entity.
+// ByMailFolderId gets an item from the github.com/tgulacsi/imapclient/graph/msgraph.users.item.mailFolders.item collection
 // returns a *ItemMailFoldersMailFolderItemRequestBuilder when successful
 func (m *ItemMailFoldersRequestBuilder) ByMailFolderId(mailFolderId string)(*ItemMailFoldersMailFolderItemRequestBuilder) {
     urlTplParams := make(map[string]string)
@@ -36,12 +36,12 @@ func NewItemMailFoldersRequestBuilder(rawUrl string, requestAdapter i2ae4187f7da
     urlParams["request-raw-url"] = rawUrl
     return NewItemMailFoldersRequestBuilderInternal(urlParams, requestAdapter)
 }
-// Count provides operations to count the resources in the collection.
+// Count the Count property
 // returns a *ItemMailFoldersCountRequestBuilder when successful
 func (m *ItemMailFoldersRequestBuilder) Count()(*ItemMailFoldersCountRequestBuilder) {
     return NewItemMailFoldersCountRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)
 }
-// Delta provides operations to call the delta method.
+// Delta the delta property
 // returns a *ItemMailFoldersDeltaRequestBuilder when successful
 func (m *ItemMailFoldersRequestBuilder) Delta()(*ItemMailFoldersDeltaRequestBuilder) {
     return NewItemMailFoldersDeltaRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)

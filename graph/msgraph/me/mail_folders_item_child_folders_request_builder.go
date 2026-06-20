@@ -10,7 +10,7 @@ import (
     i4673b2807224f76513c7589a2d12fd7613a4c21f3227908c03a056df70ee6137 "github.com/tgulacsi/imapclient/graph/msgraph/models/odataerrors"
 )
 
-// MailFoldersItemChildFoldersRequestBuilder provides operations to manage the childFolders property of the microsoft.graph.mailFolder entity.
+// MailFoldersItemChildFoldersRequestBuilder builds and executes requests for operations under \me\mailFolders\{mailFolder-id}\childFolders
 type MailFoldersItemChildFoldersRequestBuilder struct {
     i2ae4187f7daee263371cb1c977df639813ab50ffa529013b7437480d1ec0158f.BaseRequestBuilder
 }
@@ -51,7 +51,7 @@ type MailFoldersItemChildFoldersRequestBuilderPostRequestConfiguration struct {
     // Request options
     Options []i2ae4187f7daee263371cb1c977df639813ab50ffa529013b7437480d1ec0158f.RequestOption
 }
-// ByMailFolderId1 provides operations to manage the childFolders property of the microsoft.graph.mailFolder entity.
+// ByMailFolderId1 gets an item from the github.com/tgulacsi/imapclient/graph/msgraph.me.mailFolders.item.childFolders.item collection
 // returns a *MailFoldersItemChildFoldersMailFolderItemRequestBuilder when successful
 func (m *MailFoldersItemChildFoldersRequestBuilder) ByMailFolderId1(mailFolderId1 string)(*MailFoldersItemChildFoldersMailFolderItemRequestBuilder) {
     urlTplParams := make(map[string]string)
@@ -76,12 +76,12 @@ func NewMailFoldersItemChildFoldersRequestBuilder(rawUrl string, requestAdapter 
     urlParams["request-raw-url"] = rawUrl
     return NewMailFoldersItemChildFoldersRequestBuilderInternal(urlParams, requestAdapter)
 }
-// Count provides operations to count the resources in the collection.
+// Count the Count property
 // returns a *MailFoldersItemChildFoldersCountRequestBuilder when successful
 func (m *MailFoldersItemChildFoldersRequestBuilder) Count()(*MailFoldersItemChildFoldersCountRequestBuilder) {
     return NewMailFoldersItemChildFoldersCountRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)
 }
-// Delta provides operations to call the delta method.
+// Delta the delta property
 // returns a *MailFoldersItemChildFoldersDeltaRequestBuilder when successful
 func (m *MailFoldersItemChildFoldersRequestBuilder) Delta()(*MailFoldersItemChildFoldersDeltaRequestBuilder) {
     return NewMailFoldersItemChildFoldersDeltaRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)

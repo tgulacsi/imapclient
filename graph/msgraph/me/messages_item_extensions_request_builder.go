@@ -10,7 +10,7 @@ import (
     i4673b2807224f76513c7589a2d12fd7613a4c21f3227908c03a056df70ee6137 "github.com/tgulacsi/imapclient/graph/msgraph/models/odataerrors"
 )
 
-// MessagesItemExtensionsRequestBuilder provides operations to manage the extensions property of the microsoft.graph.message entity.
+// MessagesItemExtensionsRequestBuilder builds and executes requests for operations under \me\messages\{message-id}\extensions
 type MessagesItemExtensionsRequestBuilder struct {
     i2ae4187f7daee263371cb1c977df639813ab50ffa529013b7437480d1ec0158f.BaseRequestBuilder
 }
@@ -49,7 +49,7 @@ type MessagesItemExtensionsRequestBuilderPostRequestConfiguration struct {
     // Request options
     Options []i2ae4187f7daee263371cb1c977df639813ab50ffa529013b7437480d1ec0158f.RequestOption
 }
-// ByExtensionId provides operations to manage the extensions property of the microsoft.graph.message entity.
+// ByExtensionId gets an item from the github.com/tgulacsi/imapclient/graph/msgraph.me.messages.item.extensions.item collection
 // returns a *MessagesItemExtensionsExtensionItemRequestBuilder when successful
 func (m *MessagesItemExtensionsRequestBuilder) ByExtensionId(extensionId string)(*MessagesItemExtensionsExtensionItemRequestBuilder) {
     urlTplParams := make(map[string]string)
@@ -74,7 +74,7 @@ func NewMessagesItemExtensionsRequestBuilder(rawUrl string, requestAdapter i2ae4
     urlParams["request-raw-url"] = rawUrl
     return NewMessagesItemExtensionsRequestBuilderInternal(urlParams, requestAdapter)
 }
-// Count provides operations to count the resources in the collection.
+// Count the Count property
 // returns a *MessagesItemExtensionsCountRequestBuilder when successful
 func (m *MessagesItemExtensionsRequestBuilder) Count()(*MessagesItemExtensionsCountRequestBuilder) {
     return NewMessagesItemExtensionsCountRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)

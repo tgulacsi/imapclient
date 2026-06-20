@@ -10,7 +10,7 @@ import (
     i4673b2807224f76513c7589a2d12fd7613a4c21f3227908c03a056df70ee6137 "github.com/tgulacsi/imapclient/graph/msgraph/models/odataerrors"
 )
 
-// MessagesMessageItemRequestBuilder provides operations to manage the messages property of the microsoft.graph.user entity.
+// MessagesMessageItemRequestBuilder builds and executes requests for operations under \me\messages\{message-id}
 type MessagesMessageItemRequestBuilder struct {
     i2ae4187f7daee263371cb1c977df639813ab50ffa529013b7437480d1ec0158f.BaseRequestBuilder
 }
@@ -44,7 +44,7 @@ type MessagesMessageItemRequestBuilderPatchRequestConfiguration struct {
     // Request options
     Options []i2ae4187f7daee263371cb1c977df639813ab50ffa529013b7437480d1ec0158f.RequestOption
 }
-// Attachments provides operations to manage the attachments property of the microsoft.graph.message entity.
+// Attachments the attachments property
 // returns a *MessagesItemAttachmentsRequestBuilder when successful
 func (m *MessagesMessageItemRequestBuilder) Attachments()(*MessagesItemAttachmentsRequestBuilder) {
     return NewMessagesItemAttachmentsRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)
@@ -62,27 +62,27 @@ func NewMessagesMessageItemRequestBuilder(rawUrl string, requestAdapter i2ae4187
     urlParams["request-raw-url"] = rawUrl
     return NewMessagesMessageItemRequestBuilderInternal(urlParams, requestAdapter)
 }
-// Content provides operations to manage the media for the user entity.
+// Content the Content property
 // returns a *MessagesItemValueContentRequestBuilder when successful
 func (m *MessagesMessageItemRequestBuilder) Content()(*MessagesItemValueContentRequestBuilder) {
     return NewMessagesItemValueContentRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)
 }
-// Copy provides operations to call the copy method.
+// Copy the copy property
 // returns a *MessagesItemCopyRequestBuilder when successful
 func (m *MessagesMessageItemRequestBuilder) Copy()(*MessagesItemCopyRequestBuilder) {
     return NewMessagesItemCopyRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)
 }
-// CreateForward provides operations to call the createForward method.
+// CreateForward the createForward property
 // returns a *MessagesItemCreateForwardRequestBuilder when successful
 func (m *MessagesMessageItemRequestBuilder) CreateForward()(*MessagesItemCreateForwardRequestBuilder) {
     return NewMessagesItemCreateForwardRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)
 }
-// CreateReply provides operations to call the createReply method.
+// CreateReply the createReply property
 // returns a *MessagesItemCreateReplyRequestBuilder when successful
 func (m *MessagesMessageItemRequestBuilder) CreateReply()(*MessagesItemCreateReplyRequestBuilder) {
     return NewMessagesItemCreateReplyRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)
 }
-// CreateReplyAll provides operations to call the createReplyAll method.
+// CreateReplyAll the createReplyAll property
 // returns a *MessagesItemCreateReplyAllRequestBuilder when successful
 func (m *MessagesMessageItemRequestBuilder) CreateReplyAll()(*MessagesItemCreateReplyAllRequestBuilder) {
     return NewMessagesItemCreateReplyAllRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)
@@ -106,12 +106,12 @@ func (m *MessagesMessageItemRequestBuilder) Delete(ctx context.Context, requestC
     }
     return nil
 }
-// Extensions provides operations to manage the extensions property of the microsoft.graph.message entity.
+// Extensions the extensions property
 // returns a *MessagesItemExtensionsRequestBuilder when successful
 func (m *MessagesMessageItemRequestBuilder) Extensions()(*MessagesItemExtensionsRequestBuilder) {
     return NewMessagesItemExtensionsRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)
 }
-// Forward provides operations to call the forward method.
+// Forward the forward property
 // returns a *MessagesItemForwardRequestBuilder when successful
 func (m *MessagesMessageItemRequestBuilder) Forward()(*MessagesItemForwardRequestBuilder) {
     return NewMessagesItemForwardRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)
@@ -139,7 +139,7 @@ func (m *MessagesMessageItemRequestBuilder) Get(ctx context.Context, requestConf
     }
     return res.(i992b4a960d2aac6ee675fd11b0e2cdb20526c4d5f58b360b5923c6d853233698.Messageable), nil
 }
-// Move provides operations to call the move method.
+// Move the move property
 // returns a *MessagesItemMoveRequestBuilder when successful
 func (m *MessagesMessageItemRequestBuilder) Move()(*MessagesItemMoveRequestBuilder) {
     return NewMessagesItemMoveRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)
@@ -167,22 +167,22 @@ func (m *MessagesMessageItemRequestBuilder) Patch(ctx context.Context, body i992
     }
     return res.(i992b4a960d2aac6ee675fd11b0e2cdb20526c4d5f58b360b5923c6d853233698.Messageable), nil
 }
-// PermanentDelete provides operations to call the permanentDelete method.
+// PermanentDelete the permanentDelete property
 // returns a *MessagesItemPermanentDeleteRequestBuilder when successful
 func (m *MessagesMessageItemRequestBuilder) PermanentDelete()(*MessagesItemPermanentDeleteRequestBuilder) {
     return NewMessagesItemPermanentDeleteRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)
 }
-// Reply provides operations to call the reply method.
+// Reply the reply property
 // returns a *MessagesItemReplyRequestBuilder when successful
 func (m *MessagesMessageItemRequestBuilder) Reply()(*MessagesItemReplyRequestBuilder) {
     return NewMessagesItemReplyRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)
 }
-// ReplyAll provides operations to call the replyAll method.
+// ReplyAll the replyAll property
 // returns a *MessagesItemReplyAllRequestBuilder when successful
 func (m *MessagesMessageItemRequestBuilder) ReplyAll()(*MessagesItemReplyAllRequestBuilder) {
     return NewMessagesItemReplyAllRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)
 }
-// Send provides operations to call the send method.
+// Send the send property
 // returns a *MessagesItemSendRequestBuilder when successful
 func (m *MessagesMessageItemRequestBuilder) Send()(*MessagesItemSendRequestBuilder) {
     return NewMessagesItemSendRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)

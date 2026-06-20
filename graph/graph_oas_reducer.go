@@ -222,18 +222,16 @@ func filterPathItem(path string, item map[string]any, includeUsersList bool) (ma
 	out := map[string]any{}
 	keptOps := 0
 	for _, k := range slices.Sorted(maps.Keys(item)) {
-		v := item[k]
 		lk := strings.ToLower(k)
-		if httpMethods[lk] {
-			if mail || (usersList && lk == "get") {
-				out[k] = v
-				keptOps++
-			}
+		if !httpMethods[lk] {
 			continue
 		}
-
+		if !mail && !(usersList && lk == "get") {
+			continue
+		}
 		// Preserve Path Item metadata and shared path-level parameters.
-		out[k] = v
+		out[k] = item[k]
+		keptOps++
 	}
 
 	if keptOps == 0 {
@@ -243,7 +241,7 @@ func filterPathItem(path string, item map[string]any, includeUsersList bool) (ma
 }
 
 func isMailPath(path string) bool {
-	if hasPathPrefix(path, "/me/mailFolders") || hasPathPrefix(path, "/me/messages") {
+	if (hasPathPrefix(path, "/me") || hasPathPrefix(path, "/users")) && (pathContains(path, "/mailFolders") || (pathContains(path, "/messages") && !pathContains(path, "/chats") && !pathContains(path, "/joinedTeams"))) {
 		return true
 	}
 
@@ -261,6 +259,9 @@ func isUsersListPath(path string) bool {
 
 func hasPathPrefix(path, base string) bool {
 	return path == base || strings.HasPrefix(path, base+"/")
+}
+func pathContains(path, part string) bool {
+	return strings.HasSuffix(path, part) || strings.Contains(path, part+"/")
 }
 
 func splitPath(path string) []string {

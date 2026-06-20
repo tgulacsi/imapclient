@@ -10,7 +10,7 @@ import (
     i4673b2807224f76513c7589a2d12fd7613a4c21f3227908c03a056df70ee6137 "github.com/tgulacsi/imapclient/graph/msgraph/models/odataerrors"
 )
 
-// ItemMailFoldersItemChildFoldersItemMessageRulesRequestBuilder provides operations to manage the messageRules property of the microsoft.graph.mailFolder entity.
+// ItemMailFoldersItemChildFoldersItemMessageRulesRequestBuilder builds and executes requests for operations under \users\{user-id}\mailFolders\{mailFolder-id}\childFolders\{mailFolder-id1}\messageRules
 type ItemMailFoldersItemChildFoldersItemMessageRulesRequestBuilder struct {
     i2ae4187f7daee263371cb1c977df639813ab50ffa529013b7437480d1ec0158f.BaseRequestBuilder
 }
@@ -49,7 +49,7 @@ type ItemMailFoldersItemChildFoldersItemMessageRulesRequestBuilderPostRequestCon
     // Request options
     Options []i2ae4187f7daee263371cb1c977df639813ab50ffa529013b7437480d1ec0158f.RequestOption
 }
-// ByMessageRuleId provides operations to manage the messageRules property of the microsoft.graph.mailFolder entity.
+// ByMessageRuleId gets an item from the github.com/tgulacsi/imapclient/graph/msgraph.users.item.mailFolders.item.childFolders.item.messageRules.item collection
 // returns a *ItemMailFoldersItemChildFoldersItemMessageRulesMessageRuleItemRequestBuilder when successful
 func (m *ItemMailFoldersItemChildFoldersItemMessageRulesRequestBuilder) ByMessageRuleId(messageRuleId string)(*ItemMailFoldersItemChildFoldersItemMessageRulesMessageRuleItemRequestBuilder) {
     urlTplParams := make(map[string]string)
@@ -74,7 +74,7 @@ func NewItemMailFoldersItemChildFoldersItemMessageRulesRequestBuilder(rawUrl str
     urlParams["request-raw-url"] = rawUrl
     return NewItemMailFoldersItemChildFoldersItemMessageRulesRequestBuilderInternal(urlParams, requestAdapter)
 }
-// Count provides operations to count the resources in the collection.
+// Count the Count property
 // returns a *ItemMailFoldersItemChildFoldersItemMessageRulesCountRequestBuilder when successful
 func (m *ItemMailFoldersItemChildFoldersItemMessageRulesRequestBuilder) Count()(*ItemMailFoldersItemChildFoldersItemMessageRulesCountRequestBuilder) {
     return NewItemMailFoldersItemChildFoldersItemMessageRulesCountRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)

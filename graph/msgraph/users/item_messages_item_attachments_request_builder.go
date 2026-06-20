@@ -10,7 +10,7 @@ import (
     i4673b2807224f76513c7589a2d12fd7613a4c21f3227908c03a056df70ee6137 "github.com/tgulacsi/imapclient/graph/msgraph/models/odataerrors"
 )
 
-// ItemMessagesItemAttachmentsRequestBuilder provides operations to manage the attachments property of the microsoft.graph.message entity.
+// ItemMessagesItemAttachmentsRequestBuilder builds and executes requests for operations under \users\{user-id}\messages\{message-id}\attachments
 type ItemMessagesItemAttachmentsRequestBuilder struct {
     i2ae4187f7daee263371cb1c977df639813ab50ffa529013b7437480d1ec0158f.BaseRequestBuilder
 }
@@ -49,7 +49,7 @@ type ItemMessagesItemAttachmentsRequestBuilderPostRequestConfiguration struct {
     // Request options
     Options []i2ae4187f7daee263371cb1c977df639813ab50ffa529013b7437480d1ec0158f.RequestOption
 }
-// ByAttachmentId provides operations to manage the attachments property of the microsoft.graph.message entity.
+// ByAttachmentId gets an item from the github.com/tgulacsi/imapclient/graph/msgraph.users.item.messages.item.attachments.item collection
 // returns a *ItemMessagesItemAttachmentsAttachmentItemRequestBuilder when successful
 func (m *ItemMessagesItemAttachmentsRequestBuilder) ByAttachmentId(attachmentId string)(*ItemMessagesItemAttachmentsAttachmentItemRequestBuilder) {
     urlTplParams := make(map[string]string)
@@ -74,12 +74,12 @@ func NewItemMessagesItemAttachmentsRequestBuilder(rawUrl string, requestAdapter 
     urlParams["request-raw-url"] = rawUrl
     return NewItemMessagesItemAttachmentsRequestBuilderInternal(urlParams, requestAdapter)
 }
-// Count provides operations to count the resources in the collection.
+// Count the Count property
 // returns a *ItemMessagesItemAttachmentsCountRequestBuilder when successful
 func (m *ItemMessagesItemAttachmentsRequestBuilder) Count()(*ItemMessagesItemAttachmentsCountRequestBuilder) {
     return NewItemMessagesItemAttachmentsCountRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)
 }
-// CreateUploadSession provides operations to call the createUploadSession method.
+// CreateUploadSession the createUploadSession property
 // returns a *ItemMessagesItemAttachmentsCreateUploadSessionRequestBuilder when successful
 func (m *ItemMessagesItemAttachmentsRequestBuilder) CreateUploadSession()(*ItemMessagesItemAttachmentsCreateUploadSessionRequestBuilder) {
     return NewItemMessagesItemAttachmentsCreateUploadSessionRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)

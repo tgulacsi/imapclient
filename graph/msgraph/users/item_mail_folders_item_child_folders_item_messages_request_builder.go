@@ -10,7 +10,7 @@ import (
     i4673b2807224f76513c7589a2d12fd7613a4c21f3227908c03a056df70ee6137 "github.com/tgulacsi/imapclient/graph/msgraph/models/odataerrors"
 )
 
-// ItemMailFoldersItemChildFoldersItemMessagesRequestBuilder provides operations to manage the messages property of the microsoft.graph.mailFolder entity.
+// ItemMailFoldersItemChildFoldersItemMessagesRequestBuilder builds and executes requests for operations under \users\{user-id}\mailFolders\{mailFolder-id}\childFolders\{mailFolder-id1}\messages
 type ItemMailFoldersItemChildFoldersItemMessagesRequestBuilder struct {
     i2ae4187f7daee263371cb1c977df639813ab50ffa529013b7437480d1ec0158f.BaseRequestBuilder
 }
@@ -49,7 +49,7 @@ type ItemMailFoldersItemChildFoldersItemMessagesRequestBuilderPostRequestConfigu
     // Request options
     Options []i2ae4187f7daee263371cb1c977df639813ab50ffa529013b7437480d1ec0158f.RequestOption
 }
-// ByMessageId provides operations to manage the messages property of the microsoft.graph.mailFolder entity.
+// ByMessageId gets an item from the github.com/tgulacsi/imapclient/graph/msgraph.users.item.mailFolders.item.childFolders.item.messages.item collection
 // returns a *ItemMailFoldersItemChildFoldersItemMessagesMessageItemRequestBuilder when successful
 func (m *ItemMailFoldersItemChildFoldersItemMessagesRequestBuilder) ByMessageId(messageId string)(*ItemMailFoldersItemChildFoldersItemMessagesMessageItemRequestBuilder) {
     urlTplParams := make(map[string]string)
@@ -74,12 +74,12 @@ func NewItemMailFoldersItemChildFoldersItemMessagesRequestBuilder(rawUrl string,
     urlParams["request-raw-url"] = rawUrl
     return NewItemMailFoldersItemChildFoldersItemMessagesRequestBuilderInternal(urlParams, requestAdapter)
 }
-// Count provides operations to count the resources in the collection.
+// Count the Count property
 // returns a *ItemMailFoldersItemChildFoldersItemMessagesCountRequestBuilder when successful
 func (m *ItemMailFoldersItemChildFoldersItemMessagesRequestBuilder) Count()(*ItemMailFoldersItemChildFoldersItemMessagesCountRequestBuilder) {
     return NewItemMailFoldersItemChildFoldersItemMessagesCountRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)
 }
-// Delta provides operations to call the delta method.
+// Delta the delta property
 // returns a *ItemMailFoldersItemChildFoldersItemMessagesDeltaRequestBuilder when successful
 func (m *ItemMailFoldersItemChildFoldersItemMessagesRequestBuilder) Delta()(*ItemMailFoldersItemChildFoldersItemMessagesDeltaRequestBuilder) {
     return NewItemMailFoldersItemChildFoldersItemMessagesDeltaRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)

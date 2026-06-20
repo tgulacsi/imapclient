@@ -10,7 +10,7 @@ import (
     i4673b2807224f76513c7589a2d12fd7613a4c21f3227908c03a056df70ee6137 "github.com/tgulacsi/imapclient/graph/msgraph/models/odataerrors"
 )
 
-// MailFoldersItemChildFoldersItemMessagesItemCopyRequestBuilder provides operations to call the copy method.
+// MailFoldersItemChildFoldersItemMessagesItemCopyRequestBuilder builds and executes requests for operations under \me\mailFolders\{mailFolder-id}\childFolders\{mailFolder-id1}\messages\{message-id}\copy
 type MailFoldersItemChildFoldersItemMessagesItemCopyRequestBuilder struct {
     i2ae4187f7daee263371cb1c977df639813ab50ffa529013b7437480d1ec0158f.BaseRequestBuilder
 }

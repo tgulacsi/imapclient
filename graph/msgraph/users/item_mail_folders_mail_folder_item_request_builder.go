@@ -10,7 +10,7 @@ import (
     i4673b2807224f76513c7589a2d12fd7613a4c21f3227908c03a056df70ee6137 "github.com/tgulacsi/imapclient/graph/msgraph/models/odataerrors"
 )
 
-// ItemMailFoldersMailFolderItemRequestBuilder provides operations to manage the mailFolders property of the microsoft.graph.user entity.
+// ItemMailFoldersMailFolderItemRequestBuilder builds and executes requests for operations under \users\{user-id}\mailFolders\{mailFolder-id}
 type ItemMailFoldersMailFolderItemRequestBuilder struct {
     i2ae4187f7daee263371cb1c977df639813ab50ffa529013b7437480d1ec0158f.BaseRequestBuilder
 }
@@ -46,7 +46,7 @@ type ItemMailFoldersMailFolderItemRequestBuilderPatchRequestConfiguration struct
     // Request options
     Options []i2ae4187f7daee263371cb1c977df639813ab50ffa529013b7437480d1ec0158f.RequestOption
 }
-// ChildFolders provides operations to manage the childFolders property of the microsoft.graph.mailFolder entity.
+// ChildFolders the childFolders property
 // returns a *ItemMailFoldersItemChildFoldersRequestBuilder when successful
 func (m *ItemMailFoldersMailFolderItemRequestBuilder) ChildFolders()(*ItemMailFoldersItemChildFoldersRequestBuilder) {
     return NewItemMailFoldersItemChildFoldersRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)
@@ -64,7 +64,7 @@ func NewItemMailFoldersMailFolderItemRequestBuilder(rawUrl string, requestAdapte
     urlParams["request-raw-url"] = rawUrl
     return NewItemMailFoldersMailFolderItemRequestBuilderInternal(urlParams, requestAdapter)
 }
-// Copy provides operations to call the copy method.
+// Copy the copy property
 // returns a *ItemMailFoldersItemCopyRequestBuilder when successful
 func (m *ItemMailFoldersMailFolderItemRequestBuilder) Copy()(*ItemMailFoldersItemCopyRequestBuilder) {
     return NewItemMailFoldersItemCopyRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)
@@ -105,17 +105,17 @@ func (m *ItemMailFoldersMailFolderItemRequestBuilder) Get(ctx context.Context, r
     }
     return res.(i992b4a960d2aac6ee675fd11b0e2cdb20526c4d5f58b360b5923c6d853233698.MailFolderable), nil
 }
-// MessageRules provides operations to manage the messageRules property of the microsoft.graph.mailFolder entity.
+// MessageRules the messageRules property
 // returns a *ItemMailFoldersItemMessageRulesRequestBuilder when successful
 func (m *ItemMailFoldersMailFolderItemRequestBuilder) MessageRules()(*ItemMailFoldersItemMessageRulesRequestBuilder) {
     return NewItemMailFoldersItemMessageRulesRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)
 }
-// Messages provides operations to manage the messages property of the microsoft.graph.mailFolder entity.
+// Messages the messages property
 // returns a *ItemMailFoldersItemMessagesRequestBuilder when successful
 func (m *ItemMailFoldersMailFolderItemRequestBuilder) Messages()(*ItemMailFoldersItemMessagesRequestBuilder) {
     return NewItemMailFoldersItemMessagesRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)
 }
-// Move provides operations to call the move method.
+// Move the move property
 // returns a *ItemMailFoldersItemMoveRequestBuilder when successful
 func (m *ItemMailFoldersMailFolderItemRequestBuilder) Move()(*ItemMailFoldersItemMoveRequestBuilder) {
     return NewItemMailFoldersItemMoveRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)
@@ -140,7 +140,7 @@ func (m *ItemMailFoldersMailFolderItemRequestBuilder) Patch(ctx context.Context,
     }
     return res.(i992b4a960d2aac6ee675fd11b0e2cdb20526c4d5f58b360b5923c6d853233698.MailFolderable), nil
 }
-// PermanentDelete provides operations to call the permanentDelete method.
+// PermanentDelete the permanentDelete property
 // returns a *ItemMailFoldersItemPermanentDeleteRequestBuilder when successful
 func (m *ItemMailFoldersMailFolderItemRequestBuilder) PermanentDelete()(*ItemMailFoldersItemPermanentDeleteRequestBuilder) {
     return NewItemMailFoldersItemPermanentDeleteRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)

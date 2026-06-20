@@ -10,7 +10,7 @@ import (
     i4673b2807224f76513c7589a2d12fd7613a4c21f3227908c03a056df70ee6137 "github.com/tgulacsi/imapclient/graph/msgraph/models/odataerrors"
 )
 
-// MailFoldersItemChildFoldersItemMessagesMessageItemRequestBuilder provides operations to manage the messages property of the microsoft.graph.mailFolder entity.
+// MailFoldersItemChildFoldersItemMessagesMessageItemRequestBuilder builds and executes requests for operations under \me\mailFolders\{mailFolder-id}\childFolders\{mailFolder-id1}\messages\{message-id}
 type MailFoldersItemChildFoldersItemMessagesMessageItemRequestBuilder struct {
     i2ae4187f7daee263371cb1c977df639813ab50ffa529013b7437480d1ec0158f.BaseRequestBuilder
 }
@@ -44,7 +44,7 @@ type MailFoldersItemChildFoldersItemMessagesMessageItemRequestBuilderPatchReques
     // Request options
     Options []i2ae4187f7daee263371cb1c977df639813ab50ffa529013b7437480d1ec0158f.RequestOption
 }
-// Attachments provides operations to manage the attachments property of the microsoft.graph.message entity.
+// Attachments the attachments property
 // returns a *MailFoldersItemChildFoldersItemMessagesItemAttachmentsRequestBuilder when successful
 func (m *MailFoldersItemChildFoldersItemMessagesMessageItemRequestBuilder) Attachments()(*MailFoldersItemChildFoldersItemMessagesItemAttachmentsRequestBuilder) {
     return NewMailFoldersItemChildFoldersItemMessagesItemAttachmentsRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)
@@ -62,27 +62,27 @@ func NewMailFoldersItemChildFoldersItemMessagesMessageItemRequestBuilder(rawUrl 
     urlParams["request-raw-url"] = rawUrl
     return NewMailFoldersItemChildFoldersItemMessagesMessageItemRequestBuilderInternal(urlParams, requestAdapter)
 }
-// Content provides operations to manage the media for the user entity.
+// Content the Content property
 // returns a *MailFoldersItemChildFoldersItemMessagesItemValueContentRequestBuilder when successful
 func (m *MailFoldersItemChildFoldersItemMessagesMessageItemRequestBuilder) Content()(*MailFoldersItemChildFoldersItemMessagesItemValueContentRequestBuilder) {
     return NewMailFoldersItemChildFoldersItemMessagesItemValueContentRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)
 }
-// Copy provides operations to call the copy method.
+// Copy the copy property
 // returns a *MailFoldersItemChildFoldersItemMessagesItemCopyRequestBuilder when successful
 func (m *MailFoldersItemChildFoldersItemMessagesMessageItemRequestBuilder) Copy()(*MailFoldersItemChildFoldersItemMessagesItemCopyRequestBuilder) {
     return NewMailFoldersItemChildFoldersItemMessagesItemCopyRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)
 }
-// CreateForward provides operations to call the createForward method.
+// CreateForward the createForward property
 // returns a *MailFoldersItemChildFoldersItemMessagesItemCreateForwardRequestBuilder when successful
 func (m *MailFoldersItemChildFoldersItemMessagesMessageItemRequestBuilder) CreateForward()(*MailFoldersItemChildFoldersItemMessagesItemCreateForwardRequestBuilder) {
     return NewMailFoldersItemChildFoldersItemMessagesItemCreateForwardRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)
 }
-// CreateReply provides operations to call the createReply method.
+// CreateReply the createReply property
 // returns a *MailFoldersItemChildFoldersItemMessagesItemCreateReplyRequestBuilder when successful
 func (m *MailFoldersItemChildFoldersItemMessagesMessageItemRequestBuilder) CreateReply()(*MailFoldersItemChildFoldersItemMessagesItemCreateReplyRequestBuilder) {
     return NewMailFoldersItemChildFoldersItemMessagesItemCreateReplyRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)
 }
-// CreateReplyAll provides operations to call the createReplyAll method.
+// CreateReplyAll the createReplyAll property
 // returns a *MailFoldersItemChildFoldersItemMessagesItemCreateReplyAllRequestBuilder when successful
 func (m *MailFoldersItemChildFoldersItemMessagesMessageItemRequestBuilder) CreateReplyAll()(*MailFoldersItemChildFoldersItemMessagesItemCreateReplyAllRequestBuilder) {
     return NewMailFoldersItemChildFoldersItemMessagesItemCreateReplyAllRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)
@@ -103,12 +103,12 @@ func (m *MailFoldersItemChildFoldersItemMessagesMessageItemRequestBuilder) Delet
     }
     return nil
 }
-// Extensions provides operations to manage the extensions property of the microsoft.graph.message entity.
+// Extensions the extensions property
 // returns a *MailFoldersItemChildFoldersItemMessagesItemExtensionsRequestBuilder when successful
 func (m *MailFoldersItemChildFoldersItemMessagesMessageItemRequestBuilder) Extensions()(*MailFoldersItemChildFoldersItemMessagesItemExtensionsRequestBuilder) {
     return NewMailFoldersItemChildFoldersItemMessagesItemExtensionsRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)
 }
-// Forward provides operations to call the forward method.
+// Forward the forward property
 // returns a *MailFoldersItemChildFoldersItemMessagesItemForwardRequestBuilder when successful
 func (m *MailFoldersItemChildFoldersItemMessagesMessageItemRequestBuilder) Forward()(*MailFoldersItemChildFoldersItemMessagesItemForwardRequestBuilder) {
     return NewMailFoldersItemChildFoldersItemMessagesItemForwardRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)
@@ -133,7 +133,7 @@ func (m *MailFoldersItemChildFoldersItemMessagesMessageItemRequestBuilder) Get(c
     }
     return res.(i992b4a960d2aac6ee675fd11b0e2cdb20526c4d5f58b360b5923c6d853233698.Messageable), nil
 }
-// Move provides operations to call the move method.
+// Move the move property
 // returns a *MailFoldersItemChildFoldersItemMessagesItemMoveRequestBuilder when successful
 func (m *MailFoldersItemChildFoldersItemMessagesMessageItemRequestBuilder) Move()(*MailFoldersItemChildFoldersItemMessagesItemMoveRequestBuilder) {
     return NewMailFoldersItemChildFoldersItemMessagesItemMoveRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)
@@ -158,22 +158,22 @@ func (m *MailFoldersItemChildFoldersItemMessagesMessageItemRequestBuilder) Patch
     }
     return res.(i992b4a960d2aac6ee675fd11b0e2cdb20526c4d5f58b360b5923c6d853233698.Messageable), nil
 }
-// PermanentDelete provides operations to call the permanentDelete method.
+// PermanentDelete the permanentDelete property
 // returns a *MailFoldersItemChildFoldersItemMessagesItemPermanentDeleteRequestBuilder when successful
 func (m *MailFoldersItemChildFoldersItemMessagesMessageItemRequestBuilder) PermanentDelete()(*MailFoldersItemChildFoldersItemMessagesItemPermanentDeleteRequestBuilder) {
     return NewMailFoldersItemChildFoldersItemMessagesItemPermanentDeleteRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)
 }
-// Reply provides operations to call the reply method.
+// Reply the reply property
 // returns a *MailFoldersItemChildFoldersItemMessagesItemReplyRequestBuilder when successful
 func (m *MailFoldersItemChildFoldersItemMessagesMessageItemRequestBuilder) Reply()(*MailFoldersItemChildFoldersItemMessagesItemReplyRequestBuilder) {
     return NewMailFoldersItemChildFoldersItemMessagesItemReplyRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)
 }
-// ReplyAll provides operations to call the replyAll method.
+// ReplyAll the replyAll property
 // returns a *MailFoldersItemChildFoldersItemMessagesItemReplyAllRequestBuilder when successful
 func (m *MailFoldersItemChildFoldersItemMessagesMessageItemRequestBuilder) ReplyAll()(*MailFoldersItemChildFoldersItemMessagesItemReplyAllRequestBuilder) {
     return NewMailFoldersItemChildFoldersItemMessagesItemReplyAllRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)
 }
-// Send provides operations to call the send method.
+// Send the send property
 // returns a *MailFoldersItemChildFoldersItemMessagesItemSendRequestBuilder when successful
 func (m *MailFoldersItemChildFoldersItemMessagesMessageItemRequestBuilder) Send()(*MailFoldersItemChildFoldersItemMessagesItemSendRequestBuilder) {
     return NewMailFoldersItemChildFoldersItemMessagesItemSendRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)

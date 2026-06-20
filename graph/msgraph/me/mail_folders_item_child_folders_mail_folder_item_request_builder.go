@@ -10,7 +10,7 @@ import (
     i4673b2807224f76513c7589a2d12fd7613a4c21f3227908c03a056df70ee6137 "github.com/tgulacsi/imapclient/graph/msgraph/models/odataerrors"
 )
 
-// MailFoldersItemChildFoldersMailFolderItemRequestBuilder provides operations to manage the childFolders property of the microsoft.graph.mailFolder entity.
+// MailFoldersItemChildFoldersMailFolderItemRequestBuilder builds and executes requests for operations under \me\mailFolders\{mailFolder-id}\childFolders\{mailFolder-id1}
 type MailFoldersItemChildFoldersMailFolderItemRequestBuilder struct {
     i2ae4187f7daee263371cb1c977df639813ab50ffa529013b7437480d1ec0158f.BaseRequestBuilder
 }
@@ -59,7 +59,7 @@ func NewMailFoldersItemChildFoldersMailFolderItemRequestBuilder(rawUrl string, r
     urlParams["request-raw-url"] = rawUrl
     return NewMailFoldersItemChildFoldersMailFolderItemRequestBuilderInternal(urlParams, requestAdapter)
 }
-// Copy provides operations to call the copy method.
+// Copy the copy property
 // returns a *MailFoldersItemChildFoldersItemCopyRequestBuilder when successful
 func (m *MailFoldersItemChildFoldersMailFolderItemRequestBuilder) Copy()(*MailFoldersItemChildFoldersItemCopyRequestBuilder) {
     return NewMailFoldersItemChildFoldersItemCopyRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)
@@ -100,17 +100,17 @@ func (m *MailFoldersItemChildFoldersMailFolderItemRequestBuilder) Get(ctx contex
     }
     return res.(i992b4a960d2aac6ee675fd11b0e2cdb20526c4d5f58b360b5923c6d853233698.MailFolderable), nil
 }
-// MessageRules provides operations to manage the messageRules property of the microsoft.graph.mailFolder entity.
+// MessageRules the messageRules property
 // returns a *MailFoldersItemChildFoldersItemMessageRulesRequestBuilder when successful
 func (m *MailFoldersItemChildFoldersMailFolderItemRequestBuilder) MessageRules()(*MailFoldersItemChildFoldersItemMessageRulesRequestBuilder) {
     return NewMailFoldersItemChildFoldersItemMessageRulesRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)
 }
-// Messages provides operations to manage the messages property of the microsoft.graph.mailFolder entity.
+// Messages the messages property
 // returns a *MailFoldersItemChildFoldersItemMessagesRequestBuilder when successful
 func (m *MailFoldersItemChildFoldersMailFolderItemRequestBuilder) Messages()(*MailFoldersItemChildFoldersItemMessagesRequestBuilder) {
     return NewMailFoldersItemChildFoldersItemMessagesRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)
 }
-// Move provides operations to call the move method.
+// Move the move property
 // returns a *MailFoldersItemChildFoldersItemMoveRequestBuilder when successful
 func (m *MailFoldersItemChildFoldersMailFolderItemRequestBuilder) Move()(*MailFoldersItemChildFoldersItemMoveRequestBuilder) {
     return NewMailFoldersItemChildFoldersItemMoveRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)
@@ -135,7 +135,7 @@ func (m *MailFoldersItemChildFoldersMailFolderItemRequestBuilder) Patch(ctx cont
     }
     return res.(i992b4a960d2aac6ee675fd11b0e2cdb20526c4d5f58b360b5923c6d853233698.MailFolderable), nil
 }
-// PermanentDelete provides operations to call the permanentDelete method.
+// PermanentDelete the permanentDelete property
 // returns a *MailFoldersItemChildFoldersItemPermanentDeleteRequestBuilder when successful
 func (m *MailFoldersItemChildFoldersMailFolderItemRequestBuilder) PermanentDelete()(*MailFoldersItemChildFoldersItemPermanentDeleteRequestBuilder) {
     return NewMailFoldersItemChildFoldersItemPermanentDeleteRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)

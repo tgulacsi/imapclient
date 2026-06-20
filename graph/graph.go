@@ -22,23 +22,29 @@ import (
 	"github.com/UNO-SOFT/zlog/v2"
 	"github.com/emersion/go-message"
 	"github.com/microsoft/kiota-abstractions-go/serialization"
+	"github.com/microsoft/kiota-abstractions-go/store"
 	"golang.org/x/time/rate"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	azcache "github.com/Azure/azure-sdk-for-go/sdk/azidentity/cache"
 
+	khttp "github.com/microsoft/kiota-http-go"
+	graph "github.com/microsoftgraph/msgraph-sdk-go"
+	graphcore "github.com/microsoftgraph/msgraph-sdk-go-core"
+	"github.com/microsoftgraph/msgraph-sdk-go-core/authentication"
+
 	// msgraph "github.com/microsoftgraph/msgraph-sdk-go"
 	msgraphcore "github.com/microsoftgraph/msgraph-sdk-go-core"
-	// "github.com/microsoftgraph/msgraph-sdk-go/models"
+	origmodels "github.com/microsoftgraph/msgraph-sdk-go/models"
+	origusers "github.com/microsoftgraph/msgraph-sdk-go/users"
 	msgraph "github.com/tgulacsi/imapclient/graph/msgraph"
 	"github.com/tgulacsi/imapclient/graph/msgraph/models"
-	// graphusers "github.com/microsoftgraph/msgraph-sdk-go/users"
 	graphusers "github.com/tgulacsi/imapclient/graph/msgraph/users"
 )
 
 type (
-	User      = models.Userable
+	User      = origmodels.Userable
 	Recipient = models.Recipientable
 	Message   = models.Messageable
 	Folder    = models.MailFolderable
@@ -145,7 +151,7 @@ var WellKnownFolders = map[string][]string{
 }
 
 type GraphMailClient struct {
-	client      *msgraph.GraphServiceClient
+	client      *msgraph.ApiClient
 	limiter     *rate.Limiter
 	me          string
 	isDelegated bool
@@ -157,7 +163,7 @@ var (
 	}
 	delegatedScopes = []string{
 		"https://graph.microsoft.com/Mail.ReadWrite",
-		// "https://graph.microsoft.com/Mail.Send",
+		"https://graph.microsoft.com/Mail.Send",
 		"https://graph.microsoft.com/MailboxFolder.ReadWrite",
 		"https://graph.microsoft.com/User.ReadBasic.all",
 	}
@@ -213,11 +219,29 @@ func NewGraphMailClient(
 		return GraphMailClient{}, nil, fmt.Errorf("azidentity: %w", err)
 	}
 
-	client, err := msgraph.NewGraphServiceClientWithCredentials(
-		cred, scopes)
-	if err != nil {
-		return GraphMailClient{}, nil, fmt.Errorf("NewGraphServiceClientWithCredentials: %w", err)
-	}
+	// tokenCredential is one of the credential classes from azidentity
+	// scopes is an array of permission scope strings
+	authProvider, _ := authentication.NewAzureIdentityAuthenticationProviderWithScopes(cred, scopes)
+
+	// Get default middleware from SDK
+	defaultClientOptions := graph.GetDefaultClientOptions()
+	defaultMiddleWare := graphcore.GetDefaultMiddlewaresWithOptions(&defaultClientOptions)
+
+	// Add chaos handler to default middleware
+	chaosHandler := khttp.NewChaosHandler()
+	allMiddleware := append(defaultMiddleWare, chaosHandler)
+
+	// Create an HTTP client with the middleware
+	httpClient := khttp.GetDefaultClient(allMiddleware...)
+
+	// Create the adapter
+	// Passing nil values causes the adapter to use default implementations
+	adapter, _ :=
+		graph.NewGraphRequestAdapterWithParseNodeFactoryAndSerializationWriterFactoryAndHttpClient(
+			authProvider, nil, nil, httpClient)
+
+	client := msgraph.NewApiClient(adapter, store.BackingStoreFactoryInstance)
+
 	var userID string
 	if isDelegated {
 		me, err := client.Me().Get(ctx, nil)
@@ -230,11 +254,11 @@ func NewGraphMailClient(
 	}
 
 	top := int32(999) // Max queryable number
-	if coll, err := client.Users().Get(ctx, &graphusers.UsersRequestBuilderGetRequestConfiguration{
-		QueryParameters: &graphusers.UsersRequestBuilderGetQueryParameters{
+	if coll, err := client.Users().Get(ctx, &origusers.UsersRequestBuilderGetRequestConfiguration{
+		QueryParameters: &origusers.UsersRequestBuilderGetQueryParameters{
 			Top: &top,
-		},
-	}); err == nil {
+		}},
+	); err == nil {
 		old := len(users)
 		users = append(users, coll.GetValue()...)
 		if logger.Enabled(ctx, slog.LevelDebug) {
@@ -251,7 +275,7 @@ func NewGraphMailClient(
 	if credOpts.IDOrPrincipalName == "" {
 		credOpts.IDOrPrincipalName = clientID
 	}
-	me, err := client.Users().ByUserId(credOpts.IDOrPrincipalName).Get(ctx, nil)
+	me, err := client.Users().ByUserId(credOpts.IDOrPrincipalName).RequestAdapter.Send(ctx, nil)
 	if err == nil {
 		logger.Info("got", slog.String("idOrPrincipalName", credOpts.IDOrPrincipalName),
 			slog.Group("user", slog.String("ID", *me.GetId()), slog.String("Name", *me.GetUserPrincipalName())))
@@ -349,7 +373,7 @@ func (g GraphMailClient) Users(ctx context.Context) ([]User, error) {
 	}
 	users := make([]User, 0, 10)
 	it, err := msgraphcore.NewPageIterator[User](coll, g.client.GetAdapter(),
-		models.CreateUserCollectionResponseFromDiscriminatorValue)
+		origmodels.CreateUserCollectionResponseFromDiscriminatorValue)
 	if err != nil {
 		return coll.GetValue(), err
 	}
@@ -491,7 +515,7 @@ func (g GraphMailClient) CreateChildFolder(ctx context.Context, userID, parentID
 	f := models.NewMailFolder()
 	f.SetParentFolderId(&parentID)
 	f.SetDisplayName(&displayName)
-	return g.user(userID).MailFolders().Post(ctx, f, nil)
+	return g.user(userID).MailFolders().ByMailFolderId(parentID).ChildFolders().Post(ctx, f, nil)
 }
 
 func (g GraphMailClient) CreateMessage(ctx context.Context, userID, folderID string, msg Message) (Message, error) {

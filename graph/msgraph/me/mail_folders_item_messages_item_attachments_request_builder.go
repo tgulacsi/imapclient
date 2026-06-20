@@ -10,7 +10,7 @@ import (
     i4673b2807224f76513c7589a2d12fd7613a4c21f3227908c03a056df70ee6137 "github.com/tgulacsi/imapclient/graph/msgraph/models/odataerrors"
 )
 
-// MailFoldersItemMessagesItemAttachmentsRequestBuilder provides operations to manage the attachments property of the microsoft.graph.message entity.
+// MailFoldersItemMessagesItemAttachmentsRequestBuilder builds and executes requests for operations under \me\mailFolders\{mailFolder-id}\messages\{message-id}\attachments
 type MailFoldersItemMessagesItemAttachmentsRequestBuilder struct {
     i2ae4187f7daee263371cb1c977df639813ab50ffa529013b7437480d1ec0158f.BaseRequestBuilder
 }
@@ -49,7 +49,7 @@ type MailFoldersItemMessagesItemAttachmentsRequestBuilderPostRequestConfiguratio
     // Request options
     Options []i2ae4187f7daee263371cb1c977df639813ab50ffa529013b7437480d1ec0158f.RequestOption
 }
-// ByAttachmentId provides operations to manage the attachments property of the microsoft.graph.message entity.
+// ByAttachmentId gets an item from the github.com/tgulacsi/imapclient/graph/msgraph.me.mailFolders.item.messages.item.attachments.item collection
 // returns a *MailFoldersItemMessagesItemAttachmentsAttachmentItemRequestBuilder when successful
 func (m *MailFoldersItemMessagesItemAttachmentsRequestBuilder) ByAttachmentId(attachmentId string)(*MailFoldersItemMessagesItemAttachmentsAttachmentItemRequestBuilder) {
     urlTplParams := make(map[string]string)
@@ -74,12 +74,12 @@ func NewMailFoldersItemMessagesItemAttachmentsRequestBuilder(rawUrl string, requ
     urlParams["request-raw-url"] = rawUrl
     return NewMailFoldersItemMessagesItemAttachmentsRequestBuilderInternal(urlParams, requestAdapter)
 }
-// Count provides operations to count the resources in the collection.
+// Count the Count property
 // returns a *MailFoldersItemMessagesItemAttachmentsCountRequestBuilder when successful
 func (m *MailFoldersItemMessagesItemAttachmentsRequestBuilder) Count()(*MailFoldersItemMessagesItemAttachmentsCountRequestBuilder) {
     return NewMailFoldersItemMessagesItemAttachmentsCountRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)
 }
-// CreateUploadSession provides operations to call the createUploadSession method.
+// CreateUploadSession the createUploadSession property
 // returns a *MailFoldersItemMessagesItemAttachmentsCreateUploadSessionRequestBuilder when successful
 func (m *MailFoldersItemMessagesItemAttachmentsRequestBuilder) CreateUploadSession()(*MailFoldersItemMessagesItemAttachmentsCreateUploadSessionRequestBuilder) {
     return NewMailFoldersItemMessagesItemAttachmentsCreateUploadSessionRequestBuilderInternal(m.BaseRequestBuilder.PathParameters, m.BaseRequestBuilder.RequestAdapter)

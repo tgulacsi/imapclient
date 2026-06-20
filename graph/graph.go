@@ -14,7 +14,6 @@ import (
 	"io"
 	"log/slog"
 	"mime"
-	"net/mail"
 	"slices"
 	"strings"
 
@@ -716,23 +715,30 @@ func (g GraphMailClient) ListMailFolders(ctx context.Context, userID string, que
 	return folders, err
 }
 
-func (g GraphMailClient) SendMail(ctx context.Context, userID string, msg *mail.Message, saveToSentItems bool) error {
-	ent, err := message.New(message.HeaderFromMap(msg.Header), msg.Body)
-	if err != nil {
-		return err
+func (g GraphMailClient) SendMail(ctx context.Context, userID string, r io.Reader, saveToSentItems bool) error {
+	logger := zlog.SFromContext(ctx)
+	logger.Info("SendMail", "userID", userID)
+	ent, err := message.Read(r)
+	if err != nil && !errors.Is(err, io.EOF) {
+		logger.Error("read message", "error", err)
+		return fmt.Errorf("read message: %w", err)
 	}
 	m := models.NewMessage()
 	var body *models.ItemBody
-	m.SetInternetMessageHeaders(toInternetMessageHeader(msg.Header))
+	m.SetInternetMessageHeaders(toInternetMessageHeader(ent.Header))
 	var attachments []models.Attachmentable
 	if err = ent.Walk(func(path []int, entity *message.Entity, err error) error {
 		if err != nil {
-			return err
+			logger.Error("walk", "error", err)
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return fmt.Errorf("walk: %w", err)
 		}
 		ct := ent.Header.Get("Content-Type")
 		if body == nil {
+			body = models.NewItemBody()
 			if strings.HasPrefix(ct, "text/") {
-				body = models.NewItemBody()
 				typ := models.TEXT_BODYTYPE
 				if strings.HasPrefix(ct, "text/html") {
 					typ = models.HTML_BODYTYPE
@@ -740,8 +746,8 @@ func (g GraphMailClient) SendMail(ctx context.Context, userID string, msg *mail.
 				body.SetContentType(&typ)
 			}
 			var buf strings.Builder
-			if err = ent.WriteTo(&buf); err != nil {
-				return err
+			if err = ent.WriteTo(&buf); err != nil && !errors.Is(err, io.EOF) {
+				return fmt.Errorf("write entity: %w", err)
 			}
 			s := buf.String()
 			body.SetContent(&s)
@@ -754,17 +760,20 @@ func (g GraphMailClient) SendMail(ctx context.Context, userID string, msg *mail.
 			inline := cd == "inline"
 			a.SetIsInline(&inline)
 			b, err := io.ReadAll(ent.Body)
-			if err != nil {
-				return err
+			if err != nil && !errors.Is(err, io.EOF) {
+				return fmt.Errorf("read entity: %w", err)
 			}
 			a.SetContentBytes(b)
 			attachments = append(attachments, a)
 		}
 		return nil
-	}); err != nil {
-		return err
+	}); err != nil && !errors.Is(err, io.EOF) && !strings.HasSuffix(err.Error(), ": EOF") {
+		logger.Error("walk", "error", err)
+		return fmt.Errorf("walk: %w", err)
 	}
+	logger.Info("SetBody", "body", body)
 	m.SetBody(body)
+	logger.Info("SetAttachments", "attachments", len(attachments))
 	if len(attachments) != 0 {
 		m.SetAttachments(attachments)
 	}
@@ -772,7 +781,11 @@ func (g GraphMailClient) SendMail(ctx context.Context, userID string, msg *mail.
 	requestBody := graphusers.NewItemSendMailPostRequestBody()
 	requestBody.SetMessage(m)
 	requestBody.SetSaveToSentItems(&saveToSentItems)
-	return g.user(userID).SendMail().Post(ctx, requestBody, nil)
+	if err := g.user(userID).SendMail().Post(ctx, requestBody, nil); err != nil {
+		logger.Error("SendMail", "request", requestBody, "error", err)
+		return fmt.Errorf("SendMail: %w", err)
+	}
+	return nil
 }
 
 func (g GraphMailClient) user(userID string) *graphusers.UserItemRequestBuilder {
@@ -793,13 +806,14 @@ type JSON struct {
 func (j JSON) String() string               { v, _ := serialization.SerializeToJson(j.Parsable); return string(v) }
 func (j JSON) MarshalJSON() ([]byte, error) { return serialization.SerializeToJson(j.Parsable) }
 
-func toInternetMessageHeader(h mail.Header) []models.InternetMessageHeaderable {
-	hh := make([]models.InternetMessageHeaderable, 0, len(h))
-	for k := range h {
-		var imh models.InternetMessageHeader
-		imh.SetName(new(k))
-		imh.SetValue(new(h.Get(k)))
-		hh = append(hh, &imh)
+func toInternetMessageHeader(h message.Header) []models.InternetMessageHeaderable {
+	hh := make([]models.InternetMessageHeaderable, 0, h.Len())
+	fields := h.Fields()
+	for fields.Next() {
+		imh := models.NewInternetMessageHeader()
+		imh.SetName(new(fields.Key()))
+		imh.SetValue(new(fields.Value()))
+		hh = append(hh, imh)
 	}
 	return hh
 }

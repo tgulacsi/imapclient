@@ -93,7 +93,7 @@ func New(
 		// Raw ingress and egress data will be written to this writer, if any.
 		// Note, this may include sensitive information such as credentials used
 		// during authentication.
-		opts.DebugWriter = slogDebugWriter{logger}
+		opts.DebugWriter = pconfig.NewSLogDebugWriter(logger)
 	}
 
 	P.srv = imapserver.New(&opts)
@@ -175,11 +175,4 @@ func (P *proxy) connect(ctx context.Context, user, tenantID, clientSecret string
 		P.folders[key] = make(map[string]*Folder)
 	}
 	return cl, users, P.folders[key], err
-}
-
-type slogDebugWriter struct{ *slog.Logger }
-
-func (s slogDebugWriter) Write(p []byte) (int, error) {
-	s.Logger.Debug(string(p))
-	return len(p), nil
 }

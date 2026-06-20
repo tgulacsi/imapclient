@@ -6,6 +6,7 @@ package config
 
 import (
 	"context"
+	"log/slog"
 	"os"
 	"sync"
 
@@ -84,4 +85,15 @@ func (cache *ClientCache) Get(ctx context.Context, tenantID, clientSecret, user 
 	}
 	cache.clients[key] = clientUsers{Client: cl, Users: users}
 	return cl, users, err
+}
+
+type slogDebugWriter struct{ *slog.Logger }
+
+func NewSLogDebugWriter(logger *slog.Logger) slogDebugWriter {
+	return slogDebugWriter{Logger: logger}
+}
+
+func (s slogDebugWriter) Write(p []byte) (int, error) {
+	s.Logger.Debug(string(p))
+	return len(p), nil
 }

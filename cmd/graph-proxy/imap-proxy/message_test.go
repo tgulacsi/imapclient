@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: MIT
 
-package main
+package imap_proxy
 
 import (
 	"bytes"

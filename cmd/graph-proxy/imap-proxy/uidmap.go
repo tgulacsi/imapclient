@@ -1,8 +1,8 @@
-// Copyright 2024 Tamás Gulácsi. All rights reserved.
+// Copyright 2024, 2026 Tamás Gulácsi. All rights reserved.
 //
 // SPDX-License-Identifier: Apache-2.0
 
-package main
+package imap_proxy
 
 import (
 	"context"

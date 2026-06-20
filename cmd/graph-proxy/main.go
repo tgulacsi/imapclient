@@ -15,10 +15,16 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/UNO-SOFT/zlog/v2"
 
 	"github.com/peterbourgon/ff/v4"
 	"github.com/peterbourgon/ff/v4/ffhelp"
+
+	"github.com/tgulacsi/imapclient/cmd/graph-proxy/imap-proxy"
+	"github.com/tgulacsi/imapclient/cmd/graph-proxy/lib"
+	"github.com/tgulacsi/imapclient/cmd/graph-proxy/smtp-proxy"
 )
 
 var concurrency int = 8
@@ -39,20 +45,22 @@ func Main() error {
 	} else {
 		cd = filepath.Join(cd, "graph-proxy")
 	}
+	var proxyConf config.ProxyConfig
 	FS := ff.NewFlagSet("graph-proxy")
 	FS.IntVar(&concurrency, 0, "concurrency", concurrency, "concurrency")
-	flagRateLimit := FS.Float64Long("rate-limit", 10, "mas number of http calls per second")
+	FS.Float64Var(&proxyConf.RateLimit, 0, "rate-limit", 10, "mas number of http calls per second")
 	flagCacheDir := FS.StringLong("cache-dir", cd, "cache directory")
-	flagCacheSize := FS.IntLong("cache-max-mb", 512, "cache max size in MiB")
-	flagClientID := FS.StringLong("client-id", "34f2c0c1-b509-43c5-aae8-56c10fa19ed7", "ClientID")
-	flagClientCert := FS.StringLong("client-cert", "", "client certificate .pem")
+	flagCacheSizeMiB := FS.IntLong("cache-max-mb", 512, "cache max size in MiB")
+	FS.StringVar(&proxyConf.ClientID, 0, "client-id", "34f2c0c1-b509-43c5-aae8-56c10fa19ed7", "ClientID")
+	FS.StringVar(&proxyConf.ClientCert, 0, "client-cert", "", "client certificate .pem")
 	// flagRedirectURI := flag.String("redirect-uri", "http://localhost:19414/auth-response", "The redirect URI you send in the request to the login server")
 	// flagClientSecret := flag.String("client-secret", "", "ClientSecret")
 	// flagTenantID := flag.String("tenant-id", "", "TenantID")
 	// flagUserID := flag.String("user-id", "", "UserID")
-	flagRedirectURI := FS.StringLong("redirect-uri", "http://localhost", "redirectURI (if client secret is empty)")
+	FS.StringVar(&proxyConf.RedirectURI, 0, "redirect-uri", "http://localhost", "redirectURI (if client secret is empty)")
 	FS.Value(0, "verbose", &verbose, "verbosity")
 	flagPprofURL := FS.StringLong("pprof", "", "pprof URL to listen on")
+	flagSMTPAddr := FS.StringLong("smtp", ":1025", "SMTP address to listen on")
 	app := ff.Command{Name: "graph-proxy", Flags: FS,
 		Usage: "prefix env vars with GRAPH_PROXY_",
 		Exec: func(ctx context.Context, args []string) error {
@@ -64,17 +72,31 @@ func Main() error {
 			if len(args) != 0 {
 				addr = args[0]
 			}
-			logger.Info("Listen", "addr", addr)
-			p, err := NewProxy(
-				zlog.NewSContext(ctx, logger),
-				*flagClientID, *flagClientCert, *flagRedirectURI,
-				*flagCacheDir, *flagCacheSize, *flagRateLimit,
-			)
+			logger.Info("Listen", "IMAP", addr, "SMTP", *flagSMTPAddr)
+			slog.SetDefault(logger)
+			ctx = zlog.NewSContext(ctx, logger)
+
+			grp, ctx := errgroup.WithContext(ctx)
+			if *flagSMTPAddr != "" {
+				p, err := smtp_proxy.New(ctx, proxyConf)
+				if err != nil {
+					return err
+				}
+				grp.Go(func() error {
+					defer p.Close()
+					return p.ListenAndServe(*flagSMTPAddr)
+				})
+			}
+
+			p, err := imap_proxy.New(ctx, proxyConf, *flagCacheDir, *flagCacheSizeMiB)
 			if err != nil {
 				return err
 			}
-			defer p.Close()
-			return p.ListenAndServe(addr)
+			grp.Go(func() error {
+				defer p.Close()
+				return p.ListenAndServe(addr)
+			})
+			return grp.Wait()
 		},
 	}
 

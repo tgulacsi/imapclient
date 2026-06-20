@@ -11,13 +11,16 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"golang.org/x/crypto/pkcs12"
 	"io"
 	"log/slog"
+	"mime"
 	"slices"
 	"strings"
 
+	"golang.org/x/crypto/pkcs12"
+
 	"github.com/UNO-SOFT/zlog/v2"
+	"github.com/emersion/go-message"
 	"github.com/microsoft/kiota-abstractions-go/serialization"
 	"golang.org/x/time/rate"
 
@@ -27,13 +30,8 @@ import (
 
 	// msgraph "github.com/microsoftgraph/msgraph-sdk-go"
 	msgraphcore "github.com/microsoftgraph/msgraph-sdk-go-core"
-<<<<<<< Updated upstream
-	msgraph "github.com/tgulacsi/imapclient/graph/msgraph"
-	// "github.com/microsoftgraph/msgraph-sdk-go/models"
-=======
 	// "github.com/microsoftgraph/msgraph-sdk-go/models"
 	msgraph "github.com/tgulacsi/imapclient/graph/msgraph"
->>>>>>> Stashed changes
 	"github.com/tgulacsi/imapclient/graph/msgraph/models"
 	// graphusers "github.com/microsoftgraph/msgraph-sdk-go/users"
 	graphusers "github.com/tgulacsi/imapclient/graph/msgraph/users"
@@ -716,6 +714,79 @@ func (g GraphMailClient) ListMailFolders(ctx context.Context, userID string, que
 	return folders, err
 }
 
+func (g GraphMailClient) SendMail(ctx context.Context, userID string, r io.Reader, saveToSentItems bool) error {
+	logger := zlog.SFromContext(ctx)
+	logger.Info("SendMail", "userID", userID)
+	ent, err := message.Read(r)
+	if err != nil && !errors.Is(err, io.EOF) {
+		logger.Error("read message", "error", err)
+		return fmt.Errorf("read message: %w", err)
+	}
+	m := models.NewMessage()
+	var body *models.ItemBody
+	m.SetInternetMessageHeaders(toInternetMessageHeader(ent.Header))
+	var attachments []models.Attachmentable
+	if err = ent.Walk(func(path []int, entity *message.Entity, err error) error {
+		if err != nil {
+			logger.Error("walk", "error", err)
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return fmt.Errorf("walk: %w", err)
+		}
+		ct := ent.Header.Get("Content-Type")
+		if body == nil {
+			body = models.NewItemBody()
+			if strings.HasPrefix(ct, "text/") {
+				typ := models.TEXT_BODYTYPE
+				if strings.HasPrefix(ct, "text/html") {
+					typ = models.HTML_BODYTYPE
+				}
+				body.SetContentType(&typ)
+			}
+			var buf strings.Builder
+			if err = ent.WriteTo(&buf); err != nil && !errors.Is(err, io.EOF) {
+				return fmt.Errorf("write entity: %w", err)
+			}
+			s := buf.String()
+			body.SetContent(&s)
+		} else if len(attachments) == 0 || len(path) < 2 {
+			cd, params, _ := mime.ParseMediaType(ent.Header.Get("Content-Disposition"))
+			a := models.NewFileAttachment()
+			a.SetContentType(&ct)
+			fn := params["filename"]
+			a.SetName(&fn)
+			inline := cd == "inline"
+			a.SetIsInline(&inline)
+			b, err := io.ReadAll(ent.Body)
+			if err != nil && !errors.Is(err, io.EOF) {
+				return fmt.Errorf("read entity: %w", err)
+			}
+			a.SetContentBytes(b)
+			attachments = append(attachments, a)
+		}
+		return nil
+	}); err != nil && !errors.Is(err, io.EOF) && !strings.HasSuffix(err.Error(), ": EOF") {
+		logger.Error("walk", "error", err)
+		return fmt.Errorf("walk: %w", err)
+	}
+	logger.Info("SetBody", "body", body)
+	m.SetBody(body)
+	logger.Info("SetAttachments", "attachments", len(attachments))
+	if len(attachments) != 0 {
+		m.SetAttachments(attachments)
+	}
+
+	requestBody := graphusers.NewItemSendMailPostRequestBody()
+	requestBody.SetMessage(m)
+	requestBody.SetSaveToSentItems(&saveToSentItems)
+	if err := g.user(userID).SendMail().Post(ctx, requestBody, nil); err != nil {
+		logger.Error("SendMail", "request", requestBody, "error", err)
+		return fmt.Errorf("SendMail: %w", err)
+	}
+	return nil
+}
+
 func (g GraphMailClient) user(userID string) *graphusers.UserItemRequestBuilder {
 	if g.isDelegated {
 		return g.client.Me()
@@ -733,3 +804,15 @@ type JSON struct {
 
 func (j JSON) String() string               { v, _ := serialization.SerializeToJson(j.Parsable); return string(v) }
 func (j JSON) MarshalJSON() ([]byte, error) { return serialization.SerializeToJson(j.Parsable) }
+
+func toInternetMessageHeader(h message.Header) []models.InternetMessageHeaderable {
+	hh := make([]models.InternetMessageHeaderable, 0, h.Len())
+	fields := h.Fields()
+	for fields.Next() {
+		imh := models.NewInternetMessageHeader()
+		imh.SetName(new(fields.Key()))
+		imh.SetValue(new(fields.Value()))
+		hh = append(hh, imh)
+	}
+	return hh
+}

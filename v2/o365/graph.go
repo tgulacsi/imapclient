@@ -266,6 +266,9 @@ func (g *graphMailClient) m2s(mbox string) (string, error) {
 	if mf, ok := g.folders["{"+mbox+"}"]; ok {
 		return *mf.GetId(), nil
 	}
+	if mf, ok := g.folders["top of information store/"+mbox]; ok {
+		return *mf.GetId(), nil
+	}
 	for k, mf := range g.folders {
 		if len(k) > 2 && k[0] == '{' && k[len(k)-1] == '}' {
 			continue
@@ -280,7 +283,7 @@ func (g *graphMailClient) m2s(mbox string) (string, error) {
 			folders = append(folders, k)
 		}
 	}
-	return "", fmt.Errorf("mbox %q not found (have: %+v)", mbox, folders)
+	return "", fmt.Errorf("mbox %q not found (have: %q)", mbox, folders)
 }
 func (g *graphMailClient) List(ctx context.Context, mbox, pattern string, all bool) ([]uint32, error) {
 	if err := g.init(ctx, mbox); err != nil {

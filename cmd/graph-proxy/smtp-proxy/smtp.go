@@ -10,7 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"strings"
-	"sync"
+	// "sync"
 	"time"
 
 	"github.com/emersion/go-sasl"
@@ -55,7 +55,7 @@ type proxy struct {
 	clients  *pconfig.ClientCache
 	clientID string
 
-	mu sync.RWMutex
+	// mu sync.RWMutex
 }
 
 func (P *proxy) Close() error {

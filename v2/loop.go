@@ -131,7 +131,6 @@ func one(ctx context.Context, c Client, inbox, pattern string, deliver DeliverFu
 		pr, pw := io.Pipe()
 		var wg sync.WaitGroup
 		wg.Go(func() {
-			defer wg.Done()
 			_, err = c.ReadTo(ctx, io.MultiWriter(pw, hsh), uid)
 			pw.CloseWithError(err)
 		})

@@ -21,8 +21,8 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/confidential"
-	"github.com/go-json-experiment/json"
-	"github.com/go-json-experiment/json/jsontext"
+	"encoding/json/v2"
+	"encoding/json/jsontext"
 	"github.com/tgulacsi/go/iohlp"
 	"github.com/tgulacsi/oauth2client"
 )

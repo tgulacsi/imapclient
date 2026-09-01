@@ -158,7 +158,7 @@ var (
 	}
 	delegatedScopes = []string{
 		"https://graph.microsoft.com/Mail.ReadWrite",
-		// "https://graph.microsoft.com/Mail.Send",
+		"https://graph.microsoft.com/Mail.Send",
 		"https://graph.microsoft.com/MailboxFolder.ReadWrite",
 		"https://graph.microsoft.com/User.ReadBasic.all",
 	}

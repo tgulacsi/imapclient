@@ -12,13 +12,8 @@ require (
 	github.com/emersion/go-imap/v2 v2.0.0-beta.8
 	github.com/emersion/go-message v0.18.2
 	github.com/emersion/go-sasl v0.0.0-20241020182733-b788ff22d5a6
-	github.com/go-json-experiment/json v0.0.0-20260623181947-01eb4420fa68
-	github.com/google/uuid v1.6.0
+	github.com/emersion/go-smtp v0.24.0
 	github.com/microsoft/kiota-abstractions-go v1.9.4
-	github.com/microsoft/kiota-serialization-form-go v1.1.3
-	github.com/microsoft/kiota-serialization-json-go v1.1.4
-	github.com/microsoft/kiota-serialization-multipart-go v1.1.2
-	github.com/microsoft/kiota-serialization-text-go v1.1.3
 	github.com/microsoftgraph/msgraph-sdk-go v1.99.0
 	github.com/microsoftgraph/msgraph-sdk-go-core v1.4.1
 	github.com/peterbourgon/ff/v4 v4.0.0-beta.1
@@ -38,16 +33,20 @@ require (
 	github.com/AzureAD/microsoft-authentication-extensions-for-go/cache v0.1.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/dgryski/go-linebreak v0.0.0-20180812204043-d8f37254e7d3 // indirect
-	github.com/emersion/go-smtp v0.24.0 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/google/renameio/v2 v2.0.2 // indirect
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/keybase/go-keychain v0.0.1 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/microsoft/kiota-authentication-azure-go v1.3.1 // indirect
 	github.com/microsoft/kiota-http-go v1.5.6 // indirect
+	github.com/microsoft/kiota-serialization-form-go v1.1.3 // indirect
+	github.com/microsoft/kiota-serialization-json-go v1.1.4 // indirect
+	github.com/microsoft/kiota-serialization-multipart-go v1.1.2 // indirect
+	github.com/microsoft/kiota-serialization-text-go v1.1.3 // indirect
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
 	github.com/rogpeppe/go-internal v1.15.0 // indirect
 	github.com/std-uritemplate/std-uritemplate/go/v2 v2.0.10 // indirect
@@ -62,7 +61,7 @@ require (
 
 // The last version supporting Xoauth2: github.com/emersion/go-sasl v0.0.0-20200509202850-4132e15e133d
 
-go 1.26
+go 1.27
 
 // replace github.com/emersion/go-imap/v2 => ../../emersion/go-imap/v2
 

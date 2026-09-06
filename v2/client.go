@@ -1,6 +1,6 @@
 // Copyright 2021, 2022 Tamás Gulácsi. All rights reserved.
 //
-// SPDX-License-Identifier: EUPL-1.2
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 // Package imapclient is for listing folders, reading messages
 // and moving them around (delete, unread, move).

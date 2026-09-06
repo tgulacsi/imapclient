@@ -1,6 +1,6 @@
 // Copyright 2021 Tamás Gulácsi. All rights reserved.
 //
-// SPDX-License-Identifier: EUPL-1.2
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 // Package o365 implements an imap client, using Office 365 Mail REST API.
 package o365

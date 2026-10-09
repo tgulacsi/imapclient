@@ -17,23 +17,24 @@ require (
 	github.com/microsoftgraph/msgraph-sdk-go v1.99.0
 	github.com/microsoftgraph/msgraph-sdk-go-core v1.4.1
 	github.com/peterbourgon/ff/v4 v4.0.0-beta.1
-	github.com/tgulacsi/go v0.29.7
+	github.com/tgulacsi/go v0.30.0
 	github.com/tgulacsi/oauth2client v0.1.0
 	go.etcd.io/bbolt v1.4.3
-	golang.org/x/crypto v0.53.0
-	golang.org/x/exp v0.0.0-20260611194520-c48552f49976
+	golang.org/x/crypto v0.54.0
+	golang.org/x/exp v0.0.0-20261007192929-f45ad48fbe92
 	golang.org/x/oauth2 v0.36.0
-	golang.org/x/sync v0.21.0
-	golang.org/x/text v0.38.0
+	golang.org/x/sync v0.23.0
+	golang.org/x/text v0.42.0
 	golang.org/x/time v0.15.0
 )
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.12.0 // indirect
 	github.com/AzureAD/microsoft-authentication-extensions-for-go/cache v0.1.1 // indirect
+	github.com/UNO-SOFT/cli v0.0.0-20261009074406-95b18dbd4953 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/dgryski/go-linebreak v0.0.0-20180812204043-d8f37254e7d3 // indirect
-	github.com/go-logr/logr v1.4.3 // indirect
+	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/google/renameio/v2 v2.0.2 // indirect
@@ -54,14 +55,14 @@ require (
 	go.opentelemetry.io/otel v1.44.0 // indirect
 	go.opentelemetry.io/otel/metric v1.44.0 // indirect
 	go.opentelemetry.io/otel/trace v1.44.0 // indirect
-	golang.org/x/net v0.56.0 // indirect
-	golang.org/x/sys v0.46.0 // indirect
-	golang.org/x/term v0.44.0 // indirect
+	golang.org/x/net v0.57.0 // indirect
+	golang.org/x/sys v0.48.0 // indirect
+	golang.org/x/term v0.46.0 // indirect
 )
 
 // The last version supporting Xoauth2: github.com/emersion/go-sasl v0.0.0-20200509202850-4132e15e133d
 
-go 1.27
+go 1.27.0
 
 // replace github.com/emersion/go-imap/v2 => ../../emersion/go-imap/v2
 

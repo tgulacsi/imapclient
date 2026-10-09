@@ -5,6 +5,7 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.14.0
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity/cache v0.4.0
 	github.com/AzureAD/microsoft-authentication-library-for-go v1.7.2
+	github.com/UNO-SOFT/cli v0.0.0-20261009074406-95b18dbd4953
 	github.com/UNO-SOFT/filecache v0.4.0
 	github.com/UNO-SOFT/zlog v0.8.6
 	github.com/dchest/siphash v1.2.3
@@ -16,7 +17,6 @@ require (
 	github.com/microsoft/kiota-abstractions-go v1.9.4
 	github.com/microsoftgraph/msgraph-sdk-go v1.99.0
 	github.com/microsoftgraph/msgraph-sdk-go-core v1.4.1
-	github.com/peterbourgon/ff/v4 v4.0.0-beta.1
 	github.com/tgulacsi/go v0.30.0
 	github.com/tgulacsi/oauth2client v0.1.0
 	go.etcd.io/bbolt v1.4.3
@@ -31,7 +31,6 @@ require (
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.12.0 // indirect
 	github.com/AzureAD/microsoft-authentication-extensions-for-go/cache v0.1.1 // indirect
-	github.com/UNO-SOFT/cli v0.0.0-20261009074406-95b18dbd4953 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/dgryski/go-linebreak v0.0.0-20180812204043-d8f37254e7d3 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
